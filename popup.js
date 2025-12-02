@@ -11,7 +11,7 @@ if (!window.mangalib)
 
 const serviceRegistry = [
     {
-       key: 'ranobelib',
+        key: 'ranobelib',
         match: (host) => /(^|\.)ranobelib\.me$/i.test(host),
         adapter: null
     },
@@ -43,7 +43,7 @@ document.getElementById('downloadBtn').addEventListener('click', async () => {
 
     btn.disabled = true;
     progress.style.display = 'block';
-    status.textContent = 'Получаем информация...';
+    status.textContent = 'Получаем информацию...';
 
     try {
         if (!window.libParser) throw new Error('Вспомогательная библиотека не загружена');
@@ -86,7 +86,6 @@ document.getElementById('downloadBtn').addEventListener('click', async () => {
             const d = document.createElement('div'); d.textContent = t; return d.innerHTML;
         });
         status.innerHTML = `<strong>Ошибка:</strong><br>${esc(error && error.message ? error.message : String(error))}`;
-        console.error('Полная ошибка:', error);
         btn.disabled = false;
         progress.style.display = 'none';
     }

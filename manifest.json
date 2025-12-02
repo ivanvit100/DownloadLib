@@ -1,33 +1,49 @@
 {
     "manifest_version": 2,
-    "name": "MangaLib Downloader",
-    "version": "0.2",
-    "description": "Скачивает мангу с MangaLib в формате FB2",
+    "name": "DownloadLib",
+    "version": "0.3",
+    "description": "Скачивает мангу с порталов MangaLib в формате FB2",
+    "author": "https://ivanvit.ru",
+    "homepage_url": "https://github.com/ivanvit100/manga_downloader",
 
     "permissions": [
         "activeTab",
         "tabs",
         "downloads",
+        "webRequest",
+        "webRequestBlocking",
         "https://api.cdnlibs.org/*",
         "https://cover.imglib.info/*",
         "https://ranobelib.me/*",
         "https://*.ranobelib.me/*",
         "https://*.mangalib.me/*",
+        "https://img3.mixlib.me/*",
         "<all_urls>"
     ],
 
+    "icons": {
+        "16": "icons/icon16.png",
+        "48": "icons/icon48.png",
+        "128": "icons/icon128.png"
+    },
+
     "browser_action": {
         "default_title": "Скачать книгу",
-        "default_popup": "popup.html"
+        "default_popup": "popup.html",
+        "default_icon": "icons/icon48.png"
     },
 
     "background": {
         "scripts": ["background.js"],
-        "persistent": false
+        "persistent": true
     },
 
     "content_scripts": [{
-        "matches": ["*://*.remanga.org/*", "*://*.mangalib.me/*"],
+        "matches": [
+            "*://*.mangalib.me/*",
+            "*://*.ranobelib.me/*",
+            "*://*.imgslib.link/*"
+        ],
         "js": ["content.js"],
         "run_at": "document_start"
     }]
