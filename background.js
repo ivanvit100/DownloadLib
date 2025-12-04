@@ -1,6 +1,16 @@
 'use strict';
 
 const extensionImageRequests = new Set();
+const activeDownloads = new Map();
+
+if (typeof importScripts === 'function') {
+    try {
+        importScripts('lib/lib_parser.js', 'lib/ranobelib.js', 'lib/mangalib.js');
+        console.log('[background] Scripts imported via importScripts');
+    } catch (e) {
+        console.error('[background] Failed to import scripts:', e);
+    }
+}
 
 if (typeof browser !== 'undefined' && browser.webRequest) {
     browser.webRequest.onBeforeSendHeaders.addListener(
@@ -52,30 +62,112 @@ if (typeof browser !== 'undefined' && browser.webRequest) {
 if (typeof browser !== 'undefined' && browser.runtime && browser.runtime.onMessage) {
     browser.runtime.onMessage.addListener((message, sender, sendResponse) => {
         if (message.action === 'fetchImage') {
-            fetchImage(message.url, message.referer)
-                .then(result => sendResponse(result))
-                .catch(err => sendResponse({ ok: false, error: String(err) }));
+            (async () => {
+                try {
+                    const result = await fetchImage(message.url, message.referer);
+                    sendResponse(result);
+                } catch (err) {
+                    sendResponse({ ok: false, error: String(err) });
+                }
+            })();
             return true;
         }
         if (message.action === 'downloadFb2') {
-            handleDownloadFb2(message.filename, message.content)
-                .then(result => sendResponse(result))
-                .catch(err => sendResponse({ ok: false, error: String(err) }));
+            (async () => {
+                try {
+                    const result = await handleDownloadFb2(message.filename, message.content);
+                    sendResponse(result);
+                } catch (err) {
+                    sendResponse({ ok: false, error: String(err) });
+                }
+            })();
+            return true;
+        }
+        if (message.action === 'startBackgroundDownload') {
+            (async () => {
+                try {
+                    const result = await startBackgroundDownload(message.downloadId, message.mangaSlug, message.serviceKey);
+                    sendResponse(result);
+                } catch (err) {
+                    sendResponse({ ok: false, error: String(err) });
+                }
+            })();
+            return true;
+        }
+        if (message.action === 'pauseDownload') {
+            pauseDownload(message.downloadId);
+            sendResponse({ ok: true });
+            return true;
+        }
+        if (message.action === 'resumeDownload') {
+            resumeDownload(message.downloadId);
+            sendResponse({ ok: true });
+            return true;
+        }
+        if (message.action === 'stopDownload') {
+            stopDownload(message.downloadId);
+            sendResponse({ ok: true });
+            return true;
+        }
+        if (message.action === 'getDownloadStatus') {
+            const download = activeDownloads.get(message.downloadId);
+            sendResponse(download ? { ok: true, status: download.status } : { ok: false });
             return true;
         }
     });
 } else if (typeof chrome !== 'undefined' && chrome.runtime && chrome.runtime.onMessage) {
     chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
         if (message.action === 'fetchImage') {
-            fetchImage(message.url, message.referer)
-                .then(result => sendResponse(result))
-                .catch(err => sendResponse({ ok: false, error: String(err) }));
+            (async () => {
+                try {
+                    const result = await fetchImage(message.url, message.referer);
+                    sendResponse(result);
+                } catch (err) {
+                    sendResponse({ ok: false, error: String(err) });
+                }
+            })();
             return true;
         }
         if (message.action === 'downloadFb2') {
-            handleDownloadFb2(message.filename, message.content)
-                .then(result => sendResponse(result))
-                .catch(err => sendResponse({ ok: false, error: String(err) }));
+            (async () => {
+                try {
+                    const result = await handleDownloadFb2(message.filename, message.content);
+                    sendResponse(result);
+                } catch (err) {
+                    sendResponse({ ok: false, error: String(err) });
+                }
+            })();
+            return true;
+        }
+        if (message.action === 'startBackgroundDownload') {
+            (async () => {
+                try {
+                    const result = await startBackgroundDownload(message.downloadId, message.mangaSlug, message.serviceKey);
+                    sendResponse(result);
+                } catch (err) {
+                    sendResponse({ ok: false, error: String(err) });
+                }
+            })();
+            return true;
+        }
+        if (message.action === 'pauseDownload') {
+            pauseDownload(message.downloadId);
+            sendResponse({ ok: true });
+            return true;
+        }
+        if (message.action === 'resumeDownload') {
+            resumeDownload(message.downloadId);
+            sendResponse({ ok: true });
+            return true;
+        }
+        if (message.action === 'stopDownload') {
+            stopDownload(message.downloadId);
+            sendResponse({ ok: true });
+            return true;
+        }
+        if (message.action === 'getDownloadStatus') {
+            const download = activeDownloads.get(message.downloadId);
+            sendResponse(download ? { ok: true, status: download.status } : { ok: false });
             return true;
         }
     });
@@ -181,5 +273,118 @@ async function handleDownloadFb2(filename, content) {
         throw new Error('Downloads API unavailable');
     } catch (error) {
         return { ok: false, error: error.message };
+    }
+}
+
+async function startBackgroundDownload(downloadId, mangaSlug, serviceKey) {
+    if (activeDownloads.has(downloadId))
+        return { ok: false, error: 'Download already exists' };
+
+    const downloadState = {
+        id: downloadId,
+        mangaSlug,
+        serviceKey,
+        status: {
+            isPaused: false,
+            shouldStop: false,
+            currentChapter: 0,
+            totalChapters: 0,
+            message: 'Инициализация...',
+            progress: 0
+        }
+    };
+
+    activeDownloads.set(downloadId, downloadState);
+
+    performBackgroundDownload(downloadState).catch(err => {
+        console.error('[background] Download failed:', err);
+        downloadState.status.message = `Ошибка: ${err.message}`;
+    });
+
+    return { ok: true, downloadId };
+}
+
+function pauseDownload(downloadId) {
+    const download = activeDownloads.get(downloadId);
+    if (download) download.status.isPaused = true;
+}
+
+function resumeDownload(downloadId) {
+    const download = activeDownloads.get(downloadId);
+    if (download) download.status.isPaused = false;
+}
+
+function stopDownload(downloadId) {
+    const download = activeDownloads.get(downloadId);
+    if (download) download.status.shouldStop = true;
+}
+
+async function performBackgroundDownload(downloadState) {
+    const { mangaSlug, serviceKey } = downloadState;
+    const status = downloadState.status;
+
+    console.log('[background] performBackgroundDownload started');
+
+    try {
+        if (typeof self.libParser === 'undefined' || typeof self.ranobelib === 'undefined' || typeof self.mangalib === 'undefined')
+            throw new Error('Required libraries not loaded. Check importScripts in background.js');
+
+        const service = serviceKey === 'mangalib' ? self.mangalib : self.ranobelib;
+        
+        if (!service) {
+            throw new Error(`Service ${serviceKey} not available`);
+        }
+        
+        console.log('[background] Using service:', serviceKey);
+
+        const downloadController = {
+            isPaused: () => status.isPaused,
+            shouldStop: () => status.shouldStop,
+            waitIfPaused: async () => {
+                while (status.isPaused && !status.shouldStop) {
+                    await new Promise(resolve => setTimeout(resolve, 100));
+                }
+            }
+        };
+
+        const mockStatus = {
+            innerHTML: '',
+            textContent: '',
+            set innerHTML(val) { 
+                status.message = String(val).replace(/<[^>]*>/g, ''); 
+                console.log('[background]', status.message); 
+            },
+            set textContent(val) { 
+                status.message = String(val); 
+                console.log('[background]', status.message); 
+            }
+        };
+
+        const mockProgress = {
+            value: 0,
+            style: { display: 'block' },
+            set value(val) { status.progress = val; }
+        };
+
+        const result = await self.libParser.downloadManga(
+            mangaSlug,
+            null,
+            mockStatus,
+            mockProgress,
+            service,
+            downloadController
+        );
+
+        console.log('[background] Download complete:', result);
+        
+        status.message = 'Готово!';
+        status.progress = 100;
+        
+        setTimeout(() => activeDownloads.delete(downloadState.id), 5000);
+
+    } catch (error) {
+        status.message = `Ошибка: ${error.message}`;
+        console.error('[background] performBackgroundDownload error:', error);
+        throw error;
     }
 }

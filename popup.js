@@ -59,6 +59,19 @@ function truncateText(text, maxLength = 128) {
     return str.substring(0, maxLength) + '...';
 }
 
+let isDownloading = false;
+let isPaused = false;
+let shouldStop = false;
+let downloadController = null;
+
+window.addEventListener('beforeunload', (e) => {
+    if (isDownloading && !shouldStop) {
+        e.preventDefault();
+        e.returnValue = 'Загрузка не завершена. Вы уверены?';
+        return e.returnValue;
+    }
+});
+
 document.addEventListener('DOMContentLoaded', () => {
     const btn = document.getElementById('downloadBtn');
     const status = document.getElementById('status');
@@ -82,35 +95,107 @@ document.addEventListener('DOMContentLoaded', () => {
         btn.parentNode.insertBefore(releaseEl, btn);
     }
 
+    let controlsContainer = document.getElementById('downloadControls');
+    if (!controlsContainer) {
+        controlsContainer = document.createElement('div');
+        controlsContainer.id = 'downloadControls';
+        controlsContainer.style.display = 'none';
+        controlsContainer.style.textAlign = 'center';
+        controlsContainer.style.marginTop = '10px';
+        
+        const pauseBtn = document.createElement('button');
+        pauseBtn.id = 'pauseBtn';
+        pauseBtn.textContent = 'Пауза';
+        pauseBtn.style.padding = '8px 16px';
+        pauseBtn.style.cursor = 'pointer';
+        pauseBtn.style.width = 'calc(50% - 8px)';
+        pauseBtn.style.transition = 'all 0.3s ease';
+        
+        const backgroundBtn = document.createElement('button');
+        backgroundBtn.id = 'backgroundBtn';
+        backgroundBtn.textContent = 'Фоном';
+        backgroundBtn.style.padding = '8px 16px';
+        backgroundBtn.style.cursor = 'pointer';
+        backgroundBtn.style.width = 'calc(50% - 8px)';
+        backgroundBtn.style.transition = 'all 0.3s ease';
+
+        if (!document.getElementById('control-buttons-styles')) {
+            const styleEl = document.createElement('style');
+            styleEl.id = 'control-buttons-styles';
+            styleEl.textContent = `
+                #pauseBtn, #backgroundBtn {
+                    border: 2px solid var(--primary-color) !important;
+                    background: #252527 !important;
+                }
+                #pauseBtn:hover, #backgroundBtn:hover {
+                    border: 2px solid var(--secondary-color) !important;
+                    background: #252527 !important;
+                }
+            `;
+            document.head.appendChild(styleEl);
+        }
+
+        const stopBtn = document.createElement('button');
+        stopBtn.id = 'stopBtn';
+        stopBtn.textContent = 'Завершить';
+        stopBtn.style.marginTop = '12px';
+        stopBtn.style.padding = '8px 16px';
+        stopBtn.style.cursor = 'pointer';
+        stopBtn.style.display = 'block';
+        stopBtn.style.width = '100%';
+        stopBtn.style.transition = 'all 0.3s ease';
+        
+        const btnRow = document.createElement('div');
+        btnRow.style.display = 'flex';
+        btnRow.style.justifyContent = 'space-between';
+        btnRow.appendChild(pauseBtn);
+        btnRow.appendChild(backgroundBtn);
+        
+        controlsContainer.appendChild(btnRow);
+        controlsContainer.appendChild(stopBtn);
+        btn.parentNode.insertBefore(controlsContainer, btn.nextSibling);
+    }
+
     if (progress) progress.style.display = 'none';
 
     (async function loadInfo() {
+        const urlParams = new URLSearchParams(window.location.search);
+        const autoDownload = urlParams.get('download') === 'true';
+        const slugFromUrl = urlParams.get('slug');
+        const serviceFromUrl = urlParams.get('service');
+
         btn.disabled = true;
         if (status) status.textContent = 'Получаем информацию...';
 
         try {
             if (!window.libParser) throw new Error('libParser is not loaded');
 
-            const tabs = await (window.libParser.queryTabs ? window.libParser.queryTabs({ active: true, currentWindow: true }) : Promise.resolve([{ url: window.location.href }]));
-            const tab = tabs && tabs[0];
-            const url = tab?.url || window.location.href;
+            let url, hostname, mangaSlug, serviceKey;
 
-            let hostname = '';
-            let mangaSlug = null;
-            try {
-                const u = new URL(url);
-                hostname = u.hostname || '';
-                const parts = u.pathname.split('/').filter(Boolean);
-                const idx = parts.findIndex(p => p === 'manga' || p === 'book');
-                if (idx >= 0 && parts.length > idx + 1) {
-                    mangaSlug = parts[idx + 1];
-                } else {
-                    const m = url.match(/\/(manga|book)\/([^\/\?]+)/);
-                    if (m) mangaSlug = m[2];
-                }
-            } catch (e) { console.warn('[popup] failed parse url:', e); }
+            if (autoDownload && slugFromUrl && serviceFromUrl) {
+                mangaSlug = slugFromUrl;
+                serviceKey = serviceFromUrl;
+                hostname = serviceKey === 'ranobelib' ? 'ranobelib.me' : 'mangalib.me';
+            } else {
+                const tabs = await (window.libParser.queryTabs ? window.libParser.queryTabs({ active: true, currentWindow: true }) : Promise.resolve([{ url: window.location.href }]));
+                const tab = tabs && tabs[0];
+                url = tab?.url || window.location.href;
 
-            const serviceKey = detectServiceKeyByHost(hostname);
+                try {
+                    const u = new URL(url);
+                    hostname = u.hostname || '';
+                    const parts = u.pathname.split('/').filter(Boolean);
+                    const idx = parts.findIndex(p => p === 'manga' || p === 'book');
+                    if (idx >= 0 && parts.length > idx + 1) {
+                        mangaSlug = parts[idx + 1];
+                    } else {
+                        const m = url.match(/\/(manga|book)\/([^\/\?]+)/);
+                        if (m) mangaSlug = m[2];
+                    }
+                } catch (e) { console.warn('[popup] failed parse url:', e); }
+
+                serviceKey = detectServiceKeyByHost(hostname);
+            }
 
             try {
                 if (serviceKey === 'ranobelib') {
@@ -155,9 +240,18 @@ document.addEventListener('DOMContentLoaded', () => {
 
             let rawResp = null;
             try {
-                if (typeof service.fetchMangaMetadata === 'function') {
-                    rawResp = await service.fetchMangaMetadata(mangaSlug);
-                }
+                const minimalFields = ['rus_name', 'name', 'summary', 'cover', 'authors', 'releaseDate', 'chap_count', 'ageRestriction'];
+                const query = minimalFields.map(f => `fields[]=${f}`).join('&');
+                const apiUrl = `https://api.cdnlibs.org/api/manga/${mangaSlug}?${query}`;
+                
+                const headers = {
+                    'Accept': '*/*',
+                    'Site-Id': serviceKey === 'ranobelib' ? '3' : '1',
+                    'Content-Type': 'application/json'
+                };
+                
+                const response = await fetch(apiUrl, { method: 'GET', headers });
+                if (response.ok) rawResp = await response.json();
             } catch (e) {
                 if (e && e.message) desc.textContent = `Не удалось получить данные: ${e.message}`;
             }
@@ -236,22 +330,161 @@ document.addEventListener('DOMContentLoaded', () => {
             btn.disabled = false;
             if (status) status.textContent = 'Нажмите "Скачать" для загрузки в fb2';
 
-            btn.onclick = async () => {
+            const pauseBtn = document.getElementById('pauseBtn');
+            const stopBtn = document.getElementById('stopBtn');
+            const backgroundBtn = document.getElementById('backgroundBtn');
+
+            if (pauseBtn) {
+                pauseBtn.onclick = () => {
+                    isPaused = !isPaused;
+                    pauseBtn.textContent = isPaused ? 'Продолжить' : 'Пауза';
+                    if (status) status.textContent = isPaused ? 'Пауза...' : 'Загрузка...';
+                };
+            }
+
+            if (stopBtn) {
+                stopBtn.onclick = () => {
+                    shouldStop = true;
+                    if (status) status.textContent = 'Досрочное завершение...';
+                };
+            }
+
+            if (backgroundBtn) {
+                backgroundBtn.onclick = async () => {
+                    try {
+                        if (status) status.textContent = 'Переход в фоновый режим...';
+                        
+                        const downloadId = `download_${Date.now()}`;
+                        
+                        const msg = {
+                            action: 'startBackgroundDownload',
+                            downloadId,
+                            mangaSlug,
+                            serviceKey,
+                            serviceConfig: {
+                                fields: [
+                                    'background', 'eng_name', 'otherNames', 'summary', 'releaseDate', 'type_id',
+                                    'caution', 'views', 'close_view', 'rate_avg', 'rate', 'genres',
+                                    'tags', 'teams', 'user', 'franchise', 'authors', 'publisher',
+                                    'userRating', 'moderated', 'metadata', 'metadata.count',
+                                    'metadata.close_comments', 'manga_status_id', 'chap_count',
+                                    'status_id', 'artists', 'format'
+                                ],
+                                headers: {
+                                    'Accept': '*/*',
+                                    'Site-Id': serviceKey === 'ranobelib' ? '3' : '1',
+                                    'Content-Type': 'application/json',
+                                    'User-Agent': 'Mozilla/5.0 (X11; Linux x86_64; rv:144.0) Gecko/20100101 Firefox/144.0'
+                                },
+                                referer: serviceKey === 'ranobelib' ? 'https://ranobelib.me/' : 'https://mangalib.me/'
+                            }
+                        };
+                        
+                        console.log('[popup] Sending background download request:', msg);
+                        
+                        const result = await new Promise((resolve, reject) => {
+                            const timeout = setTimeout(() => reject(new Error('Timeout waiting for response')), 10000);
+                            
+                            if (typeof chrome !== 'undefined' && chrome.runtime) {
+                                chrome.runtime.sendMessage(msg, response => {
+                                    clearTimeout(timeout);
+                                    if (chrome.runtime.lastError) {
+                                        console.error('[popup] Chrome runtime error:', chrome.runtime.lastError);
+                                        return reject(chrome.runtime.lastError);
+                                    }
+                                    console.log('[popup] Received response:', response);
+                                    resolve(response);
+                                });
+                            } else if (typeof browser !== 'undefined' && browser.runtime) {
+                                browser.runtime.sendMessage(msg)
+                                    .then(response => {
+                                        clearTimeout(timeout);
+                                        console.log('[popup] Received response:', response);
+                                        resolve(response);
+                                    })
+                                    .catch(err => {
+                                        clearTimeout(timeout);
+                                        console.error('[popup] Browser runtime error:', err);
+                                        reject(err);
+                                    });
+                            } else {
+                                clearTimeout(timeout);
+                                reject(new Error('No runtime API available'));
+                            }
+                        });
+                        
+                        if (result && result.ok) {
+                            if (status) status.textContent = 'Загрузка переведена в фоновый режим';
+                            setTimeout(() => window.close(), 1000);
+                        } else {
+                            throw new Error(result?.error || 'Failed to start background download');
+                        }
+                    } catch (e) {
+                        console.error('[popup] Background download failed:', e);
+                        if (status) status.textContent = `Ошибка фона: ${e.message}`;
+                    }
+                };
+            }
+
+            const downloadHandler = async () => {
+                if (!autoDownload) {
+                    try {
+                        chrome.windows.create({
+                            url: chrome.runtime.getURL('popup.html') + 
+                                 '?download=true&slug=' + encodeURIComponent(mangaSlug) + 
+                                 '&service=' + encodeURIComponent(serviceKey),
+                            type: 'popup',
+                            width: 420,
+                            height: 650
+                        });
+                    } catch (e) {
+                        console.error('Failed to create window:', e);
+                        await performDownload();
+                    }
+                } else {
+                    await performDownload();
+                }
+            };
+
+            const performDownload = async () => {
                 btn.disabled = true;
+                btn.style.display = 'none';
+                isDownloading = true;
+                isPaused = false;
+                shouldStop = false;
+                
                 if (progress) progress.style.display = 'block';
+                if (controlsContainer) controlsContainer.style.display = 'block';
                 if (status) status.textContent = 'Запуск скачивания...';
+                
                 try {
-                    await window.libParser.downloadManga(mangaSlug, null, status, progress, service);
-                    if (status) status.textContent = 'Готово!';
+                    downloadController = {
+                        isPaused: () => isPaused,
+                        shouldStop: () => shouldStop,
+                        waitIfPaused: async () => {
+                            while (isPaused && !shouldStop) {
+                                await new Promise(resolve => setTimeout(resolve, 100));
+                            }
+                        }
+                    };
+                    
+                    await window.libParser.downloadManga(mangaSlug, null, status, progress, service, downloadController);
+                    if (status) status.textContent = shouldStop ? 'Загрузка завершена досрочно' : 'Готово!';
                 } catch (err) {
                     if (status) status.innerHTML = `<strong>Ошибка:</strong><br>${(window.libParser && window.libParser.escapeHtml) ? window.libParser.escapeHtml(err.message || String(err)) : String(err)}`;
                     console.error(err);
                 } finally {
-                    btn.disabled = false;
+                    isDownloading = false;
                     if (progress) progress.style.display = 'none';
+                    if (controlsContainer) controlsContainer.style.display = 'none';
+                    btn.style.display = 'block';
+                    btn.disabled = false;
                 }
             };
 
+            btn.onclick = downloadHandler;
+
+            if (autoDownload) setTimeout(() => downloadHandler(), 500);
         } catch (error) {
             if (status) status.innerHTML = `<strong>Ошибка:</strong><br>${error && error.message ? error.message : String(error)}`;
             console.error('Полная ошибка:', error);
