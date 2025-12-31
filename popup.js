@@ -95,6 +95,38 @@ document.addEventListener('DOMContentLoaded', () => {
         btn.parentNode.insertBefore(releaseEl, btn);
     }
 
+    let rateLimitInput = document.getElementById('rateLimitInput');
+    if (!rateLimitInput) {
+        const rateLimitContainer = document.createElement('div');
+        rateLimitContainer.style.textAlign = 'center';
+        rateLimitContainer.style.marginTop = '10px';
+        rateLimitContainer.style.marginBottom = '10px';
+        
+        const label = document.createElement('label');
+        label.textContent = 'Запросов в минуту: ';
+        label.style.color = '#bdbdbd';
+        label.style.fontSize = '14px';
+        
+        rateLimitInput = document.createElement('input');
+        rateLimitInput.id = 'rateLimitInput';
+        rateLimitInput.type = 'number';
+        rateLimitInput.min = '2';
+        rateLimitInput.max = '200';
+        rateLimitInput.step = '1';
+        rateLimitInput.value = '100';
+        
+        rateLimitInput.addEventListener('input', (e) => {
+            let val = parseInt(e.target.value);
+            if (isNaN(val) || val < 2) val = 2;
+            if (val > 200) val = 200;
+            e.target.value = Math.floor(val);
+        });
+        
+        rateLimitContainer.appendChild(label);
+        rateLimitContainer.appendChild(rateLimitInput);
+        btn.parentNode.insertBefore(rateLimitContainer, btn);
+    }
+
     let controlsContainer = document.getElementById('downloadControls');
     if (!controlsContainer) {
         controlsContainer = document.createElement('div');
@@ -355,12 +387,14 @@ document.addEventListener('DOMContentLoaded', () => {
                         if (status) status.textContent = 'Переход в фоновый режим...';
                         
                         const downloadId = `download_${Date.now()}`;
+                        const rateLimit = parseInt(document.getElementById('rateLimitInput').value) || 80;
                         
                         const msg = {
                             action: 'startBackgroundDownload',
                             downloadId,
                             mangaSlug,
                             serviceKey,
+                            rateLimit,
                             serviceConfig: {
                                 fields: [
                                     'background', 'eng_name', 'otherNames', 'summary', 'releaseDate', 'type_id',
@@ -435,7 +469,9 @@ document.addEventListener('DOMContentLoaded', () => {
                                  '&service=' + encodeURIComponent(serviceKey),
                             type: 'popup',
                             width: 420,
-                            height: 650
+                            height: 650,
+                            focused: true,
+                            state: 'normal'
                         });
                     } catch (e) {
                         console.error('Failed to create window:', e);
@@ -452,6 +488,12 @@ document.addEventListener('DOMContentLoaded', () => {
                 isDownloading = true;
                 isPaused = false;
                 shouldStop = false;
+                
+                const rateLimit = parseInt(document.getElementById('rateLimitInput').value) || 80;
+                if (service && typeof service.setRateLimit === 'function') {
+                    service.setRateLimit(rateLimit);
+                    console.log(`[popup] Rate limit set to ${rateLimit} requests/minute`);
+                }
                 
                 if (progress) progress.style.display = 'block';
                 if (controlsContainer) controlsContainer.style.display = 'block';
