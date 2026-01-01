@@ -95,6 +95,55 @@ document.addEventListener('DOMContentLoaded', () => {
         btn.parentNode.insertBefore(releaseEl, btn);
     }
 
+    let formatSelector = document.getElementById('formatSelector');
+    if (!formatSelector) {
+        const formatContainer = document.createElement('div');
+        formatContainer.style.textAlign = 'center';
+        formatContainer.style.marginTop = '10px';
+        formatContainer.style.marginBottom = '10px';
+
+        formatSelector = document.createElement('select');
+        formatSelector.id = 'formatSelector';
+        formatSelector.style.padding = '6px 12px';
+        formatSelector.style.fontSize = '14px';
+        formatSelector.style.marginLeft = '8px';
+        formatSelector.style.marginRight = '8px';
+
+        const optionFb2 = document.createElement('option');
+        optionFb2.value = 'fb2';
+        optionFb2.textContent = 'FB2';
+
+        const optionEpub = document.createElement('option');
+        optionEpub.value = 'epub';
+        optionEpub.textContent = 'EPUB';
+
+        const optionPdf = document.createElement('option');
+        optionPdf.value = 'pdf';
+        optionPdf.textContent = 'PDF';
+
+        formatSelector.appendChild(optionFb2);
+        formatSelector.appendChild(optionEpub);
+        formatSelector.appendChild(optionPdf);
+
+        const label = document.createElement('label');
+        label.textContent = 'Формат: ';
+        label.style.color = '#bdbdbd';
+        label.style.fontSize = '14px';
+        label.htmlFor = 'formatSelector';
+
+        formatContainer.appendChild(label);
+        formatContainer.appendChild(formatSelector);
+        btn.parentNode.insertBefore(formatContainer, btn);
+    }
+
+    const FORMAT_STORAGE_KEY = 'manga_parser_selected_format';
+    if (formatSelector && localStorage.getItem(FORMAT_STORAGE_KEY))
+        formatSelector.value = localStorage.getItem(FORMAT_STORAGE_KEY);
+    if (formatSelector)
+        formatSelector.addEventListener('change', () => {
+            localStorage.setItem(FORMAT_STORAGE_KEY, formatSelector.value);
+        });
+
     let rateLimitInput = document.getElementById('rateLimitInput');
     if (!rateLimitInput) {
         const rateLimitContainer = document.createElement('div');
@@ -195,6 +244,11 @@ document.addEventListener('DOMContentLoaded', () => {
         const autoDownload = urlParams.get('download') === 'true';
         const slugFromUrl = urlParams.get('slug');
         const serviceFromUrl = urlParams.get('service');
+        const formatFromUrl = urlParams.get('format');
+        if (formatFromUrl && formatSelector) {
+            formatSelector.value = formatFromUrl;
+            localStorage.setItem(FORMAT_STORAGE_KEY, formatFromUrl);
+        }
 
         btn.disabled = true;
         if (status) status.textContent = 'Получаем информацию...';
@@ -360,7 +414,7 @@ document.addEventListener('DOMContentLoaded', () => {
                 logoInfo.textContent += (logoInfo.textContent ? ' · ' : '') + 'Страниц: ' + pagesCount;
 
             btn.disabled = false;
-            if (status) status.textContent = 'Нажмите "Скачать" для загрузки в fb2';
+            if (status) status.textContent = 'Нажмите "Скачать" для загрузки книги';
 
             const pauseBtn = document.getElementById('pauseBtn');
             const stopBtn = document.getElementById('stopBtn');
@@ -388,6 +442,7 @@ document.addEventListener('DOMContentLoaded', () => {
                         
                         const downloadId = `download_${Date.now()}`;
                         const rateLimit = parseInt(document.getElementById('rateLimitInput').value) || 80;
+                        const format = formatSelector ? formatSelector.value : 'fb2';
                         
                         const msg = {
                             action: 'startBackgroundDownload',
@@ -395,6 +450,7 @@ document.addEventListener('DOMContentLoaded', () => {
                             mangaSlug,
                             serviceKey,
                             rateLimit,
+                            format,
                             serviceConfig: {
                                 fields: [
                                     'background', 'eng_name', 'otherNames', 'summary', 'releaseDate', 'type_id',
@@ -463,10 +519,12 @@ document.addEventListener('DOMContentLoaded', () => {
             const downloadHandler = async () => {
                 if (!autoDownload) {
                     try {
+                        const format = formatSelector ? formatSelector.value : 'fb2';
                         chrome.windows.create({
                             url: chrome.runtime.getURL('popup.html') + 
                                  '?download=true&slug=' + encodeURIComponent(mangaSlug) + 
-                                 '&service=' + encodeURIComponent(serviceKey),
+                                 '&service=' + encodeURIComponent(serviceKey) +
+                                 '&format=' + encodeURIComponent(format),
                             type: 'popup',
                             width: 420,
                             height: 650,
@@ -488,6 +546,7 @@ document.addEventListener('DOMContentLoaded', () => {
                 isDownloading = true;
                 isPaused = false;
                 shouldStop = false;
+                if (formatSelector) formatSelector.disabled = true;
                 
                 const rateLimit = parseInt(document.getElementById('rateLimitInput').value) || 80;
                 if (service && typeof service.setRateLimit === 'function') {
@@ -498,6 +557,8 @@ document.addEventListener('DOMContentLoaded', () => {
                 if (progress) progress.style.display = 'block';
                 if (controlsContainer) controlsContainer.style.display = 'block';
                 if (status) status.textContent = 'Запуск скачивания...';
+
+                const format = formatSelector ? formatSelector.value : 'fb2';
                 
                 try {
                     downloadController = {
@@ -510,7 +571,7 @@ document.addEventListener('DOMContentLoaded', () => {
                         }
                     };
                     
-                    await window.libParser.downloadManga(mangaSlug, null, status, progress, service, downloadController);
+                    await window.libParser.downloadManga(mangaSlug, null, status, progress, service, downloadController, format);
                     if (status) status.textContent = shouldStop ? 'Загрузка завершена досрочно' : 'Готово!';
                 } catch (err) {
                     if (status) status.innerHTML = `<strong>Ошибка:</strong><br>${(window.libParser && window.libParser.escapeHtml) ? window.libParser.escapeHtml(err.message || String(err)) : String(err)}`;
@@ -521,6 +582,7 @@ document.addEventListener('DOMContentLoaded', () => {
                     if (controlsContainer) controlsContainer.style.display = 'none';
                     btn.style.display = 'block';
                     btn.disabled = false;
+                    if (formatSelector) formatSelector.disabled = false;
                 }
             };
 
@@ -532,6 +594,7 @@ document.addEventListener('DOMContentLoaded', () => {
             console.error('Полная ошибка:', error);
             btn.disabled = true;
             if (progress) progress.style.display = 'none';
+            if (formatSelector) formatSelector.disabled = false;
         }
     })();
 });

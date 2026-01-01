@@ -51,7 +51,7 @@
                 background-color: var(--primary-color);
                 border-radius: 8px;
             }
-            #rateLimitInput {
+            #rateLimitInput, #formatSelector {
                 width: 60px;
                 padding: 4px;
                 margin-left: 8px;
@@ -60,23 +60,24 @@
                 color: #fff;
                 border: 1px solid #444;
                 border-radius: 4px;
+                -moz-appearance: textfield;
             }
-            #rateLimitInput:focus, #rateLimitInput:hover {
+            #rateLimitInput:focus, #rateLimitInput:hover, #formatSelector:focus, #formatSelector:hover {
                 outline: none;
                 border-color: var(--primary-color);
                 box-shadow: 0 0 5px var(--primary-color);
             }
-            #rateLimitInput::-webkit-inner-spin-button,#rateLimitInput::-webkit-outer-spin-button {
+            #rateLimitInput::-webkit-inner-spin-button, #rateLimitInput::-webkit-outer-spin-button {
                 -webkit-appearance: none;
                 margin: 0; 
-            }
-            #rateLimitInput {
-                -moz-appearance: textfield;
             }
             input[type="number"] {
                 appearance: none;
                 -moz-appearance: none;
                 -webkit-appearance: none;
+            }
+            #formatSelector {
+                width: 80px;
             }
         </style>
     </head>
@@ -92,6 +93,9 @@
         <button id="downloadBtn">Скачать книгу</button>
         <div id="status"></div>
         <progress id="progress" value="0" max="100" style="display:none;"></progress>
+
+        <script src="dist/jszip.min.js"></script>
+        <script src="dist/html2pdf.min.js"></script>
 
         <script src="rate_limiter.js"></script>
         <script src="lib/lib_parser.js"></script>
