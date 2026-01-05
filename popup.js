@@ -72,6 +72,24 @@ window.addEventListener('beforeunload', (e) => {
     }
 });
 
+async function isInSeparateWindow() {
+    try {
+        const urlParams = new URLSearchParams(window.location.search);
+        const hasParams = urlParams.has('download') || urlParams.has('fileUpload');
+        
+        if (hasParams) return true;
+        
+        if (window.outerWidth <= 500 && window.outerHeight <= 700) return true;
+        
+        const currentWindow = await chrome.windows.getCurrent();
+        console.log('[popup] Window type:', currentWindow.type);
+        return currentWindow.type === 'popup';
+    } catch (e) {
+        console.warn('Failed to detect window type:', e);
+        return false;
+    }
+}
+
 document.addEventListener('DOMContentLoaded', () => {
     const btn = document.getElementById('downloadBtn');
     const status = document.getElementById('status');
@@ -176,6 +194,69 @@ document.addEventListener('DOMContentLoaded', () => {
         btn.parentNode.insertBefore(rateLimitContainer, btn);
     }
 
+    let fileInputContainer = document.getElementById('fileInputContainer');
+    let customFileBtn = null;
+    let hiddenFileInput = null;
+    
+    if (!fileInputContainer) {
+        fileInputContainer = document.createElement('div');
+        fileInputContainer.id = 'fileInputContainer';
+        fileInputContainer.style.textAlign = 'center';
+        fileInputContainer.style.marginTop = '10px';
+        fileInputContainer.style.marginBottom = '10px';
+
+        hiddenFileInput = document.createElement('input');
+        hiddenFileInput.type = 'file';
+        hiddenFileInput.id = 'fileInput';
+        hiddenFileInput.accept = '.pdf,.epub,.fb2';
+        hiddenFileInput.style.display = 'none';
+
+        customFileBtn = document.createElement('button');
+        customFileBtn.id = 'customFileBtn';
+        customFileBtn.textContent = 'Загрузить файл для обновления';
+        customFileBtn.style.padding = '8px 16px';
+        customFileBtn.style.cursor = 'pointer';
+        customFileBtn.style.fontSize = '14px';
+        customFileBtn.style.transition = 'all 0.3s ease';
+
+        fileInputContainer.appendChild(hiddenFileInput);
+        fileInputContainer.appendChild(customFileBtn);
+        btn.parentNode.insertBefore(fileInputContainer, btn);
+    } else {
+        hiddenFileInput = document.getElementById('fileInput');
+        customFileBtn = document.getElementById('customFileBtn');
+    }
+
+    let loadedFile = null;
+
+    hiddenFileInput.addEventListener('change', function (e) {
+        e.stopPropagation();
+        const file = hiddenFileInput.files && hiddenFileInput.files[0];
+        loadedFile = null;
+        if (!file) {
+            if (formatSelector) formatSelector.disabled = false;
+            if (status) status.textContent = '';
+            if (customFileBtn) customFileBtn.textContent = 'Загрузить файл для обновления';
+            return;
+        }
+        const ext = file.name.split('.').pop().toLowerCase();
+        if (['pdf', 'epub', 'fb2'].includes(ext)) {
+            if (formatSelector) {
+                formatSelector.value = ext;
+                formatSelector.disabled = true;
+            }
+            if (status) status.textContent = `Загружен файл: ${file.name}`;
+            if (customFileBtn) customFileBtn.textContent = `Файл загружен: ${file.name}`;
+            loadedFile = file;
+        } else {
+            if (formatSelector) formatSelector.disabled = false;
+            if (status) status.textContent = 'Ошибка: поддерживаются только файлы PDF, EPUB или FB2';
+            if (customFileBtn) customFileBtn.textContent = 'Загрузить файл для обновления';
+            hiddenFileInput.value = '';
+            loadedFile = null;
+        }
+    });
+
     let controlsContainer = document.getElementById('downloadControls');
     if (!controlsContainer) {
         controlsContainer = document.createElement('div');
@@ -204,11 +285,11 @@ document.addEventListener('DOMContentLoaded', () => {
             const styleEl = document.createElement('style');
             styleEl.id = 'control-buttons-styles';
             styleEl.textContent = `
-                #pauseBtn, #backgroundBtn {
+                #pauseBtn, #backgroundBtn, #customFileBtn {
                     border: 2px solid var(--primary-color) !important;
                     background: #252527 !important;
                 }
-                #pauseBtn:hover, #backgroundBtn:hover {
+                #pauseBtn:hover, #backgroundBtn:hover, #customFileBtn:hover {
                     border: 2px solid var(--secondary-color) !important;
                     background: #252527 !important;
                 }
@@ -242,6 +323,7 @@ document.addEventListener('DOMContentLoaded', () => {
     (async function loadInfo() {
         const urlParams = new URLSearchParams(window.location.search);
         const autoDownload = urlParams.get('download') === 'true';
+        const fileUploadMode = urlParams.get('fileUpload') === 'true';
         const slugFromUrl = urlParams.get('slug');
         const serviceFromUrl = urlParams.get('service');
         const formatFromUrl = urlParams.get('format');
@@ -258,7 +340,7 @@ document.addEventListener('DOMContentLoaded', () => {
 
             let url, hostname, mangaSlug, serviceKey;
 
-            if (autoDownload && slugFromUrl && serviceFromUrl) {
+            if ((autoDownload || fileUploadMode) && slugFromUrl && serviceFromUrl) {
                 mangaSlug = slugFromUrl;
                 serviceKey = serviceFromUrl;
                 hostname = serviceKey === 'ranobelib' ? 'ranobelib.me' : 'mangalib.me';
@@ -416,6 +498,55 @@ document.addEventListener('DOMContentLoaded', () => {
             btn.disabled = false;
             if (status) status.textContent = 'Нажмите "Скачать" для загрузки книги';
 
+            if (customFileBtn) {
+                customFileBtn.onclick = async () => {
+                    try {
+                        const inSeparateWindow = await isInSeparateWindow();
+                        console.log('[popup] In separate window:', inSeparateWindow);
+                        
+                        if (inSeparateWindow) {
+                            if (status) status.textContent = 'Выберите файл для обновления';
+                            hiddenFileInput.click();
+                        } else {
+                            const format = formatSelector ? formatSelector.value : 'fb2';
+                            try {
+                                const win = await chrome.windows.create({
+                                    url: chrome.runtime.getURL('popup.html') + 
+                                         '?fileUpload=true&slug=' + encodeURIComponent(mangaSlug) + 
+                                         '&service=' + encodeURIComponent(serviceKey) +
+                                         '&format=' + encodeURIComponent(format),
+                                    type: 'popup',
+                                    width: 420,
+                                    height: 650,
+                                    focused: true,
+                                    state: 'normal'
+                                });
+                                
+                                if (win && win.id) {
+                                    await new Promise(resolve => setTimeout(resolve, 500));
+                                    chrome.windows.update(win.id, { focused: true });
+                                }
+                            } catch (createError) {
+                                console.error('Failed to create window:', createError);
+                                if (status) status.textContent = 'Не удалось открыть окно, используем текущее';
+                                hiddenFileInput.click();
+                            }
+                        }
+                    } catch (e) {
+                        console.error('Failed to handle file upload:', e);
+                        if (status) status.textContent = 'Выберите файл для обновления';
+                        hiddenFileInput.click();
+                    }
+                };
+            }
+
+            if (fileUploadMode) {
+                if (status) status.textContent = 'Выберите файл для обновления';
+                setTimeout(() => {
+                    hiddenFileInput.click();
+                }, 300);
+            }
+
             const pauseBtn = document.getElementById('pauseBtn');
             const stopBtn = document.getElementById('stopBtn');
             const backgroundBtn = document.getElementById('backgroundBtn');
@@ -517,7 +648,7 @@ document.addEventListener('DOMContentLoaded', () => {
             }
 
             const downloadHandler = async () => {
-                if (!autoDownload) {
+                if (!autoDownload && !loadedFile) {
                     try {
                         const format = formatSelector ? formatSelector.value : 'fb2';
                         chrome.windows.create({
@@ -547,6 +678,8 @@ document.addEventListener('DOMContentLoaded', () => {
                 isPaused = false;
                 shouldStop = false;
                 if (formatSelector) formatSelector.disabled = true;
+                if (hiddenFileInput) hiddenFileInput.disabled = true;
+                if (customFileBtn) customFileBtn.disabled = true;
                 
                 const rateLimit = parseInt(document.getElementById('rateLimitInput').value) || 80;
                 if (service && typeof service.setRateLimit === 'function') {
@@ -570,9 +703,62 @@ document.addEventListener('DOMContentLoaded', () => {
                             }
                         }
                     };
-                    
-                    await window.libParser.downloadManga(mangaSlug, null, status, progress, service, downloadController, format);
-                    if (status) status.textContent = shouldStop ? 'Загрузка завершена досрочно' : 'Готово!';
+
+                    if (loadedFile) {
+                        if (status) status.textContent = 'Анализ загруженного файла...';
+                        
+                        if (!window.fileCreators) {
+                            throw new Error('fileCreators не загружен');
+                        }
+
+                        const mangaData = await service.fetchMangaMetadata(mangaSlug);
+                        const manga = mangaData.data;
+
+                        const chaptersData = await service.fetchChaptersList(mangaSlug);
+                        const allChapters = chaptersData.data || [];
+                        
+                        allChapters.sort((a, b) => {
+                            const volA = parseInt(a.volume) || 0;
+                            const volB = parseInt(b.volume) || 0;
+                            if (volA !== volB) return volA - volB;
+                            return (parseFloat(a.number) || 0) - (parseFloat(b.number) || 0);
+                        });
+
+                        const chaptersWithTitles = allChapters.map(ch => ({
+                            title: ch.name || `Том ${ch.volume || '1'}, Глава ${ch.number}`,
+                            volume: ch.volume,
+                            number: ch.number
+                        }));
+
+                        let coverBase64 = '';
+                        if (manga.cover && manga.cover.default) {
+                            try {
+                                const referer = window.libParser.getRefererForService(service, null);
+                                const coverBlob = await window.libParser.fetchImageWithRetry(manga.cover.default, referer);
+                                if (coverBlob) {
+                                    coverBase64 = await window.libParser.blobToBase64(coverBlob);
+                                }
+                            } catch (e) {
+                                console.warn('Failed to load cover:', e);
+                            }
+                        }
+
+                        const updatedBlob = await window.fileCreators.updateFile(
+                            loadedFile,
+                            chaptersWithTitles,
+                            manga,
+                            coverBase64,
+                            format
+                        );
+
+                        const filename = `${window.libParser.sanitizeFilename(manga.rus_name || manga.name)}_updated.${format}`;
+                        await window.libParser.startDownload(updatedBlob, filename, status, null);
+                        
+                        if (status) status.textContent = 'Файл обновлён и загружен!';
+                    } else {
+                        await window.libParser.downloadManga(mangaSlug, null, status, progress, service, downloadController, format);
+                        if (status) status.textContent = shouldStop ? 'Загрузка завершена досрочно' : 'Готово!';
+                    }
                 } catch (err) {
                     if (status) status.innerHTML = `<strong>Ошибка:</strong><br>${(window.libParser && window.libParser.escapeHtml) ? window.libParser.escapeHtml(err.message || String(err)) : String(err)}`;
                     console.error(err);
@@ -583,6 +769,8 @@ document.addEventListener('DOMContentLoaded', () => {
                     btn.style.display = 'block';
                     btn.disabled = false;
                     if (formatSelector) formatSelector.disabled = false;
+                    if (hiddenFileInput) hiddenFileInput.disabled = false;
+                    if (customFileBtn) customFileBtn.disabled = false;
                 }
             };
 
@@ -595,6 +783,8 @@ document.addEventListener('DOMContentLoaded', () => {
             btn.disabled = true;
             if (progress) progress.style.display = 'none';
             if (formatSelector) formatSelector.disabled = false;
+            if (hiddenFileInput) hiddenFileInput.disabled = false;
+            if (customFileBtn) customFileBtn.disabled = false;
         }
     })();
 });
