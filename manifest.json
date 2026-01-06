@@ -1,7 +1,7 @@
 {
     "manifest_version": 2,
     "name": "DownloadLib",
-    "version": "0.9-beta.1",
+    "version": "0.9",
     "description": "Скачивает мангу с порталов MangaLib в формате FB2",
     "author": "https://ivanvit.ru",
     "homepage_url": "https://github.com/ivanvit100/DownloadLib",
