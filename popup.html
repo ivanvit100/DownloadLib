@@ -94,16 +94,37 @@
         <div id="status"></div>
         <progress id="progress" value="0" max="100" style="display:none;"></progress>
 
-        <script src="dist/jszip.min.js"></script>
-        <script src="dist/html2pdf.min.js"></script>
+        <script src="lib/jszip.min.js"></script>
+        <script src="lib/html2pdf.min.js"></script>
 
-        <script src="scripts/rate_limiter.js"></script>
-        <script src="scripts/lib_creator.js"></script>
-        <script src="scripts/lib_parser.js"></script>
-        
-        <script src="lib/mangalib.js"></script>
-        <script src="lib/ranobelib.js"></script>
-        
-        <script src="popup.js"></script>
+        <!-- Core -->
+        <script src="core/EventBus.js"></script>
+        <script src="core/RateLimiter.js"></script>
+        <script src="core/ServiceRegistry.js"></script>
+        <script src="core/DownloadManager.js"></script>
+
+        <!-- Utils (должны быть ДО сервисов) -->
+        <script src="utils/ImageProcessor.js"></script>
+        <script src="utils/TextProcessor.js"></script>
+        <script src="utils/FileUtils.js"></script>
+
+        <!-- Services -->
+        <script src="services/BaseService.js"></script>
+        <script src="services/mangalib/config.js"></script>
+        <script src="services/mangalib/MangaLibService.js"></script>
+        <script src="services/ranobelib/config.js"></script>
+        <script src="services/ranobelib/RanobeLibService.js"></script>
+
+        <!-- Exporters -->
+        <script src="exporters/BaseExporter.js"></script>
+        <script src="exporters/FB2Exporter.js"></script>
+        <script src="exporters/EPUBExporter.js"></script>
+        <script src="exporters/PDFExporter.js"></script>
+        <script src="exporters/ExporterFactory.js"></script>
+
+        <!-- UI -->
+        <script src="ui/PopupController.js"></script>
+
+        <script type="module" src="app.js"></script>
     </body>
 </html>
