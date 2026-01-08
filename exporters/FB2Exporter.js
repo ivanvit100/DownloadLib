@@ -3,79 +3,107 @@
 (function(global) {
     console.log('[FB2Exporter] Loading...');
 
-    class FB2Exporter extends global.BaseExporter {
-        constructor() {
-            super();
-            this.format = 'fb2';
+    class FB2Exporter {
+        escapeXml(str) {
+            if (!str) return '';
+            return String(str)
+                .replace(/&/g, '&amp;')
+                .replace(/</g, '&lt;')
+                .replace(/>/g, '&gt;')
+                .replace(/"/g, '&quot;')
+                .replace(/'/g, '&apos;');
         }
 
-        async export(metadata, chapters) {
-            const parts = [];
+        *createFB2Stream(manga, chapters, coverBase64) {
+            yield '<?xml version="1.0" encoding="utf-8"?>\n';
+            yield '<FictionBook xmlns="http://www.gribuser.ru/xml/fictionbook/2.0" xmlns:l="http://www.w3.org/1999/xlink">\n';
             
-            parts.push(this.createHeader(metadata));
+            yield '<description>\n';
+            yield '  <title-info>\n';
+            yield `    <genre>prose</genre>\n`;
+            yield `    <author><first-name>${this.escapeXml(manga.authors || 'Unknown')}</first-name></author>\n`;
+            yield `    <book-title>${this.escapeXml(manga.rus_name || manga.name || 'Unknown')}</book-title>\n`;
+            yield `    <lang>ru</lang>\n`;
+            yield '  </title-info>\n';
+            yield '</description>\n';
+            
+            let imageCounter = 0;
+            const imageMap = new Map();
+            
+            if (coverBase64) {
+                const coverId = 'cover.jpg';
+                const base64Data = coverBase64.includes(',') ? coverBase64.split(',')[1] : coverBase64;
+                yield `<binary id="${coverId}" content-type="image/jpeg">${base64Data}</binary>\n`;
+                imageMap.set('cover', coverId);
+            }
             
             for (const chapter of chapters) {
-                parts.push(this.createSection(chapter));
+                if (!chapter.content || !Array.isArray(chapter.content)) continue;
+                
+                for (const block of chapter.content) {
+                    if (block.type === 'image' && block.data && block.data.base64) {
+                        imageCounter++;
+                        const imageId = `image${imageCounter}`;
+                        const contentType = block.data.contentType || 'image/jpeg';
+                        
+                        yield `<binary id="${imageId}" content-type="${contentType}">${block.data.base64}</binary>\n`;
+                        
+                        block._fb2ImageId = imageId;
+                    }
+                }
             }
             
-            parts.push(this.createFooter());
+            yield '<body>\n';
             
-            const content = parts.join('\n');
-            return new Blob([content], { type: 'application/fb2+xml' });
-        }
-
-        createHeader(metadata) {
-            const title = this.escapeXml(metadata.rus_name || metadata.name || 'Без названия');
-            const author = this.escapeXml(
-                metadata.authors?.[0]?.name || 'Неизвестно'
-            );
-            const annotation = this.escapeXml(metadata.summary || '');
-
-            return `<?xml version="1.0" encoding="utf-8"?>
-<FictionBook xmlns="http://www.gribuser.ru/xml/fictionbook/2.0" xmlns:l="http://www.w3.org/1999/xlink">
-    <description>
-        <title-info>
-            <genre>prose</genre>
-            <author>
-                <first-name>${author}</first-name>
-            </author>
-            <book-title>${title}</book-title>
-            <annotation>
-                <p>${annotation}</p>
-            </annotation>
-            <date>${metadata.releaseDate || ''}</date>
-            <lang>ru</lang>
-        </title-info>
-        <document-info>
-            <author>
-                <nickname>MangaParser</nickname>
-            </author>
-            <date>${new Date().toISOString().split('T')[0]}</date>
-            <program-used>MangaParser</program-used>
-        </document-info>
-    </description>
-    <body>
-        <title>
-            <p>${title}</p>
-        </title>`;
-        }
-
-        createSection(chapter) {
-            let xml = `\n<section>\n<title>\n<p>${this.escapeXml(chapter.title)}</p>\n</title>`;
-            
-            const text = this.extractText(chapter.content);
-            const paragraphs = text.split('\n').filter(p => p.trim());
-            
-            for (const paragraph of paragraphs) {
-                xml += `\n<p>${this.escapeXml(paragraph.trim())}</p>`;
+            if (coverBase64) {
+                yield '  <section>\n';
+                yield '    <title><p>Обложка</p></title>\n';
+                yield '    <p><image l:href="#cover.jpg"/></p>\n';
+                yield '  </section>\n';
             }
             
-            xml += `\n</section>`;
-            return xml;
+            for (const chapter of chapters) {
+                yield '  <section>\n';
+                yield `    <title><p>${this.escapeXml(chapter.title)}</p></title>\n`;
+                
+                if (chapter.content && Array.isArray(chapter.content)) {
+                    for (const block of chapter.content) {
+                        if (block.type === 'text' && block.text) {
+                            const lines = block.text.split('\n');
+                            for (const line of lines) {
+                                const trimmed = line.trim();
+                                trimmed ?
+                                    yield `    <p>${this.escapeXml(trimmed)}</p>\n` :
+                                    yield `    <empty-line/>\n`;
+                            }
+                        } else if (block.type === 'image' && block._fb2ImageId) {
+                            yield `    <p><image l:href="#${block._fb2ImageId}"/></p>\n`;
+                        }
+                    }
+                }
+                
+                yield '  </section>\n';
+            }
+            
+            yield '</body>\n';
+            yield '</FictionBook>';
         }
 
-        createFooter() {
-            return `\n</body>\n</FictionBook>`;
+        async export(manga, chapters, coverBase64) {
+            const chunks = [];
+            for (const chunk of this.createFB2Stream(manga, chapters, coverBase64))
+                chunks.push(chunk);
+            
+            const content = chunks.join('');
+            const blob = new Blob([content], { type: 'application/xml' });
+            
+            const filename = `${manga.rus_name || manga.name || 'manga'}.fb2`;
+            
+            return {
+                blob,
+                filename,
+                mimeType: 'application/xml'
+            };
         }
     }
 

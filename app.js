@@ -19,9 +19,6 @@
         'EPUBExporter',
         'PDFExporter',
         'ExporterFactory',
-        'ImageProcessor',
-        'TextProcessor',
-        'FileUtils',
         'PopupController'
     ];
 

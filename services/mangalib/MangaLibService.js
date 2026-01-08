@@ -6,6 +6,7 @@
     class MangaLibService extends global.BaseService {
         constructor() {
             super(global.mangalibConfig);
+            this._imageCache = new Map();
             console.log('[MangaLibService] Instance created');
         }
 
@@ -63,13 +64,14 @@
             return text ? JSON.parse(text) : null;
         }
 
-        async fetchChapter(slug, number, volume = '1') {
+        async fetchChapter(slug, chapterNumberOrId, volume = '1') {
             const params = new URLSearchParams();
-            if (number !== undefined && number !== null) params.set('number', String(number));
-            if (volume !== undefined && volume !== null) params.set('volume', String(volume));
+            if (chapterNumberOrId !== undefined && chapterNumberOrId !== null)
+                params.set('number', String(chapterNumberOrId));
+            if (volume !== undefined && volume !== null)
+                params.set('volume', String(volume));
             const url = `${this.baseUrl}/api/manga/${slug}/chapter?${params.toString()}`;
             
-            console.log('[MangaLibService] Fetching chapter:', url);
             const response = await fetch(url, {
                 method: 'GET',
                 headers: this.config.headers,
@@ -85,52 +87,187 @@
             return text ? JSON.parse(text) : null;
         }
 
-        resolvePageUrl(filename) {
-            if (!filename) return null;
-            if (/^https?:\/\//i.test(filename)) return filename;
-            if (filename.startsWith('/')) return `${this.config.imagesDomain}${filename}`;
-            return `${this.config.imagesDomain}/${filename}`;
+        extractPages(chapterData) {
+            if (!chapterData) return [];
+            if (Array.isArray(chapterData.pages) && chapterData.pages.length) return chapterData.pages.slice();
+            if (Array.isArray(chapterData.images) && chapterData.images.length) return chapterData.images.slice();
+            if (Array.isArray(chapterData.pages_list) && chapterData.pages_list.length) return chapterData.pages_list.slice();
+            if (Array.isArray(chapterData.content) && chapterData.content.length) return chapterData.content.slice();
+            return [];
         }
 
-        async processChapterContent(chapterData, opts = {}) {
-            const pages = this.extractPages(chapterData);
+        extractText(content) {
+            const pages = this.extractPages(content);
+            if (pages.length > 0) {
+                return pages.map(page => {
+                    if (typeof page === 'string')
+                        return { type: 'image', src: page };
+                    else if (page && page.filename)
+                        return { type: 'image', src: page.filename };
+                    else if (page && page.url)
+                        return { type: 'image', src: page.url };
+                    else if (page && page.src)
+                        return { type: 'image', src: page.src };
+                    return { type: 'image', src: String(page) };
+                });
+            }
+            return [];
+        }
+
+        resolvePageUrl(filename) {
+            if (!filename) return null;
             
-            const results = [];
-            for (let i = 0; i < pages.length; i++) {
-                const page = pages[i];
-                const url = this.resolvePageUrl(page);
+            let filenameStr;
+            if (typeof filename === 'string')
+                filenameStr = filename;
+            else if (filename && filename.filename)
+                filenameStr = filename.filename;
+            else if (filename && filename.url)
+                filenameStr = filename.url;
+            else if (filename && filename.src)
+                filenameStr = filename.src;
+            else
+                filenameStr = String(filename);
+            
+            if (/^https?:\/\//i.test(filenameStr)) return filenameStr;
+            if (filenameStr.startsWith('/')) return `${this.config.imagesDomain}${filenameStr}`;
+            return `${this.config.imagesDomain}/${filenameStr}`;
+        }
+
+        async loadPageAsBase64(ref, opts = {}) {
+            try {
+                if (!ref) return null;
                 
-                try {
-                    const dataUrl = await this.loadPageAsBase64(url);
-                    const base64 = dataUrl.split(',')[1];
-                    const contentType = dataUrl.match(/data:([^;]+);/)?.[1] || 'image/jpeg';
-                    
-                    if (this.config.splitLongImages && global.ImageProcessor) {
-                        const parts = await global.ImageProcessor.splitLongImage(base64, contentType);
-                        results.push(...parts.map((part, idx) => ({
-                            type: 'image',
-                            data: part,
-                            originalIndex: i,
-                            partIndex: idx,
-                            totalParts: parts.length
-                        })));
+                let url = null;
+                
+                if (typeof ref === 'string') {
+                    url = this.resolvePageUrl(ref);
+                } else if (ref.filename) {
+                    url = this.resolvePageUrl(ref.filename);
+                } else if (ref.url) {
+                    url = ref.url;
+                    if (!/^https?:\/\//i.test(url))
+                        url = this.resolvePageUrl(url);
+                } else if (ref.src) {
+                    url = this.resolvePageUrl(ref.src);
+                }
+
+                if (!url) {
+                    console.warn('[MangaLibService] Could not resolve page url for', ref);
+                    return null;
+                }
+
+                if (this._imageCache.has(url))
+                    return this._imageCache.get(url);
+
+                if (typeof browser === 'undefined' || !browser.runtime) {
+                    console.error('[MangaLibService] browser.runtime not available!');
+                    return null;
+                }
+
+                const response = await new Promise((resolve, reject) => {
+                    browser.runtime.sendMessage({
+                        action: 'fetchImage',
+                        url: url
+                    }).then(resp => {
+                        resolve(resp);
+                    }).catch(err => {
+                        console.error('[MangaLibService] Error from background:', err);
+                        reject(err);
+                    });
+                });
+
+                if (!response || !response.ok) {
+                    console.warn(`[MangaLibService] Failed to fetch ${url}:`, response?.error);
+                    return null;
+                }
+
+                const base64Data = response.base64;
+                const contentType = response.contentType || 'image/jpeg';
+                
+                if (opts.splitLongImages !== false && global.ImageProcessor) {
+                    const parts = await global.ImageProcessor.splitLongImage(base64Data, contentType);
+                    if (parts.length > 1) {
+                        this._imageCache.set(url, parts);
+                        return parts;
+                    }
+                    const result = parts[0];
+                    this._imageCache.set(url, result);
+                    return result;
+                }
+
+                const result = { base64: base64Data, contentType };
+                this._imageCache.set(url, result);
+                return result;
+            } catch (e) {
+                console.error('[MangaLibService] loadPageAsBase64 error', e);
+                return null;
+            }
+        }
+
+        async processChapterContent(extracted, status, opts = {}) {
+            const chapterMeta = opts.chapterMeta || {};
+            const chapterObj = opts.chapterObj || {};
+            
+            let pages = [];
+            try {
+                pages = this.extractPages(chapterMeta) || this.extractPages(chapterObj) || [];
+                if ((!pages || pages.length === 0) && Array.isArray(extracted) && extracted.length)
+                    pages = extracted.filter(b => b && b.src).map(b => b.src);
+            } catch (e) {
+                pages = [];
+            }
+
+            const loadOpts = {
+                splitLongImages: opts.splitLongImages !== false
+            };
+
+            const result = [];
+            let completed = 0;
+            const concurrency = 5;
+            
+            for (let i = 0; i < pages.length; i += concurrency) {
+                const batch = pages.slice(i, Math.min(i + concurrency, pages.length));
+                const batchPromises = batch.map((page, batchIdx) => 
+                    this.loadPageAsBase64(page, loadOpts)
+                        .then(img => ({ img, index: i + batchIdx }))
+                        .catch(err => {
+                            console.warn(`[MangaLibService] Failed to load page ${i + batchIdx}:`, err);
+                            return { img: null, index: i + batchIdx };
+                        })
+                );
+
+                const batchResults = await Promise.all(batchPromises);
+
+                for (const { img, index } of batchResults) {
+                    if (!img) {
+                        result.push({ type: 'text', text: `[Ошибка загрузки изображения ${index + 1}]` });
+                    } else if (Array.isArray(img)) {
+                        img.forEach((part, partIndex) => {
+                            result.push({
+                                type: 'image',
+                                id: `manga_img_${Date.now()}_${index}_part${partIndex}`,
+                                data: part,
+                                originalIndex: index,
+                                partIndex: partIndex,
+                                totalParts: img.length
+                            });
+                        });
                     } else {
-                        results.push({
+                        result.push({
                             type: 'image',
-                            data: { base64, contentType },
-                            originalIndex: i
+                            id: `manga_img_${Date.now()}_${index}`,
+                            data: img,
+                            originalIndex: index
                         });
                     }
-                } catch (e) {
-                    console.error('[MangaLibService] Failed to load page', i, ':', e);
-                    results.push({
-                        type: 'text',
-                        text: `[Ошибка загрузки изображения ${i + 1}]`
-                    });
+
+                    completed++;
+                    if (status) status.textContent = `Загружено страниц: ${completed}/${pages.length}`;
                 }
             }
             
-            return results;
+            return result;
         }
     }
 

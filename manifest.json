@@ -6,6 +6,10 @@
     "author": "https://ivanvit.ru",
     "homepage_url": "https://github.com/ivanvit100/DownloadLib",
 
+    "background": {
+        "scripts": ["background/Background.js"]
+    },
+
     "browser_specific_settings": {
         "gecko": {
             "id": "@downloadlib",
@@ -26,7 +30,9 @@
         "activeTab",
         "tabs",
         "downloads",
-        "storage"
+        "storage",
+        "webRequest",
+        "webRequestBlocking"
     ],
 
     "host_permissions": [

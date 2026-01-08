@@ -60,6 +60,37 @@
                 const metadata = await service.fetchMangaMetadata(downloadState.slug);
                 console.log('[DownloadManager] Metadata:', metadata);
                 
+                const manga = metadata.data || metadata;
+                
+                let coverBase64 = '';
+                if (manga.cover) {
+                    const coverUrl = manga.cover.default || manga.cover.thumbnail || manga.cover.md || manga.cover;
+                    if (typeof coverUrl === 'string') {
+                        try {
+                            this.updateStatus(downloadId, 'Загружаем обложку...', 7);
+                            const referer = service.name === 'ranobelib' ? 'https://ranobelib.me/' : 'https://mangalib.me/';
+                            const response = await fetch(coverUrl, {
+                                headers: {
+                                    'Referer': referer,
+                                    'Accept': 'image/webp,image/apng,image/*,*/*;q=0.8'
+                                }
+                            });
+                            
+                            if (response.ok) {
+                                const blob = await response.blob();
+                                const reader = new FileReader();
+                                coverBase64 = await new Promise((resolve, reject) => {
+                                    reader.onloadend = () => resolve(reader.result);
+                                    reader.onerror = reject;
+                                    reader.readAsDataURL(blob);
+                                });
+                            }
+                        } catch (e) {
+                            console.warn('[DownloadManager] Failed to load cover:', e);
+                        }
+                    }
+                }
+                
                 this.updateStatus(downloadId, 'Загрузка списка глав...', 10);
                 const chaptersData = await service.fetchChaptersList(downloadState.slug);
                 const chapters = this.sortChapters(chaptersData.data || []);
@@ -74,9 +105,9 @@
 
                 this.updateStatus(downloadId, `Создание ${format.toUpperCase()}...`, 95);
                 const exporter = global.ExporterFactory.create(format);
-                const file = await exporter.export(metadata.data, chapterContents);
+                const file = await exporter.export(manga, chapterContents, coverBase64);
 
-                await this.saveFile(file, metadata.data, format);
+                await this.saveFile(file.blob, file.filename);
 
                 this.updateStatus(downloadId, 'Готово!', 100);
                 this.eventBus.emit('download:completed', downloadState);
@@ -106,7 +137,7 @@
                 
                 this.updateStatus(
                     downloadState.id,
-                    `Глава ${i + 1}/${total}: ${chapter.name}`,
+                    `Глава ${i + 1}/${total}: ${chapter.name || chapter.number}`,
                     progress
                 );
 
@@ -117,26 +148,86 @@
                         chapter.volume || '1'
                     );
 
-                    const content = await service.processChapterContent(
-                        chapterData.data || chapterData,
-                        { onProgress: onProgress }
-                    );
+                    const rawContent = chapterData.data || chapterData;
+                    const contentToExtract = rawContent.content || rawContent;
+                    
+                    const extractedContent = service.extractText 
+                        ? service.extractText(contentToExtract) 
+                        : contentToExtract;
+
+                    const processedContent = service.processChapterContent 
+                        ? await service.processChapterContent(
+                            extractedContent,
+                            document.getElementById('status'),
+                            {
+                                chapterMeta: rawContent,
+                                chapterObj: chapter,
+                                mangaSlug: downloadState.slug
+                            }
+                          )
+                        : extractedContent;
 
                     results.push({
                         title: chapter.name || `Том ${chapter.volume}, Глава ${chapter.number}`,
-                        content,
+                        content: processedContent,
                         volume: chapter.volume,
                         number: chapter.number
                     });
 
                 } catch (error) {
                     console.error(`[DownloadManager] Failed to download chapter ${chapter.number}:`, error);
+                    results.push({
+                        title: chapter.name || `Том ${chapter.volume}, Глава ${chapter.number}`,
+                        content: [{
+                            type: 'text',
+                            text: `[Ошибка загрузки главы: ${error.message}]`
+                        }],
+                        volume: chapter.volume,
+                        number: chapter.number
+                    });
                 }
 
                 await this.delay(500);
             }
 
             return results;
+        }
+
+        async fetchImageWithRetry(url, referer, retries = 5) {
+            for (let attempt = 0; attempt < retries; attempt++) {
+                try {
+                    const response = await fetch(url, {
+                        method: 'GET',
+                        headers: {
+                            'Referer': referer || '',
+                            'Accept': 'image/webp,image/apng,image/*,*/*;q=0.8'
+                        },
+                        credentials: 'omit'
+                    });
+
+                    if (!response.ok) {
+                        throw new Error(`HTTP ${response.status}`);
+                    }
+
+                    const blob = await response.blob();
+                    return blob;
+
+                } catch (e) {
+                    if (attempt < retries - 1)
+                        await this.delay(1000 * (attempt + 1));
+                }
+            }
+
+            return null;
+        }
+
+        async blobToBase64(blob) {
+            return new Promise((resolve, reject) => {
+                const reader = new FileReader();
+                reader.onloadend = () => resolve(reader.result);
+                reader.onerror = reject;
+                reader.readAsDataURL(blob);
+            });
         }
 
         createController() {
@@ -187,11 +278,7 @@
             return new Promise(resolve => setTimeout(resolve, ms));
         }
 
-        async saveFile(blob, metadata, format) {
-            const filename = this.sanitizeFilename(
-                metadata.rus_name || metadata.name || 'book'
-            ) + `.${format}`;
-
+        async saveFile(blob, filename) {
             if (global.FileUtils) {
                 await global.FileUtils.downloadBlob(blob, filename);
             } else {
