@@ -17,14 +17,18 @@
         ],
 
         headers: {
+            'User-Agent': 'Mozilla/5.0 (X11; Linux x86_64; rv:146.0) Gecko/20100101 Firefox/146.0',
             'Accept': '*/*',
             'Accept-Language': 'ru-RU,ru;q=0.8,en-US;q=0.5,en;q=0.3',
             'Site-Id': '1',
             'Content-Type': 'application/json',
             'Client-Time-Zone': 'Europe/Moscow',
             'Referer': 'https://mangalib.me/',
-            'Origin': 'https://mangalib.me',
-            'Sec-GPC': '1'
+            'Sec-GPC': '1',
+            'Sec-Fetch-Dest': 'empty',
+            'Sec-Fetch-Mode': 'cors',
+            'Sec-Fetch-Site': 'same-site',
+            'Connection': 'keep-alive'
         },
 
         imageHeaders: {
@@ -32,10 +36,11 @@
             'Accept': 'image/avif,image/webp,image/png,image/svg+xml,image/*;q=0.8,*/*;q=0.5',
             'Accept-Language': 'ru-RU,ru;q=0.8,en-US;q=0.5,en;q=0.3',
             'Referer': 'https://mangalib.me/',
+            'Sec-GPC': '1',
             'Sec-Fetch-Dest': 'image',
             'Sec-Fetch-Mode': 'no-cors',
             'Sec-Fetch-Site': 'cross-site',
-            'Sec-GPC': '1'
+            'Connection': 'keep-alive'
         },
 
         splitLongImages: true,

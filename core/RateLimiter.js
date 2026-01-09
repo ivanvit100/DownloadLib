@@ -5,54 +5,85 @@
 
     class RateLimiter {
         constructor(options = {}) {
-            this.limits = new Map();
-            this.queues = new Map();
-            this.defaultLimit = options.defaultLimit || 5;
+            this._requestsInLastMinute = 0;
+            this._maxRequestsPerMinute = options.maxRequestsPerMinute || 99;
+            this._requestTimestamps = [];
+            this._pendingQueue = [];
+            this._isProcessing = false;
+            
+            console.log(`[RateLimiter] Initialized with limit: ${this._maxRequestsPerMinute} requests/minute`);
         }
 
-        setLimit(serviceName, requestsPerSecond) {
-            this.limits.set(serviceName, {
-                rps: requestsPerSecond,
-                interval: 1000 / requestsPerSecond,
-                lastRequest: 0,
-                queue: []
+        setLimit(limit) {
+            if (typeof limit !== 'number' || limit < 2) limit = 2;
+            this._maxRequestsPerMinute = Math.max(2, Math.floor(limit)) - 1;
+            console.log(`[RateLimiter] Rate limit set to: ${this._maxRequestsPerMinute} requests/minute`);
+        }
+
+        async _processQueue() {
+            if (this._isProcessing) return;
+            this._isProcessing = true;
+
+            while (this._pendingQueue.length > 0) {
+                while (this._requestsInLastMinute >= this._maxRequestsPerMinute) {
+                    console.debug(`[RateLimiter] Rate limit reached: ${this._requestsInLastMinute}/${this._maxRequestsPerMinute}. Queue size: ${this._pendingQueue.length}. Waiting...`);
+                    await new Promise(resolve => setTimeout(resolve, 100));
+                }
+
+                const request = this._pendingQueue.shift();
+                if (!request) continue;
+
+                this._requestsInLastMinute++;
+                const timestamp = Date.now();
+                this._requestTimestamps.push(timestamp);
+
+                request.resolve();
+
+                setTimeout(() => {
+                    this._requestsInLastMinute--;
+                    this._requestTimestamps.shift();
+                    console.debug(`[RateLimiter] Request expired: ${this._requestsInLastMinute}/${this._maxRequestsPerMinute} used`);
+                }, 60000);
+            }
+
+            this._isProcessing = false;
+        }
+
+        async trackRequest(source = 'unknown') {
+            return new Promise((resolve) => {
+                this._pendingQueue.push({ source, resolve });
+                this._processQueue();
             });
         }
 
         async acquire(serviceName = 'default') {
-            if (!this.limits.has(serviceName))
-                this.setLimit(serviceName, this.defaultLimit);
-
-            const limit = this.limits.get(serviceName);
-            const now = Date.now();
-            const timeSinceLastRequest = now - limit.lastRequest;
-
-            if (timeSinceLastRequest < limit.interval)
-                await this.delay(limit.interval - timeSinceLastRequest);
-
-            limit.lastRequest = Date.now();
+            return this.trackRequest(serviceName);
         }
 
         async execute(serviceName, fn) {
-            await this.acquire(serviceName);
+            await this.trackRequest(serviceName);
             return fn();
         }
 
-        getStats(serviceName) {
-            return this.limits.get(serviceName) || null;
+        getStats() {
+            return {
+                requestsInLastMinute: this._requestsInLastMinute,
+                maxRequestsPerMinute: this._maxRequestsPerMinute,
+                queueSize: this._pendingQueue.length,
+                timestamps: this._requestTimestamps.slice()
+            };
         }
 
-        delay(ms) {
-            return new Promise(resolve => setTimeout(resolve, ms));
-        }
-
-        reset(serviceName) {
-            if (serviceName) this.limits.delete(serviceName);
-            else this.limits.clear();
+        reset() {
+            this._requestsInLastMinute = 0;
+            this._requestTimestamps = [];
+            this._pendingQueue = [];
+            this._isProcessing = false;
+            console.log('[RateLimiter] Reset completed');
         }
     }
 
     global.RateLimiter = RateLimiter;
-    global.globalRateLimiter = new RateLimiter();
-    console.log('[RateLimiter] Loaded');
+    global.globalRateLimiter = new RateLimiter({ maxRequestsPerMinute: 79 });
+    console.log('[RateLimiter] Loaded, global instance created');
 })(window);

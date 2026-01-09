@@ -2,29 +2,49 @@
 
 console.log('[Background] Script loading...');
 
-const extensionImageRequests = new Set();
+const rateLimiter = new RateLimiter({ maxRequestsPerMinute: 100 });
+let ServiceConfigs = {};
+const extensionRequests = new Map();
+
+if (typeof mangalibConfig !== 'undefined')
+    ServiceConfigs.mangalib = mangalibConfig;
+if (typeof ranolibConfig !== 'undefined')
+    ServiceConfigs.ranobelib = ranolibConfig;
+
+function detectService(url) {
+    if (url.includes('mangalib.me') || url.includes('mixlib.me') || url.includes('imglib.info') || url.includes('api.cdnlibs.org'))
+        return 'mangalib';
+    if (url.includes('ranobelib.me') || url.includes('ranobelib.org'))
+        return 'ranobelib';
+    return null;
+}
+
+function isImageRequest(url) {
+    return url.includes('mixlib.me') || url.includes('imglib.info') || url.includes('/covers/');
+}
 
 if (typeof browser !== 'undefined' && browser.webRequest) {
     browser.webRequest.onBeforeSendHeaders.addListener(
         (details) => {
-            const isImageRequest = details.url.includes('mixlib.me') || 
-                                   details.url.includes('imglib.info');
-            
-            if (!isImageRequest) return;
+            if (!extensionRequests.has(details.url)) return;
 
+            const serviceName = detectService(details.url);
+            if (!serviceName || !ServiceConfigs[serviceName]) return;
+
+            const config = ServiceConfigs[serviceName];
+            const isImage = isImageRequest(details.url);
+            
             let headers = details.requestHeaders || [];
             
-            headers = headers.filter(h => {
-                const name = h.name.toLowerCase();
-                return name !== 'origin' && !name.startsWith('sec-fetch-');
-            });
+            const targetHeaders = isImage && config.imageHeaders ? config.imageHeaders : config.headers;
             
-            headers.push({ name: 'Referer', value: 'https://mangalib.me/' });
-            headers.push({ name: 'Sec-Fetch-Dest', value: 'image' });
-            headers.push({ name: 'Sec-Fetch-Mode', value: 'no-cors' });
-            headers.push({ name: 'Sec-Fetch-Site', value: 'cross-site' });
-            
-            console.log('[Background] Modified headers:', headers.map(h => `${h.name}: ${h.value}`));
+            if (targetHeaders) {
+                for (const [name, value] of Object.entries(targetHeaders)) {
+                    const existing = headers.find(h => h.name.toLowerCase() === name.toLowerCase());
+                    if (existing) existing.value = value;
+                    else headers.push({ name, value });
+                }
+            }
             
             return { requestHeaders: headers };
         },
@@ -33,26 +53,50 @@ if (typeof browser !== 'undefined' && browser.webRequest) {
     );
     
     console.log('[Background] WebRequest interceptor installed');
-} else {
-    console.error('[Background] browser.webRequest NOT available!');
 }
 
 if (typeof browser !== 'undefined' && browser.runtime && browser.runtime.onMessage) {
     browser.runtime.onMessage.addListener((message, sender, sendResponse) => {
         
+        if (message.action === 'setRateLimit') {
+            rateLimiter.setLimit(message.limit);
+            sendResponse({ ok: true });
+            return true;
+        }
+
+        if (message.action === 'getRateLimiterStats') {
+            sendResponse({ ok: true, stats: rateLimiter.getStats() });
+            return true;
+        }
+        
         if (message.action === 'fetchImage') {
             (async () => {
                 try {
+                    await rateLimiter.trackRequest('image');
                     const url = message.url;
-                    const response = await fetch(url, {
+                    const serviceName = message.serviceName || detectService(url);
+                    
+                    extensionRequests.set(url, Date.now());
+                    
+                    const fetchOptions = {
                         method: 'GET',
                         credentials: 'include',
                         cache: 'no-cache',
-                        redirect: 'follow'
-                    });
+                        redirect: 'follow',
+                        mode: 'cors'
+                    };
+                    
+                    if (serviceName && ServiceConfigs[serviceName]) {
+                        const config = ServiceConfigs[serviceName];
+                        const headers = config.imageHeaders || config.headers;
+                        if (headers) fetchOptions.headers = headers;
+                    }
+                    
+                    const response = await fetch(url, fetchOptions);
+
+                    extensionRequests.delete(url);
 
                     if (!response.ok) {
-                        console.error('[Background] HTTP error:', response.status, response.statusText);
                         sendResponse({ ok: false, error: `HTTP ${response.status}` });
                         return;
                     }
@@ -60,7 +104,6 @@ if (typeof browser !== 'undefined' && browser.runtime && browser.runtime.onMessa
                     const blob = await response.blob();
                     
                     if (blob.size === 0) {
-                        console.error('[Background] Empty blob');
                         sendResponse({ ok: false, error: 'Empty response' });
                         return;
                     }
@@ -77,15 +120,57 @@ if (typeof browser !== 'undefined' && browser.runtime && browser.runtime.onMessa
 
                     sendResponse({ ok: true, base64, contentType: blob.type || 'image/jpeg' });
                 } catch (err) {
-                    console.error('[Background] Fetch error:', err);
+                    sendResponse({ ok: false, error: String(err) });
+                }
+            })();
+            return true;
+        }
+
+        if (message.action === 'fetchWithRateLimit') {
+            (async () => {
+                try {
+                    await rateLimiter.trackRequest('api');
+                    const url = message.url;
+                    const serviceName = message.serviceName || detectService(url);
+                    
+                    extensionRequests.set(url, Date.now());
+                    
+                    let fetchOptions = message.options || {};
+                    
+                    if (!fetchOptions.credentials)
+                        fetchOptions.credentials = 'include';
+                    if (!fetchOptions.headers && serviceName && ServiceConfigs[serviceName])
+                        fetchOptions.headers = ServiceConfigs[serviceName].headers;
+                    
+                    const response = await fetch(url, fetchOptions);
+                    
+                    extensionRequests.delete(url);
+                    
+                    if (!response.ok) {
+                        sendResponse({ 
+                            ok: false, 
+                            status: response.status,
+                            statusText: response.statusText 
+                        });
+                        return;
+                    }
+
+                    const text = await response.text();
+                    sendResponse({ 
+                        ok: true, 
+                        status: response.status,
+                        body: text,
+                        contentType: response.headers.get('content-type')
+                    });
+                } catch (err) {
                     sendResponse({ ok: false, error: String(err) });
                 }
             })();
             return true;
         }
     });
-} else {
-    console.error('[Background] browser.runtime.onMessage NOT available!');
+    
+    console.log('[Background] Message listener installed');
 }
 
 console.log('[Background] Script loaded');

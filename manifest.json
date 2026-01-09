@@ -7,7 +7,12 @@
     "homepage_url": "https://github.com/ivanvit100/DownloadLib",
 
     "background": {
-        "scripts": ["background/Background.js"]
+        "scripts": [
+            "core/RateLimiter.js",
+            "services/mangalib/config.js",
+            "services/ranobelib/config.js",
+            "background/Background.js"
+        ]
     },
 
     "browser_specific_settings": {

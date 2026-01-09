@@ -134,6 +134,58 @@
             return `${this.config.imagesDomain}/${filenameStr}`;
         }
 
+        async splitLongImage(base64Data, contentType) {
+            return new Promise((resolve, reject) => {
+                const img = new Image();
+                const dataUrl = `data:${contentType};base64,${base64Data}`;
+                
+                img.onload = () => {
+                    const A4_RATIO = 297 / 210;
+                    const imgRatio = img.height / img.width;
+                    
+                    if (imgRatio <= A4_RATIO * 1.1) {
+                        resolve([{ base64: base64Data, contentType }]);
+                        return;
+                    }
+                    
+                    const numParts = Math.ceil(imgRatio / A4_RATIO);
+                    const partHeight = Math.floor(img.height / numParts);
+                    
+                    const parts = [];
+                    const canvas = document.createElement('canvas');
+                    const ctx = canvas.getContext('2d');
+                    canvas.width = img.width;
+                    
+                    for (let i = 0; i < numParts; i++) {
+                        const y = i * partHeight;
+                        const h = (i === numParts - 1) ? (img.height - y) : partHeight;
+                        
+                        canvas.height = h;
+                        ctx.clearRect(0, 0, canvas.width, canvas.height);
+                        ctx.drawImage(img, 0, y, img.width, h, 0, 0, img.width, h);
+                        
+                        const partDataUrl = canvas.toDataURL(contentType || 'image/jpeg', 0.95);
+                        const partBase64 = partDataUrl.split(',')[1];
+                        
+                        parts.push({
+                            base64: partBase64,
+                            contentType: contentType || 'image/jpeg'
+                        });
+                    }
+                    
+                    console.log(`[MangaLibService] Split image into ${parts.length} parts (ratio: ${imgRatio.toFixed(2)})`);
+                    resolve(parts);
+                };
+                
+                img.onerror = () => {
+                    console.warn('[MangaLibService] Error loading image for splitting');
+                    resolve([{ base64: base64Data, contentType }]);
+                };
+                
+                img.src = dataUrl;
+            });
+        }
+
         async loadPageAsBase64(ref, opts = {}) {
             try {
                 if (!ref) return null;
@@ -169,12 +221,7 @@
                     browser.runtime.sendMessage({
                         action: 'fetchImage',
                         url: url
-                    }).then(resp => {
-                        resolve(resp);
-                    }).catch(err => {
-                        console.error('[MangaLibService] Error from background:', err);
-                        reject(err);
-                    });
+                    }).then(resolve).catch(reject);
                 });
 
                 if (!response || !response.ok) {
@@ -185,8 +232,8 @@
                 const base64Data = response.base64;
                 const contentType = response.contentType || 'image/jpeg';
                 
-                if (opts.splitLongImages !== false && global.ImageProcessor) {
-                    const parts = await global.ImageProcessor.splitLongImage(base64Data, contentType);
+                if (opts.splitLongImages !== false) {
+                    const parts = await this.splitLongImage(base64Data, contentType);
                     if (parts.length > 1) {
                         this._imageCache.set(url, parts);
                         return parts;

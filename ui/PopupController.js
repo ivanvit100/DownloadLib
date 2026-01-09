@@ -288,12 +288,17 @@
             const slugFromUrl = urlParams.get('slug');
             const serviceFromUrl = urlParams.get('service');
             const formatFromUrl = urlParams.get('format');
+            const rateLimitFromUrl = urlParams.get('rateLimit');
 
             const formatSelector = document.getElementById('formatSelector');
             if (formatFromUrl && formatSelector) {
                 formatSelector.value = formatFromUrl;
                 localStorage.setItem('manga_parser_selected_format', formatFromUrl);
             }
+
+            const rateLimitInput = document.getElementById('rateLimitInput');
+            if (rateLimitFromUrl && rateLimitInput)
+                rateLimitInput.value = rateLimitFromUrl;
 
             btn.disabled = true;
             if (status) status.textContent = 'Получаем информацию...';
@@ -461,12 +466,15 @@
                                 hiddenFileInput.click();
                             } else {
                                 const format = formatSelector ? formatSelector.value : 'fb2';
+                                const rateLimit = rateLimitInput ? parseInt(rateLimitInput.value) || 100 : 100;
+                                
                                 try {
                                     const win = await chrome.windows.create({
                                         url: chrome.runtime.getURL('popup.html') + 
                                              '?fileUpload=true&slug=' + encodeURIComponent(slug) + 
                                              '&service=' + encodeURIComponent(serviceKey) +
-                                             '&format=' + encodeURIComponent(format),
+                                             '&format=' + encodeURIComponent(format) +
+                                             '&rateLimit=' + encodeURIComponent(rateLimit),
                                         type: 'popup',
                                         width: 420,
                                         height: 650,
@@ -530,14 +538,17 @@
                     
                     if (!this.loadedFile && !inSeparateWindow) {
                         const formatSelector = document.getElementById('formatSelector');
+                        const rateLimitInput = document.getElementById('rateLimitInput');
                         const format = formatSelector ? formatSelector.value : 'fb2';
+                        const rateLimit = rateLimitInput ? parseInt(rateLimitInput.value) || 100 : 100;
                         
                         try {
                             const win = await chrome.windows.create({
                                 url: chrome.runtime.getURL('popup.html') + 
                                      '?download=true&slug=' + encodeURIComponent(this.currentSlug) + 
                                      '&service=' + encodeURIComponent(this.currentServiceKey) +
-                                     '&format=' + encodeURIComponent(format),
+                                     '&format=' + encodeURIComponent(format) +
+                                     '&rateLimit=' + encodeURIComponent(rateLimit),
                                 type: 'popup',
                                 width: 420,
                                 height: 650,
@@ -597,8 +608,6 @@
         }
 
         async startDownload() {
-            console.log('[PopupController] Start download clicked');
-            
             if (!this.currentSlug || !this.currentServiceKey) {
                 this.showError('Не удалось определить тайтл');
                 return;
@@ -614,6 +623,14 @@
             const customFileBtn = document.getElementById('customFileBtn');
 
             try {
+                if (rateLimitInput) {
+                    const limit = parseInt(rateLimitInput.value) || 100;
+                    await browser.runtime.sendMessage({
+                        action: 'setRateLimit',
+                        limit: limit
+                    });
+                }
+                
                 this.isDownloading = true;
                 this.isPaused = false;
                 this.shouldStop = false;
@@ -658,9 +675,8 @@
         stopDownload() {
             this.shouldStop = true;
             this.isDownloading = false;
-            if (this.currentDownloadId) {
+            if (this.currentDownloadId)
                 this.downloadManager.stop(this.currentDownloadId);
-            }
             const status = document.getElementById('status');
             if (status) status.textContent = 'Досрочное завершение...';
         }
