@@ -84,6 +84,8 @@
     }
 
     global.RateLimiter = RateLimiter;
-    global.globalRateLimiter = new RateLimiter({ maxRequestsPerMinute: 79 });
-    console.log('[RateLimiter] Loaded, global instance created');
-})(window);
+    
+    if (!global.globalRateLimiter) global.globalRateLimiter = new RateLimiter({ maxRequestsPerMinute: 99 });
+    
+    console.log('[RateLimiter] Loaded');
+})(typeof window !== 'undefined' ? window : self);

@@ -9,9 +9,20 @@
     "background": {
         "scripts": [
             "core/RateLimiter.js",
+            "services/BaseService.js",
+            "services/mangalib/MangaLibService.js",
             "services/mangalib/config.js",
+            "services/ranobelib/RanobeLibService.js",
             "services/ranobelib/config.js",
-            "background/Background.js"
+            "background/Background.js",
+            "background/BackgroundDownload.js",
+            "exporters/ExporterFactory.js",
+            "exporters/BaseExporter.js",
+            "exporters/FB2Exporter.js",
+            "exporters/PDFExporter.js",
+            "exporters/EPUBExporter.js",
+            "lib/jszip.min.js",
+            "lib/html2pdf.min.js"
         ]
     },
 

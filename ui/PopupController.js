@@ -18,6 +18,14 @@
             this.setupEventListeners();
             this.subscribeToEvents();
             this.loadMetadata();
+            
+            setInterval(() => this.updateActiveDownloadsInfo(), 2000);
+            
+            this.downloadManager.eventBus.on('download:started', (state) => {
+                this.currentDownloadId = state.id;
+                console.log('[PopupController] Download started with ID:', this.currentDownloadId);
+            });
+            
             console.log('[PopupController] Initialized');
         }
 
@@ -128,6 +136,21 @@
                 rateLimitContainer.appendChild(label);
                 rateLimitContainer.appendChild(rateLimitInput);
                 btn.parentNode.insertBefore(rateLimitContainer, btn);
+            }
+
+            let activeDownloadsInfo = document.getElementById('activeDownloadsInfo');
+            if (!activeDownloadsInfo) {
+                activeDownloadsInfo = document.createElement('div');
+                activeDownloadsInfo.id = 'activeDownloadsInfo';
+                activeDownloadsInfo.style.textAlign = 'center';
+                activeDownloadsInfo.style.color = '#bdbdbd';
+                activeDownloadsInfo.style.fontSize = '12px';
+                activeDownloadsInfo.style.marginTop = '8px';
+                activeDownloadsInfo.style.marginBottom = '8px';
+                activeDownloadsInfo.style.display = 'none';
+                
+                const rateLimitContainer = rateLimitInput.parentNode;
+                rateLimitContainer.parentNode.insertBefore(activeDownloadsInfo, rateLimitContainer.nextSibling);
             }
 
             let fileInputContainer = document.getElementById('fileInputContainer');
@@ -271,7 +294,44 @@
             }
         }
 
+        async updateActiveDownloadsInfo() {
+            const activeDownloadsInfo = document.getElementById('activeDownloadsInfo');
+            if (!activeDownloadsInfo) return;
+            
+            try {
+                const response = await browser.runtime.sendMessage({ action: 'getActiveDownloads' });
+                
+                if (response.ok && response.downloads) {
+                    const bgDownloads = response.downloads;
+                    const fgDownloads = this.isDownloading ? 1 : 0;
+                    const total = bgDownloads.length + fgDownloads;
+                    
+                    if (total > 0) {
+                        const parts = [];
+                        if (fgDownloads > 0) parts.push(`${fgDownloads} обычная`);
+                        if (bgDownloads.length > 0) parts.push(`${bgDownloads.length} фоновая`);
+                        
+                        activeDownloadsInfo.textContent = `Активных загрузок: ${parts.join(' + ')}`;
+                        activeDownloadsInfo.style.display = 'block';
+                        
+                        if (bgDownloads.length > 0) {
+                            const details = bgDownloads.map(d => 
+                                `${d.slug}: ${d.status} (${d.progress}%)`
+                            ).join('\n');
+                            activeDownloadsInfo.title = details;
+                        }
+                    } else {
+                        activeDownloadsInfo.style.display = 'none';
+                    }
+                }
+            } catch (e) {
+                console.error('[PopupController] Failed to get active downloads:', e);
+            }
+        }
+
         async loadMetadata() {
+            await this.updateActiveDownloadsInfo();
+            
             const status = document.getElementById('status');
             const btn = document.getElementById('downloadBtn');
             const logoInfo = document.getElementById('logoInfo');
@@ -297,8 +357,9 @@
             }
 
             const rateLimitInput = document.getElementById('rateLimitInput');
-            if (rateLimitFromUrl && rateLimitInput)
+            if (rateLimitFromUrl && rateLimitInput) {
                 rateLimitInput.value = rateLimitFromUrl;
+            }
 
             btn.disabled = true;
             if (status) status.textContent = 'Получаем информацию...';
@@ -585,8 +646,43 @@
             }
 
             if (backgroundBtn) {
-                backgroundBtn.addEventListener('click', () => {
-                    alert('Фоновая загрузка будет реализована позже');
+                backgroundBtn.addEventListener('click', async () => {
+                    if (!this.currentDownloadId) {
+                        console.error('[PopupController] No currentDownloadId:', this.currentDownloadId);
+                        return;
+                    }
+                    
+                    try {
+                        const downloadState = this.downloadManager.getDownloadState(this.currentDownloadId);
+                        
+                        if (!downloadState) {
+                            console.error('[PopupController] No downloadState for ID:', this.currentDownloadId);
+                            return;
+                        }
+                        
+                        this.shouldStop = true;
+                        this.downloadManager.stop(this.currentDownloadId);
+                        
+                        const response = await browser.runtime.sendMessage({
+                            action: 'takeOverDownload',
+                            ...downloadState
+                        });
+                        
+                        if (response.ok) {
+                            const inSeparateWindow = await this.isInSeparateWindow();
+                            if (inSeparateWindow) {
+                                window.close();
+                            } else {
+                                this.resetUI();
+                                const status = document.getElementById('status');
+                            }
+                        } else {
+                            this.shouldStop = false;
+                        }
+                    } catch (e) {
+                        console.error('[PopupController] Failed to move to background:', e);
+                        this.shouldStop = false;
+                    }
                 });
             }
         }
@@ -655,6 +751,7 @@
                     controller: {
                         isPaused: () => this.isPaused,
                         shouldStop: () => this.shouldStop,
+                        stop: () => { this.shouldStop = true; },
                         waitIfPaused: async () => {
                             while (this.isPaused && !this.shouldStop) {
                                 await new Promise(resolve => setTimeout(resolve, 100));
@@ -662,8 +759,6 @@
                         }
                     }
                 });
-
-                this.currentDownloadId = result.downloadId;
 
             } catch (error) {
                 console.error('[PopupController] Download failed:', error);

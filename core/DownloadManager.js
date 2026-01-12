@@ -45,11 +45,18 @@
             const downloadState = {
                 id: downloadId,
                 service: service.name,
+                serviceKey: serviceKey,
                 slug: slug || this.extractSlug(url),
                 format,
                 status: 'initializing',
                 progress: 0,
-                controller: controller || this.createController()
+                controller: controller || this.createController(),
+                loadedFile: loadedFile,
+                manga: null,
+                coverBase64: null,
+                chapterContents: [],
+                chapters: [],
+                currentChapterIndex: 0
             };
 
             this.activeDownloads.set(downloadId, downloadState);
@@ -61,6 +68,7 @@
                 console.log('[DownloadManager] Metadata:', metadata);
                 
                 const manga = metadata.data || metadata;
+                downloadState.manga = manga;
                 
                 let coverBase64 = '';
                 if (manga.cover) {
@@ -91,10 +99,13 @@
                     }
                 }
                 
+                downloadState.coverBase64 = coverBase64;
+                
                 this.updateStatus(downloadId, 'Загрузка списка глав...', 10);
                 const chaptersData = await service.fetchChaptersList(downloadState.slug);
                 const chapters = this.sortChapters(chaptersData.data || []);
-                console.log('[DownloadManager] Found', chapters.length, 'chapters');
+
+                downloadState.chapters = chapters;
 
                 const chapterContents = await this.downloadChapters(
                     service,
@@ -124,6 +135,25 @@
             }
         }
 
+        getDownloadState(downloadId) {
+            const state = this.activeDownloads.get(downloadId);
+            if (!state) return null;
+            
+            return {
+                slug: state.slug,
+                serviceKey: state.serviceKey,
+                format: state.format,
+                manga: state.manga,
+                coverBase64: state.coverBase64,
+                chapterContents: state.chapterContents,
+                chapters: state.chapters,
+                currentChapterIndex: state.currentChapterIndex,
+                currentStatus: state.status,
+                currentProgress: state.progress,
+                loadedFile: state.loadedFile
+            };
+        }
+
         async downloadChapters(service, downloadState, chapters, onProgress) {
             const results = [];
             const total = chapters.length;
@@ -131,6 +161,8 @@
             for (let i = 0; i < total; i++) {
                 await downloadState.controller.waitIfPaused();
                 if (downloadState.controller.shouldStop()) break;
+
+                downloadState.currentChapterIndex = i;
 
                 const chapter = chapters[i];
                 const progress = Math.floor((i / total) * 80) + 10;
@@ -167,16 +199,19 @@
                           )
                         : extractedContent;
 
-                    results.push({
+                    const chapterResult = {
                         title: chapter.name || `Том ${chapter.volume}, Глава ${chapter.number}`,
                         content: processedContent,
                         volume: chapter.volume,
                         number: chapter.number
-                    });
+                    };
+
+                    results.push(chapterResult);
+                    downloadState.chapterContents.push(chapterResult);
 
                 } catch (error) {
                     console.error(`[DownloadManager] Failed to download chapter ${chapter.number}:`, error);
-                    results.push({
+                    const errorChapter = {
                         title: chapter.name || `Том ${chapter.volume}, Глава ${chapter.number}`,
                         content: [{
                             type: 'text',
@@ -184,7 +219,10 @@
                         }],
                         volume: chapter.volume,
                         number: chapter.number
-                    });
+                    };
+                    
+                    results.push(errorChapter);
+                    downloadState.chapterContents.push(errorChapter);
                 }
 
                 await this.delay(500);

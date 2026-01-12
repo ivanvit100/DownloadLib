@@ -2,50 +2,79 @@
 
 console.log('[Background] Script loading...');
 
-const rateLimiter = new RateLimiter({ maxRequestsPerMinute: 100 });
+const rateLimiter = globalRateLimiter || new RateLimiter({ maxRequestsPerMinute: 80 });
 let ServiceConfigs = {};
-const extensionRequests = new Map();
 
 if (typeof mangalibConfig !== 'undefined')
     ServiceConfigs.mangalib = mangalibConfig;
 if (typeof ranolibConfig !== 'undefined')
     ServiceConfigs.ranobelib = ranolibConfig;
 
-function detectService(url) {
-    if (url.includes('mangalib.me') || url.includes('mixlib.me') || url.includes('imglib.info') || url.includes('api.cdnlibs.org'))
-        return 'mangalib';
-    if (url.includes('ranobelib.me') || url.includes('ranobelib.org'))
+function isImageRequest(url) {
+    return url.includes('mixlib.me') || url.includes('imglib.info') || url.includes('/covers/') || url.includes('/uploads/');
+}
+
+function detectServiceByReferer(details) {
+    const headers = details.requestHeaders || [];
+    const refererHeader = headers.find(h => h.name.toLowerCase() === 'referer');
+    const referer = refererHeader ? refererHeader.value : '';
+    
+    if (referer.includes('ranobelib.me'))
         return 'ranobelib';
+    if (referer.includes('mangalib.me'))
+        return 'mangalib';
+    
+    if (isImageRequest(details.url)) {
+        if (details.url.includes('mixlib.me') || details.url.includes('imglib.info'))
+            return 'mangalib';
+        if (details.url.includes('ranobelib.me'))
+            return 'ranobelib';
+    }
+    
     return null;
 }
 
-function isImageRequest(url) {
-    return url.includes('mixlib.me') || url.includes('imglib.info') || url.includes('/covers/');
+function isFromExtension(details) {
+    return details.tabId === -1 || 
+           details.frameId === -1 ||
+           !details.tabId ||
+           (details.originUrl && details.originUrl.startsWith('moz-extension://')) ||
+           (details.documentUrl && details.documentUrl.startsWith('moz-extension://'));
 }
 
 if (typeof browser !== 'undefined' && browser.webRequest) {
     browser.webRequest.onBeforeSendHeaders.addListener(
-        (details) => {
-            if (!extensionRequests.has(details.url)) return;
+        async (details) => {
+            if (!isFromExtension(details)) return {};
 
-            const serviceName = detectService(details.url);
-            if (!serviceName || !ServiceConfigs[serviceName]) return;
+            const serviceName = detectServiceByReferer(details);
+            if (serviceName) {
+                console.log(`[Background] Rate limiting ${serviceName} request: ${details.url}`);
+                await rateLimiter.trackRequest(serviceName);
+            } else {
+                console.warn(`[Background] Could not detect service for: ${details.url}`);
+            }
 
-            const config = ServiceConfigs[serviceName];
-            const isImage = isImageRequest(details.url);
-            
             let headers = details.requestHeaders || [];
-            
-            const targetHeaders = isImage && config.imageHeaders ? config.imageHeaders : config.headers;
-            
-            if (targetHeaders) {
-                for (const [name, value] of Object.entries(targetHeaders)) {
-                    const existing = headers.find(h => h.name.toLowerCase() === name.toLowerCase());
-                    if (existing) existing.value = value;
-                    else headers.push({ name, value });
+
+            if (serviceName && ServiceConfigs[serviceName]) {
+                const config = ServiceConfigs[serviceName];
+                const isImage = isImageRequest(details.url);
+                
+                const targetHeaders = isImage && config.imageHeaders ? config.imageHeaders : config.headers;
+                
+                if (targetHeaders) {
+                    console.log(`[Background] Applying ${serviceName} headers (${isImage ? 'image' : 'api'}) to:`, details.url);
+                    for (const [name, value] of Object.entries(targetHeaders)) {
+                        const lowerName = name.toLowerCase();
+                        
+                        const existing = headers.find(h => h.name.toLowerCase() === lowerName);
+                        if (existing) existing.value = value;
+                        else headers.push({ name, value });
+                    }
                 }
             }
-            
+
             return { requestHeaders: headers };
         },
         { urls: ['<all_urls>'] },
@@ -72,11 +101,7 @@ if (typeof browser !== 'undefined' && browser.runtime && browser.runtime.onMessa
         if (message.action === 'fetchImage') {
             (async () => {
                 try {
-                    await rateLimiter.trackRequest('image');
                     const url = message.url;
-                    const serviceName = message.serviceName || detectService(url);
-                    
-                    extensionRequests.set(url, Date.now());
                     
                     const fetchOptions = {
                         method: 'GET',
@@ -86,15 +111,7 @@ if (typeof browser !== 'undefined' && browser.runtime && browser.runtime.onMessa
                         mode: 'cors'
                     };
                     
-                    if (serviceName && ServiceConfigs[serviceName]) {
-                        const config = ServiceConfigs[serviceName];
-                        const headers = config.imageHeaders || config.headers;
-                        if (headers) fetchOptions.headers = headers;
-                    }
-                    
                     const response = await fetch(url, fetchOptions);
-
-                    extensionRequests.delete(url);
 
                     if (!response.ok) {
                         sendResponse({ ok: false, error: `HTTP ${response.status}` });
@@ -129,22 +146,14 @@ if (typeof browser !== 'undefined' && browser.runtime && browser.runtime.onMessa
         if (message.action === 'fetchWithRateLimit') {
             (async () => {
                 try {
-                    await rateLimiter.trackRequest('api');
                     const url = message.url;
-                    const serviceName = message.serviceName || detectService(url);
-                    
-                    extensionRequests.set(url, Date.now());
                     
                     let fetchOptions = message.options || {};
                     
                     if (!fetchOptions.credentials)
                         fetchOptions.credentials = 'include';
-                    if (!fetchOptions.headers && serviceName && ServiceConfigs[serviceName])
-                        fetchOptions.headers = ServiceConfigs[serviceName].headers;
                     
                     const response = await fetch(url, fetchOptions);
-                    
-                    extensionRequests.delete(url);
                     
                     if (!response.ok) {
                         sendResponse({ 
@@ -166,6 +175,53 @@ if (typeof browser !== 'undefined' && browser.runtime && browser.runtime.onMessa
                     sendResponse({ ok: false, error: String(err) });
                 }
             })();
+            return true;
+        }
+
+        if (message.action === 'takeOverDownload') {
+            (async () => {
+                try {
+                    const result = await backgroundDownload.takeOverDownload({
+                        slug: message.slug,
+                        serviceKey: message.serviceKey,
+                        format: message.format,
+                        manga: message.manga,
+                        coverBase64: message.coverBase64,
+                        chapterContents: message.chapterContents,
+                        chapters: message.chapters,
+                        currentChapterIndex: message.currentChapterIndex,
+                        currentStatus: message.currentStatus,
+                        currentProgress: message.currentProgress,
+                        loadedFile: message.loadedFile
+                    });
+                    sendResponse({ ok: true, downloadId: result.downloadId });
+                } catch (err) {
+                    sendResponse({ ok: false, error: String(err) });
+                }
+            })();
+            return true;
+        }
+
+        if (message.action === 'getActiveDownloads') {
+            sendResponse({ ok: true, downloads: backgroundDownload.getActiveDownloads() });
+            return true;
+        }
+
+        if (message.action === 'pauseBackgroundDownload') {
+            backgroundDownload.pause(message.downloadId);
+            sendResponse({ ok: true });
+            return true;
+        }
+
+        if (message.action === 'resumeBackgroundDownload') {
+            backgroundDownload.resume(message.downloadId);
+            sendResponse({ ok: true });
+            return true;
+        }
+
+        if (message.action === 'stopBackgroundDownload') {
+            backgroundDownload.stop(message.downloadId);
+            sendResponse({ ok: true });
             return true;
         }
     });
