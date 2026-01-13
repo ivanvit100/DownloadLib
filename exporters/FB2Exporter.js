@@ -105,6 +105,66 @@
                 mimeType: 'application/xml'
             };
         }
+
+        parseFB2(text, filename) {
+            const parser = new DOMParser();
+            const doc = parser.parseFromString(text, 'text/xml');
+
+            const titleInfo = doc.querySelector('title-info');
+            const bookTitle = titleInfo?.querySelector('book-title')?.textContent || filename;
+            
+            const authors = [];
+            const authorNodes = titleInfo?.querySelectorAll('author') || [];
+            authorNodes.forEach(author => {
+                const firstName = author.querySelector('first-name')?.textContent || '';
+                const lastName = author.querySelector('last-name')?.textContent || '';
+                const name = [firstName, lastName].filter(Boolean).join(' ');
+                if (name) authors.push(name);
+            });
+
+            let cover = '';
+            const binary = doc.querySelector('binary[id*="cover"]');
+            if (binary) {
+                const contentType = binary.getAttribute('content-type') || 'image/jpeg';
+                cover = `data:${contentType};base64,${binary.textContent.trim()}`;
+            }
+
+            const chapters = [];
+            const sections = doc.querySelectorAll('body > section');
+            
+            sections.forEach((section, idx) => {
+                const titleNode = section.querySelector('title');
+                const title = titleNode?.textContent?.trim() || `Глава ${idx + 1}`;
+                
+                const content = [];
+                const paragraphs = section.querySelectorAll('p');
+                
+                paragraphs.forEach(p => {
+                    const text = p.textContent.trim();
+                    if (text) {
+                        content.push({ type: 'text', text });
+                    }
+                });
+
+                chapters.push({
+                    title,
+                    content,
+                    number: idx + 1,
+                    volume: 1
+                });
+            });
+
+            return {
+                metadata: {
+                    name: bookTitle,
+                    rus_name: bookTitle,
+                    authors,
+                    summary: ''
+                },
+                cover,
+                chapters
+            };
+        }
     }
 
     global.FB2Exporter = FB2Exporter;

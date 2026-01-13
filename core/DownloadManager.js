@@ -63,6 +63,8 @@
             this.eventBus.emit('download:started', downloadState);
 
             try {
+                if (loadedFile) return await this.updateExistingFile(downloadState, service, loadedFile);
+
                 this.updateStatus(downloadId, 'Загрузка метаданных...', 5);
                 const metadata = await service.fetchMangaMetadata(downloadState.slug);
                 console.log('[DownloadManager] Metadata:', metadata);
@@ -133,6 +135,264 @@
             } finally {
                 setTimeout(() => this.activeDownloads.delete(downloadId), 5000);
             }
+        }
+
+        async updateExistingFile(downloadState, service, loadedFile) {
+            const { id: downloadId, slug, format } = downloadState;
+
+            try {
+                this.updateStatus(downloadId, 'Загрузка списка глав с сервера...', 5);
+                const chaptersData = await service.fetchChaptersList(slug);
+                const serverChapters = this.sortChapters(chaptersData.data || []);
+                
+                this.updateStatus(downloadId, 'Анализ существующего файла...', 10);
+                const exporter = global.ExporterFactory.create(format);
+                
+                let existingData;
+                existingData = exporter.parse ?
+                    await exporter.parse(loadedFile) :
+                    await this.parseFile(loadedFile, format);
+                
+                console.log('[DownloadManager] Existing chapters:', existingData.chapters.length);
+
+                const chaptersToDownload = this.findMissingChapters(
+                    serverChapters,
+                    existingData.chapters
+                );
+
+                console.log('[DownloadManager] Chapters to download:', chaptersToDownload.length);
+
+                if (chaptersToDownload.length === 0) {
+                    this.updateStatus(downloadId, 'Файл уже актуален!', 100);
+                    this.eventBus.emit('download:completed', downloadState);
+                    return { success: true, downloadId, updated: false };
+                }
+
+                downloadState.chapters = serverChapters;
+                downloadState.manga = existingData.metadata;
+                downloadState.coverBase64 = existingData.cover;
+
+                const newChapterContents = await this.downloadSpecificChapters(
+                    service,
+                    downloadState,
+                    chaptersToDownload,
+                    serverChapters.length
+                );
+
+                this.updateStatus(downloadId, 'Объединение глав...', 90);
+                const mergedChapters = this.mergeChapters(
+                    existingData.chapters,
+                    newChapterContents,
+                    serverChapters
+                );
+
+                this.updateStatus(downloadId, `Создание обновлённого ${format.toUpperCase()}...`, 95);
+                const file = await exporter.export(
+                    existingData.metadata,
+                    mergedChapters,
+                    existingData.cover
+                );
+
+                await this.saveFile(file.blob, file.filename);
+
+                this.updateStatus(downloadId, 'Файл обновлён!', 100);
+                this.eventBus.emit('download:completed', downloadState);
+                
+                return { 
+                    success: true, 
+                    downloadId, 
+                    updated: true,
+                    addedChapters: chaptersToDownload.length 
+                };
+
+            } catch (error) {
+                console.error('[DownloadManager] Update error:', error);
+                this.updateStatus(downloadId, `Ошибка обновления: ${error.message}`, -1);
+                this.eventBus.emit('download:failed', { downloadState, error });
+                throw error;
+            }
+        }
+
+        async parseFile(file, format) {
+            if (format === 'fb2') {
+                const text = await this.readFileAsText(file);
+                const exporter = global.ExporterFactory.create('fb2');
+                return exporter.parseFB2(text, file.name);
+            } else if (format === 'epub') {
+                const exporter = global.ExporterFactory.create('epub');
+                return await exporter.parseEPUB(file);
+            } else if (format === 'pdf') {
+                throw new Error('PDF парсинг пока не реализован');
+            }
+            
+            throw new Error(`Unsupported format: ${format}`);
+        }
+
+        async readFileAsText(file) {
+            return new Promise((resolve, reject) => {
+                const reader = new FileReader();
+                reader.onload = (e) => resolve(e.target.result);
+                reader.onerror = reject;
+                reader.readAsText(file, 'utf-8');
+            });
+        }
+
+        findMissingChapters(serverChapters, existingChapters) {
+            const existingKeys = new Set();
+            
+            for (const ch of existingChapters) {
+                const key = this.getChapterKey(ch);
+                existingKeys.add(key);
+            }
+
+            const missing = [];
+            
+            for (const serverCh of serverChapters) {
+                const key = this.getChapterKey(serverCh);
+                
+                if (!existingKeys.has(key)) {
+                    missing.push(serverCh);
+                } else {
+                    const existingCh = existingChapters.find(ch => this.getChapterKey(ch) === key);
+                    if (existingCh && this.isChapterEmpty(existingCh)) missing.push(serverCh);
+                }
+            }
+
+            return missing;
+        }
+
+        getChapterKey(chapter) {
+            const vol = chapter.volume || '1';
+            const num = chapter.number || '0';
+            return `v${vol}_ch${num}`;
+        }
+
+        isChapterEmpty(chapter) {
+            if (!chapter.content || !Array.isArray(chapter.content)) {
+                return true;
+            }
+
+            const hasContent = chapter.content.some(block => {
+                if (block.type === 'text') {
+                    const text = block.text || '';
+                    return text.trim() && !text.includes('[Ошибка загрузки главы');
+                }
+                if (block.type === 'image')
+                    return block.data && (block.data.base64 || block.data.src);
+                return false;
+            });
+
+            return !hasContent;
+        }
+
+        async downloadSpecificChapters(service, downloadState, chaptersToDownload, totalChapters) {
+            const results = [];
+            const total = chaptersToDownload.length;
+
+            for (let i = 0; i < total; i++) {
+                await downloadState.controller.waitIfPaused();
+                if (downloadState.controller.shouldStop()) break;
+
+                const chapter = chaptersToDownload[i];
+                const progress = Math.floor(((i / total) * 80) + 10);
+                
+                this.updateStatus(
+                    downloadState.id,
+                    `Загрузка главы ${i + 1}/${total}: ${chapter.name || chapter.number}`,
+                    progress
+                );
+
+                try {
+                    const chapterData = await service.fetchChapter(
+                        downloadState.slug,
+                        chapter.number,
+                        chapter.volume || '1'
+                    );
+
+                    const rawContent = chapterData.data || chapterData;
+                    const contentToExtract = rawContent.content || rawContent;
+                    
+                    const extractedContent = service.extractText 
+                        ? service.extractText(contentToExtract) 
+                        : contentToExtract;
+
+                    const processedContent = service.processChapterContent 
+                        ? await service.processChapterContent(
+                            extractedContent,
+                            document.getElementById('status'),
+                            {
+                                chapterMeta: rawContent,
+                                chapterObj: chapter,
+                                mangaSlug: downloadState.slug
+                            }
+                          )
+                        : extractedContent;
+
+                    const chapterResult = {
+                        title: chapter.name || `Том ${chapter.volume}, Глава ${chapter.number}`,
+                        content: processedContent,
+                        volume: chapter.volume,
+                        number: chapter.number
+                    };
+
+                    results.push(chapterResult);
+
+                } catch (error) {
+                    console.error(`[DownloadManager] Failed to download chapter ${chapter.number}:`, error);
+                    const errorChapter = {
+                        title: chapter.name || `Том ${chapter.volume}, Глава ${chapter.number}`,
+                        content: [{
+                            type: 'text',
+                            text: `[Ошибка загрузки главы: ${error.message}]`
+                        }],
+                        volume: chapter.volume,
+                        number: chapter.number
+                    };
+                    
+                    results.push(errorChapter);
+                }
+                await this.delay(500);
+            }
+
+            return results;
+        }
+
+        mergeChapters(existingChapters, newChapters, serverChapters) {
+            const newChaptersMap = new Map();
+            for (const ch of newChapters) {
+                const key = this.getChapterKey(ch);
+                newChaptersMap.set(key, ch);
+            }
+
+            const existingMap = new Map();
+            for (const ch of existingChapters) {
+                const key = this.getChapterKey(ch);
+                existingMap.set(key, ch);
+            }
+
+            const result = [];
+
+            for (const serverCh of serverChapters) {
+                const key = this.getChapterKey(serverCh);
+
+                if (newChaptersMap.has(key)) {
+                    result.push(newChaptersMap.get(key));
+                } else if (existingMap.has(key)) {
+                    result.push(existingMap.get(key));
+                } else {
+                    result.push({
+                        title: serverCh.name || `Том ${serverCh.volume}, Глава ${serverCh.number}`,
+                        content: [{
+                            type: 'text',
+                            text: '[Глава не загружена]'
+                        }],
+                        volume: serverCh.volume,
+                        number: serverCh.number
+                    });
+                }
+            }
+
+            return result;
         }
 
         getDownloadState(downloadId) {
@@ -231,43 +491,6 @@
             return results;
         }
 
-        async fetchImageWithRetry(url, referer, retries = 5) {
-            for (let attempt = 0; attempt < retries; attempt++) {
-                try {
-                    const response = await fetch(url, {
-                        method: 'GET',
-                        headers: {
-                            'Referer': referer || '',
-                            'Accept': 'image/webp,image/apng,image/*,*/*;q=0.8'
-                        },
-                        credentials: 'omit'
-                    });
-
-                    if (!response.ok) {
-                        throw new Error(`HTTP ${response.status}`);
-                    }
-
-                    const blob = await response.blob();
-                    return blob;
-
-                } catch (e) {
-                    if (attempt < retries - 1)
-                        await this.delay(1000 * (attempt + 1));
-                }
-            }
-
-            return null;
-        }
-
-        async blobToBase64(blob) {
-            return new Promise((resolve, reject) => {
-                const reader = new FileReader();
-                reader.onloadend = () => resolve(reader.result);
-                reader.onerror = reject;
-                reader.readAsDataURL(blob);
-            });
-        }
-
         createController() {
             let paused = false;
             let stopped = false;
@@ -332,10 +555,6 @@
                     a.remove();
                 }, 10000);
             }
-        }
-
-        sanitizeFilename(filename) {
-            return filename.replace(/[<>:"/\\|?*]/g, '_').substring(0, 200);
         }
 
         pause(downloadId) {

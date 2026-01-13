@@ -179,6 +179,160 @@
       <content src="${href}"/>
     </navPoint>\n`;
         }
+
+        async parseEPUB(file) {
+            if (typeof JSZip === 'undefined')
+                throw new Error('JSZip library not loaded. Include it in popup.html');
+
+            const zip = new JSZip();
+            const zipContent = await zip.loadAsync(file);
+            let opfFile = null;
+            const containerXml = await zipContent.file('META-INF/container.xml')?.async('text');
+            
+            if (containerXml) {
+                const parser = new DOMParser();
+                const containerDoc = parser.parseFromString(containerXml, 'text/xml');
+                const rootfile = containerDoc.querySelector('rootfile');
+                const opfPath = rootfile?.getAttribute('full-path');
+                if (opfPath) opfFile = zipContent.file(opfPath);
+            }
+
+            if (!opfFile) {
+                for (const filename in zipContent.files) {
+                    if (filename.endsWith('.opf')) {
+                        opfFile = zipContent.files[filename];
+                        break;
+                    }
+                }
+            }
+
+            let metadata = {
+                name: file.name.replace('.epub', ''),
+                rus_name: file.name.replace('.epub', ''),
+                authors: [],
+                summary: ''
+            };
+
+            let cover = '';
+            let spineOrder = [];
+
+            if (opfFile) {
+                const opfText = await opfFile.async('text');
+                const parser = new DOMParser();
+                const opfDoc = parser.parseFromString(opfText, 'text/xml');
+                const metadataNode = opfDoc.querySelector('metadata');
+                if (metadataNode) {
+                    const title = metadataNode.querySelector('dc\\:title, title')?.textContent || metadata.name;
+                    metadata.name = title;
+                    metadata.rus_name = title;
+
+                    const authorNodes = metadataNode.querySelectorAll('dc\\:creator, creator');
+                    metadata.authors = Array.from(authorNodes).map(a => a.textContent.trim()).filter(Boolean);
+
+                    const description = metadataNode.querySelector('dc\\:description, description')?.textContent;
+                    if (description) metadata.summary = description;
+                }
+
+                const manifest = opfDoc.querySelector('manifest');
+                const coverItem = manifest?.querySelector('item[properties*="cover-image"], item[id="cover"], item[id="cover-image"]');
+                if (coverItem) {
+                    const coverHref = coverItem.getAttribute('href');
+                    const opfDir = opfFile.name.substring(0, opfFile.name.lastIndexOf('/') + 1);
+                    const coverPath = opfDir + coverHref;
+                    const coverFile = zipContent.file(coverPath);
+                    if (coverFile) {
+                        const coverBlob = await coverFile.async('blob');
+                        cover = await this.blobToBase64(coverBlob);
+                    }
+                }
+
+                const spine = opfDoc.querySelector('spine');
+                if (spine) {
+                    const itemrefs = spine.querySelectorAll('itemref');
+                    spineOrder = Array.from(itemrefs).map(ref => ref.getAttribute('idref'));
+                }
+            }
+
+            const chapters = [];
+            const htmlFiles = Object.keys(zipContent.files).filter(f => 
+                f.match(/\.(x?html?)$/i) && !f.includes('nav.') && !f.includes('toc.')
+            );
+
+            const sortedFiles = spineOrder.length > 0 
+                ? spineOrder.map(id => {
+                    const item = htmlFiles.find(f => f.includes(id) || f.endsWith(`${id}.html`) || f.endsWith(`${id}.xhtml`));
+                    return item;
+                }).filter(Boolean)
+                : htmlFiles.sort();
+
+            for (let i = 0; i < sortedFiles.length; i++) {
+                const filename = sortedFiles[i];
+                const htmlFile = zipContent.file(filename);
+                if (!htmlFile) continue;
+
+                const htmlText = await htmlFile.async('text');
+                const parser = new DOMParser();
+                const htmlDoc = parser.parseFromString(htmlText, 'text/html');
+                const h1 = htmlDoc.querySelector('h1, h2');
+                const title = h1?.textContent?.trim() || `Глава ${i + 1}`;
+
+                const chapterContent = [];
+                const body = htmlDoc.querySelector('body');
+                if (body) {
+                    const paragraphs = body.querySelectorAll('p');
+                    paragraphs.forEach(p => {
+                        const text = p.textContent.trim();
+                        if (text) chapterContent.push({ type: 'text', text });
+                    });
+
+                    const images = body.querySelectorAll('img');
+                    for (const img of images) {
+                        const src = img.getAttribute('src');
+                        if (src) {
+                            const fileDir = filename.substring(0, filename.lastIndexOf('/') + 1);
+                            const imgPath = fileDir + src;
+                            const imgFile = zipContent.file(imgPath);
+                            if (imgFile) {
+                                const imgBlob = await imgFile.async('blob');
+                                const imgBase64 = await this.blobToBase64(imgBlob);
+                                const base64Data = imgBase64.split(',')[1];
+                                chapterContent.push({
+                                    type: 'image',
+                                    data: {
+                                        base64: base64Data,
+                                        contentType: imgBlob.type || 'image/jpeg'
+                                    }
+                                });
+                            }
+                        }
+                    }
+                }
+
+                if (chapterContent.length > 0) {
+                    chapters.push({
+                        title,
+                        content: chapterContent,
+                        number: i + 1,
+                        volume: 1
+                    });
+                }
+            }
+
+            return {
+                metadata,
+                cover,
+                chapters
+            };
+        }
+
+        async blobToBase64(blob) {
+            return new Promise((resolve, reject) => {
+                const reader = new FileReader();
+                reader.onloadend = () => resolve(reader.result);
+                reader.onerror = reject;
+                reader.readAsDataURL(blob);
+            });
+        }
     }
 
     global.EPUBExporter = EPUBExporter;

@@ -188,6 +188,8 @@
                         if (formatSelector) formatSelector.disabled = false;
                         if (status) status.textContent = '';
                         customFileBtn.textContent = 'Загрузить файл для обновления';
+                        btn.textContent = 'Скачать';
+                        btn.style.display = 'block';
                         return;
                     }
                     
@@ -199,6 +201,8 @@
                         }
                         if (status) status.textContent = `Загружен файл: ${file.name}`;
                         customFileBtn.textContent = `Файл загружен: ${file.name}`;
+                        btn.textContent = 'Обновить файл';
+                        btn.style.display = 'block';
                         this.loadedFile = file;
                     } else {
                         if (formatSelector) formatSelector.disabled = false;
@@ -206,6 +210,7 @@
                         customFileBtn.textContent = 'Загрузить файл для обновления';
                         hiddenFileInput.value = '';
                         this.loadedFile = null;
+                        btn.textContent = 'Скачать';
                     }
                 });
             }
@@ -675,6 +680,7 @@
                             } else {
                                 this.resetUI();
                                 const status = document.getElementById('status');
+                                if (status) status.textContent = 'Загрузка продолжается в фоне';
                             }
                         } else {
                             this.shouldStop = false;
@@ -693,7 +699,8 @@
             });
 
             this.downloadManager.eventBus.on('download:completed', () => {
-                this.showSuccess('Загрузка завершена!');
+                const message = this.loadedFile ? 'Файл обновлён!' : 'Загрузка завершена!';
+                this.showSuccess(message);
                 this.resetUI();
             });
 
@@ -739,7 +746,9 @@
                 if (customFileBtn) customFileBtn.disabled = true;
                 if (progress) progress.style.display = 'block';
                 if (controlsContainer) controlsContainer.style.display = 'block';
-                if (status) status.textContent = 'Запуск скачивания...';
+                
+                const statusText = this.loadedFile ? 'Запуск обновления...' : 'Запуск скачивания...';
+                if (status) status.textContent = statusText;
 
                 const format = formatSelector?.value || 'fb2';
 
@@ -759,6 +768,13 @@
                         }
                     }
                 });
+
+                if (result.updated !== undefined) {
+                    const message = result.updated 
+                        ? `Файл обновлён! Добавлено глав: ${result.addedChapters}`
+                        : 'Файл уже актуален!';
+                    if (status) status.textContent = message;
+                }
 
             } catch (error) {
                 console.error('[PopupController] Download failed:', error);
@@ -788,6 +804,7 @@
             this.isDownloading = false;
             this.isPaused = false;
             this.shouldStop = false;
+            this.loadedFile = null;
             
             const btn = document.getElementById('downloadBtn');
             const formatSelector = document.getElementById('formatSelector');
@@ -800,11 +817,18 @@
             if (btn) {
                 btn.style.display = 'block';
                 btn.disabled = false;
+                btn.textContent = 'Скачать';
             }
             if (formatSelector) formatSelector.disabled = false;
             if (rateLimitInput) rateLimitInput.disabled = false;
-            if (hiddenFileInput) hiddenFileInput.disabled = false;
-            if (customFileBtn) customFileBtn.disabled = false;
+            if (hiddenFileInput) {
+                hiddenFileInput.disabled = false;
+                hiddenFileInput.value = '';
+            }
+            if (customFileBtn) {
+                customFileBtn.disabled = false;
+                customFileBtn.textContent = 'Загрузить файл для обновления';
+            }
             if (progress) progress.style.display = 'none';
             if (controls) controls.style.display = 'none';
             
