@@ -183,48 +183,39 @@
                         const url = `https://ranobelib.me/uploads/ranobe/${mangaId}/chapters/${chapterId}/${imageUuid}.${ext}`;
                         
                         try {
-                            const response = await fetch(url, {
-                                method: 'GET',
-                                headers: {
-                                    'Accept': 'image/avif,image/webp,image/png,image/svg+xml,image/*;q=0.8,*/*;q=0.5',
-                                    'Referer': 'https://ranobelib.me/',
-                                    'Sec-Fetch-Dest': 'image',
-                                    'Sec-Fetch-Mode': 'no-cors',
-                                    'Sec-Fetch-Site': 'same-origin'
-                                },
-                                mode: 'cors',
-                                credentials: 'include'
+                            if (typeof browser === 'undefined' || !browser.runtime) {
+                                console.error('[RanobeLibService] browser.runtime not available!');
+                                continue;
+                            }
+
+                            const response = await new Promise((resolve, reject) => {
+                                browser.runtime.sendMessage({
+                                    action: 'fetchImage',
+                                    url: url
+                                }).then(resolve).catch(reject);
+                            });
+
+                            if (!response || !response.ok) {
+                                console.warn(`[RanobeLibService] Failed to fetch ${url}:`, response?.error);
+                                continue;
+                            }
+
+                            const base64Data = response.base64;
+                            const contentType = response.contentType || 'image/png';
+                            
+                            result.push({
+                                type: 'image',
+                                data: { base64: base64Data, contentType }
                             });
                             
-                            if (response.ok) {
-                                const blob = await response.blob();
-                                const reader = new FileReader();
-                                const base64 = await new Promise((resolve, reject) => {
-                                    reader.onloadend = () => resolve(reader.result);
-                                    reader.onerror = reject;
-                                    reader.readAsDataURL(blob);
-                                });
-                                
-                                const base64Data = base64.split(',')[1];
-                                const contentType = blob.type || 'image/png';
-                                
-                                result.push({
-                                    type: 'image',
-                                    data: { base64: base64Data, contentType }
-                                });
-                                
-                                console.log('[RanobeLibService] Image loaded:', ext, 'size:', blob.size);
-                                loaded = true;
-                                break;
-                            }
+                            loaded = true;
+                            break;
                         } catch (e) {
                             console.warn('[RanobeLibService] Failed ext:', ext, e);
                         }
                     }
                     
-                    if (!loaded) {
-                        console.error('[RanobeLibService] Failed to load image:', imageUuid);
-                    }
+                    if (!loaded) console.error('[RanobeLibService] Failed to load image:', imageUuid);
                 }
             }
             
