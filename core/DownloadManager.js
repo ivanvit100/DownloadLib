@@ -1,3 +1,12 @@
+/**
+ * DownloadLib core module
+ * Manages manga downloads from various services
+ * @module core/DownloadManager
+ * @license MIT
+ * @author ivanvit
+ * @version 1.0.0
+ */
+
 'use strict';
 
 (function(global) {

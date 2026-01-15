@@ -1,3 +1,12 @@
+/**
+ * DownloadLib background module
+ * Module to manage downloads in the background
+ * @module background/BackgroundDownload
+ * @license MIT
+ * @author ivanvit
+ * @version 1.0.0
+ */
+
 'use strict';
 
 console.log('[BackgroundDownload] Loading...');

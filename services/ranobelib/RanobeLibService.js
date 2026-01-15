@@ -1,3 +1,12 @@
+/**
+ * DownloadLib service module
+ * Module to interact with RanobeLib service
+ * @module services/ranobelib/RanobeLibService
+ * @license MIT
+ * @author ivanvit
+ * @version 1.0.0
+ */
+
 'use strict';
 
 (function(global) {

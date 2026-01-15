@@ -1,3 +1,12 @@
+/**
+ * DownloadLib exporter module
+ * Module to export manga as FB2 files
+ * @module exporters/FB2Exporter
+ * @license MIT
+ * @author ivanvit
+ * @version 1.0.0
+ */
+
 'use strict';
 
 (function(global) {

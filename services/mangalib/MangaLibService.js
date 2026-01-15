@@ -1,3 +1,12 @@
+/**
+ * DownloadLib service module
+ * Module to interact with the MangaLib manga service
+ * @module services/mangalib/MangaLibService
+ * @license MIT
+ * @author ivanvit
+ * @version 1.0.0
+ */
+
 'use strict';
 
 (function(global) {

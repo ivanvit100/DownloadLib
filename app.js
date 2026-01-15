@@ -1,3 +1,11 @@
+/**
+ * DownloadLib main module
+ * Initializes the application, registers services, and sets up the UI
+ * @license MIT
+ * @author ivanvit
+ * @version 1.0.0
+ */
+
 'use strict';
 
 (function() {

@@ -1,3 +1,12 @@
+/**
+ * DownloadLib service module
+ * Base class for manga services
+ * @module services/BaseService
+ * @license MIT
+ * @author ivanvit
+ * @version 1.0.0
+ */
+
 'use strict';
 
 (function(global) {

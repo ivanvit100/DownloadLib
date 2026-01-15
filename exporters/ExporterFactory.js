@@ -1,3 +1,12 @@
+/**
+ * DownloadLib exporter factory module
+ * Module to export manga as various formats
+ * @module exporters/ExporterFactory
+ * @license MIT
+ * @author ivanvit
+ * @version 1.0.0
+ */
+
 'use strict';
 
 (function(global) {

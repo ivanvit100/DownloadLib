@@ -1,3 +1,12 @@
+/**
+ * DownloadLib ui module
+ * Module to manage the user interface for manga downloads
+ * @module ui/PopupController
+ * @license MIT
+ * @author ivanvit
+ * @version 1.0.0
+ */
+
 'use strict';
 
 (function(global) {

@@ -1,3 +1,12 @@
+/**
+ * DownloadLib core module
+ * Module to manage services (MangaLib, Ranobelib, etc.)
+ * @module core/ServiceRegistry
+ * @license MIT
+ * @author ivanvit
+ * @version 1.0.0
+ */
+
 'use strict';
 
 (function(global) {

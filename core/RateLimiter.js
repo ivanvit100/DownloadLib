@@ -1,3 +1,12 @@
+/**
+ * DownloadLib core module
+ * Module to manage request rate limiting
+ * @module core/RateLimiter
+ * @license MIT
+ * @author ivanvit
+ * @version 1.0.0
+ */
+
 'use strict';
 
 (function(global) {

@@ -1,3 +1,12 @@
+/**
+ * DownloadLib core module
+ * Event bus for inter-module communication
+ * @module core/EventBus
+ * @license MIT
+ * @author ivanvit
+ * @version 1.0.0
+ */
+
 'use strict';
 
 (function(global) {
