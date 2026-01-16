@@ -313,4 +313,4 @@
 
     global.PDFExporter = PDFExporter;
     console.log('[PDFExporter] Loaded');
-})(window);
+})(typeof window !== 'undefined' ? window : self);

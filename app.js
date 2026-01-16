@@ -12,7 +12,7 @@
     console.log('[App] Initializing...');
 
     if (typeof browser !== 'undefined' && typeof chrome === 'undefined')
-        window.chrome = browser;
+        (typeof window !== 'undefined' ? window : self).chrome = browser;
 
     const dependencies = [
         'EventBus',
@@ -39,26 +39,25 @@
     }
 
     console.log('[App] All dependencies loaded');
-
     try {
-        window.serviceRegistry.register(window.MangaLibService);
+        (typeof window !== 'undefined' ? window : self).serviceRegistry.register((typeof window !== 'undefined' ? window : self).MangaLibService);
     } catch (e) {
         console.error('[App] Failed to register MangaLibService:', e);
     }
 
     try {
-        window.serviceRegistry.register(window.RanobeLibService);
+        (typeof window !== 'undefined' ? window : self).serviceRegistry.register((typeof window !== 'undefined' ? window : self).RanobeLibService);
     } catch (e) {
         console.error('[App] Failed to register RanobeLibService:', e);
     }
 
-    const services = window.serviceRegistry.getAllServices();
+    const services = (typeof window !== 'undefined' ? window : self).serviceRegistry.getAllServices();
 
     function initUI() {
         console.log('[App] Initializing UI...');
         
         try {
-            window.popupController = new window.PopupController();
+            (typeof window !== 'undefined' ? window : self).popupController = new (typeof window !== 'undefined' ? window : self).PopupController();
         } catch (e) {
             console.error('[App] Failed to initialize PopupController:', e);
             document.getElementById('error').textContent = 'Ошибка инициализации: ' + e.message;

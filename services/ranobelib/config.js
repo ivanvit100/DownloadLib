@@ -31,4 +31,4 @@
             'Connection': 'keep-alive'
         }
     };
-})(window);
+})(typeof window !== 'undefined' ? window : self);

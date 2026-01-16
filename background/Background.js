@@ -11,6 +11,12 @@
 
 console.log('[Background] Script loading...');
 
+const browserAPI = (typeof chrome !== 'undefined' && chrome.runtime) ? chrome : ((typeof browser !== 'undefined') ? browser : null);
+const isChrome = typeof chrome !== 'undefined' && chrome.runtime && chrome.declarativeNetRequest;
+const isFirefox = (typeof browser !== 'undefined') && !isChrome;
+
+console.log('[Background] Detected browser:', isChrome ? 'Chrome' : (isFirefox ? 'Firefox' : 'Unknown'));
+
 const rateLimiter = globalRateLimiter || new RateLimiter({ maxRequestsPerMinute: 80 });
 let ServiceConfigs = {};
 
@@ -20,7 +26,11 @@ if (typeof ranolibConfig !== 'undefined')
     ServiceConfigs.ranobelib = ranolibConfig;
 
 function isImageRequest(url) {
-    return url.includes('mixlib.me') || url.includes('imglib.info') || url.includes('/covers/') || url.includes('/uploads/');
+    return url.includes('mixlib.me') || 
+           url.includes('imglib.info') || 
+           url.includes('imgslib.link') ||
+           url.includes('/covers/') || 
+           url.includes('/uploads/');
 }
 
 function detectServiceByReferer(details) {
@@ -34,7 +44,7 @@ function detectServiceByReferer(details) {
         return 'mangalib';
     
     if (isImageRequest(details.url)) {
-        if (details.url.includes('mixlib.me') || details.url.includes('imglib.info'))
+        if (details.url.includes('mixlib.me') || details.url.includes('imglib.info') || details.url.includes('imgslib.link'))
             return 'mangalib';
         if (details.url.includes('ranobelib.me'))
             return 'ranobelib';
@@ -44,24 +54,28 @@ function detectServiceByReferer(details) {
 }
 
 function isFromExtension(details) {
-    return details.tabId === -1 || 
-           details.frameId === -1 ||
-           !details.tabId ||
-           (details.originUrl && details.originUrl.startsWith('moz-extension://')) ||
-           (details.documentUrl && details.documentUrl.startsWith('moz-extension://'));
+    if (isFirefox) {
+        return details.tabId === -1 || 
+               details.frameId === -1 ||
+               !details.tabId ||
+               (details.originUrl && details.originUrl.startsWith('moz-extension://')) ||
+               (details.documentUrl && details.documentUrl.startsWith('moz-extension://'));
+    }
+    
+    const originHeader = details.requestHeaders?.find(h => h.name.toLowerCase() === 'x-extension-request');
+    return originHeader?.value === 'true';
 }
 
-if (typeof browser !== 'undefined' && browser.webRequest) {
-    browser.webRequest.onBeforeSendHeaders.addListener(
+if (isFirefox && browserAPI && browserAPI.webRequest) {
+    console.log('[Background] Firefox: Setting up webRequest with blocking mode');
+    
+    browserAPI.webRequest.onBeforeSendHeaders.addListener(
         async (details) => {
             if (!isFromExtension(details)) return {};
 
             const serviceName = detectServiceByReferer(details);
             if (serviceName) {
-                console.log(`[Background] Rate limiting ${serviceName} request: ${details.url}`);
                 await rateLimiter.trackRequest(serviceName);
-            } else {
-                console.warn(`[Background] Could not detect service for: ${details.url}`);
             }
 
             let headers = details.requestHeaders || [];
@@ -73,7 +87,6 @@ if (typeof browser !== 'undefined' && browser.webRequest) {
                 const targetHeaders = isImage && config.imageHeaders ? config.imageHeaders : config.headers;
                 
                 if (targetHeaders) {
-                    console.log(`[Background] Applying ${serviceName} headers (${isImage ? 'image' : 'api'}) to:`, details.url);
                     for (const [name, value] of Object.entries(targetHeaders)) {
                         const lowerName = name.toLowerCase();
                         
@@ -90,11 +103,30 @@ if (typeof browser !== 'undefined' && browser.webRequest) {
         ['blocking', 'requestHeaders']
     );
     
-    console.log('[Background] WebRequest interceptor installed');
+    console.log('[Background] Firefox: WebRequest blocking interceptor installed');
 }
 
-if (typeof browser !== 'undefined' && browser.runtime && browser.runtime.onMessage) {
-    browser.runtime.onMessage.addListener((message, sender, sendResponse) => {
+if (isChrome && browserAPI && browserAPI.webRequest) {
+    console.log('[Background] Chrome: Setting up rate limiter');
+    
+    browserAPI.webRequest.onBeforeSendHeaders.addListener(
+        async (details) => {
+            if (!isFromExtension(details)) return;
+            
+            const serviceName = detectServiceByReferer(details);
+            if (serviceName) {
+                await rateLimiter.trackRequest(serviceName);
+            }
+        },
+        { urls: ['<all_urls>'] },
+        ['requestHeaders']
+    );
+    
+    console.log('[Background] Chrome: Rate limiter installed');
+}
+
+if (browserAPI && browserAPI.runtime && browserAPI.runtime.onMessage) {
+    browserAPI.runtime.onMessage.addListener((message, sender, sendResponse) => {
         
         if (message.action === 'setRateLimit') {
             rateLimiter.setLimit(message.limit);
@@ -114,7 +146,12 @@ if (typeof browser !== 'undefined' && browser.runtime && browser.runtime.onMessa
                     
                     const fetchOptions = {
                         method: 'GET',
-                        credentials: 'include',
+                        headers: {
+                            'Referer': message.referer || 'https://mangalib.me/',
+                            'Accept': 'image/webp,image/apng,image/*,*/*;q=0.8',
+                            'X-Extension-Request': 'true'
+                        },
+                        credentials: isFirefox ? 'include' : 'omit',
                         cache: 'no-cache',
                         redirect: 'follow',
                         mode: 'cors'
@@ -160,7 +197,7 @@ if (typeof browser !== 'undefined' && browser.runtime && browser.runtime.onMessa
                     let fetchOptions = message.options || {};
                     
                     if (!fetchOptions.credentials)
-                        fetchOptions.credentials = 'include';
+                        fetchOptions.credentials = isFirefox ? 'include' : 'omit';
                     
                     const response = await fetch(url, fetchOptions);
                     

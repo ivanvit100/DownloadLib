@@ -234,4 +234,4 @@
 
     global.RanobeLibService = RanobeLibService;
     console.log('[RanobeLibService] Loaded');
-})(window);
+})(typeof window !== 'undefined' ? window : self);

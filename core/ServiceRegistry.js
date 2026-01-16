@@ -54,4 +54,4 @@
 
     global.ServiceRegistry = ServiceRegistry;
     global.serviceRegistry = new ServiceRegistry();
-})(window);
+})(typeof window !== 'undefined' ? window : self);

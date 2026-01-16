@@ -1,0 +1,69 @@
+{
+    "manifest_version": 3,
+    "name": "DownloadLib",
+    "version": "1.0-beta",
+    "description": "Скачивает мангу с порталов MangaLib в удобном для чтения формате.",
+    "author": "https://ivanvit.ru",
+    "homepage_url": "https://github.com/ivanvit100/DownloadLib",
+
+    "background": {
+        "service_worker": "background/service-worker.js"
+    },
+
+    "action": {
+        "default_popup": "popup.html",
+        "default_icon": {
+            "16": "icons/icon16.png",
+            "48": "icons/icon48.png",
+            "128": "icons/icon128.png"
+        }
+    },
+
+    "permissions": [
+        "activeTab",
+        "tabs",
+        "downloads",
+        "storage",
+        "webRequest",
+        "declarativeNetRequest",
+        "declarativeNetRequestWithHostAccess"
+    ],
+
+    "host_permissions": [
+        "https://mangalib.me/*",
+        "https://ranobelib.me/*",
+        "https://api.cdnlibs.org/*",
+        "https://img3.mixlib.me/*",
+        "https://img2.imgslib.link/*",
+        "https://cover.imglib.info/*",
+        "https://*/*"
+    ],
+
+    "declarative_net_request": {
+        "rule_resources": [{
+            "id": "manga_headers",
+            "enabled": true,
+            "path": "rules.json"
+        }]
+    },
+
+    "content_security_policy": {
+        "extension_pages": "script-src 'self' 'wasm-unsafe-eval'; object-src 'self'"
+    },
+
+    "icons": {
+        "16": "icons/icon16.png",
+        "48": "icons/icon48.png",
+        "128": "icons/icon128.png"
+    },
+
+    "content_scripts": [{
+        "matches": [
+            "*://*.mangalib.me/*",
+            "*://*.ranobelib.me/*",
+            "*://*.imgslib.link/*"
+        ],
+        "js": ["app.js"],
+        "run_at": "document_start"
+    }]
+}

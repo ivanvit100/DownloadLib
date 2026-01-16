@@ -34,4 +34,4 @@
 
     global.ExporterFactory = ExporterFactory;
     console.log('[ExporterFactory] Loaded');
-})(window);
+})(typeof window !== 'undefined' ? window : self);

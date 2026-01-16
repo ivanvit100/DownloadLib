@@ -178,4 +178,4 @@
 
     global.FB2Exporter = FB2Exporter;
     console.log('[FB2Exporter] Loaded');
-})(window);
+})(typeof window !== 'undefined' ? window : self);

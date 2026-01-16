@@ -88,4 +88,4 @@
     }
 
     global.BaseExporter = BaseExporter;
-})(window);
+})(typeof window !== 'undefined' ? window : self);

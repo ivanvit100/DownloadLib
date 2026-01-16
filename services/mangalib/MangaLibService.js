@@ -329,4 +329,4 @@
 
     global.MangaLibService = MangaLibService;
     console.log('[MangaLibService] Loaded');
-})(window);
+})(typeof window !== 'undefined' ? window : self);

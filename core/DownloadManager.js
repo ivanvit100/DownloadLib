@@ -597,4 +597,4 @@
 
     global.DownloadManager = DownloadManager;
     console.log('[DownloadManager] Loaded');
-})(window);
+})(typeof window !== 'undefined' ? window : self);

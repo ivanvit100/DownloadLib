@@ -60,4 +60,4 @@
 
     global.EventBus = EventBus;
     console.log('[EventBus] Loaded');
-})(window);
+})(typeof window !== 'undefined' ? window : self);

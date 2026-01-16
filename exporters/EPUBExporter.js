@@ -346,4 +346,4 @@
 
     global.EPUBExporter = EPUBExporter;
     console.log('[EPUBExporter] Loaded');
-})(window);
+})(typeof window !== 'undefined' ? window : self);

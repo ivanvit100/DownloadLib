@@ -74,4 +74,4 @@
     }
 
     global.BaseService = BaseService;
-})(window);
+})(typeof window !== 'undefined' ? window : self);

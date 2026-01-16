@@ -46,4 +46,4 @@
         splitLongImages: true,
         maxImageHeight: 1800
     };
-})(window);
+})(typeof window !== 'undefined' ? window : self);

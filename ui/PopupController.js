@@ -12,6 +12,13 @@
 (function(global) {
     console.log('[PopupController] Loading...');
 
+    const browserAPI = typeof chrome !== 'undefined' && chrome.runtime ? chrome : (typeof browser !== 'undefined' ? browser : null);
+
+    if (!browserAPI) {
+        console.error('[PopupController] No browser API available');
+        return;
+    }
+
     class PopupController {
         constructor() {
             console.log('[PopupController] Initializing...');
@@ -299,7 +306,7 @@
                 
                 if (window.outerWidth <= 500 && window.outerHeight <= 700) return true;
                 
-                const currentWindow = await chrome.windows.getCurrent();
+                const currentWindow = await browserAPI.windows.getCurrent();
                 console.log('[PopupController] Window type:', currentWindow.type);
                 return currentWindow.type === 'popup';
             } catch (e) {
@@ -313,7 +320,7 @@
             if (!activeDownloadsInfo) return;
             
             try {
-                const response = await browser.runtime.sendMessage({ action: 'getActiveDownloads' });
+                const response = await browserAPI.runtime.sendMessage({ action: 'getActiveDownloads' });
                 
                 if (response.ok && response.downloads) {
                     const bgDownloads = response.downloads;
@@ -395,7 +402,7 @@
                     
                     hostname = serviceKey === 'ranobelib' ? 'ranobelib.me' : 'mangalib.me';
                 } else {
-                    const tabs = await chrome.tabs.query({ active: true, currentWindow: true });
+                    const tabs = await browserAPI.tabs.query({ active: true, currentWindow: true });
                     
                     if (!tabs || !tabs[0]) {
                         throw new Error('No active tab found');
@@ -544,8 +551,8 @@
                                 const rateLimit = rateLimitInput ? parseInt(rateLimitInput.value) || 100 : 100;
                                 
                                 try {
-                                    const win = await chrome.windows.create({
-                                        url: chrome.runtime.getURL('popup.html') + 
+                                    const win = await browserAPI.windows.create({
+                                        url: browserAPI.runtime.getURL('popup.html') + 
                                              '?fileUpload=true&slug=' + encodeURIComponent(slug) + 
                                              '&service=' + encodeURIComponent(serviceKey) +
                                              '&format=' + encodeURIComponent(format) +
@@ -559,7 +566,7 @@
                                     
                                     if (win && win.id) {
                                         await new Promise(resolve => setTimeout(resolve, 500));
-                                        chrome.windows.update(win.id, { focused: true });
+                                        browserAPI.windows.update(win.id, { focused: true });
                                     }
                                 } catch (createError) {
                                     console.error('Failed to create window:', createError);
@@ -618,8 +625,8 @@
                         const rateLimit = rateLimitInput ? parseInt(rateLimitInput.value) || 100 : 100;
                         
                         try {
-                            const win = await chrome.windows.create({
-                                url: chrome.runtime.getURL('popup.html') + 
+                            const win = await browserAPI.windows.create({
+                                url: browserAPI.runtime.getURL('popup.html') + 
                                      '?download=true&slug=' + encodeURIComponent(this.currentSlug) + 
                                      '&service=' + encodeURIComponent(this.currentServiceKey) +
                                      '&format=' + encodeURIComponent(format) +
@@ -633,7 +640,7 @@
                             
                             if (win && win.id) {
                                 await new Promise(resolve => setTimeout(resolve, 500));
-                                chrome.windows.update(win.id, { focused: true });
+                                browserAPI.windows.update(win.id, { focused: true });
                             }
                         } catch (e) {
                             console.error('Failed to create window:', e);
@@ -677,7 +684,7 @@
                         this.shouldStop = true;
                         this.downloadManager.stop(this.currentDownloadId);
                         
-                        const response = await browser.runtime.sendMessage({
+                        const response = await browserAPI.runtime.sendMessage({
                             action: 'takeOverDownload',
                             ...downloadState
                         });
@@ -737,7 +744,7 @@
             try {
                 if (rateLimitInput) {
                     const limit = parseInt(rateLimitInput.value) || 100;
-                    await browser.runtime.sendMessage({
+                    await browserAPI.runtime.sendMessage({
                         action: 'setRateLimit',
                         limit: limit
                     });
@@ -865,4 +872,4 @@
 
     global.PopupController = PopupController;
     console.log('[PopupController] Loaded');
-})(window);
+})(typeof window !== 'undefined' ? window : self);
