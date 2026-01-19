@@ -1,0 +1,32 @@
+{
+  "name": "downloadlib",
+  "version": "1.0.0",
+  "description": "Browser extension for downloading manga",
+  "homepage": "https://github.com/ivanvit100/DownloadLib#readme",
+  "bugs": {
+    "url": "https://github.com/ivanvit100/DownloadLib/issues"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/ivanvit100/DownloadLib.git"
+  },
+  "license": "MIT",
+  "author": "ivanvit",
+  "type": "commonjs",
+  "main": "app.js",
+  "directories": {
+    "lib": "lib",
+    "test": "tests"
+  },
+  "scripts": {
+    "test": "vitest run --isolate",
+    "test:coverage": "vitest run --coverage"
+  },
+  "dependencies": {
+    "vitest": "^4.0.17"
+  },
+  "devDependencies": {
+    "@vitest/coverage-istanbul": "^4.0.17",
+    "jsdom": "^27.4.0"
+  }
+}

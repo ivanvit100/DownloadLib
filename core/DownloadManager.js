@@ -103,11 +103,11 @@
                                     reader.onerror = reject;
                                     reader.readAsDataURL(blob);
                                 });
-                            }
+                            } else console.error('[DownloadManager] Failed to fetch cover image:', response.status);
                         } catch (e) {
                             console.warn('[DownloadManager] Failed to load cover:', e);
                         }
-                    }
+                    } else console.error('[DownloadManager] Unknown cover format:', coverUrl);
                 }
                 
                 downloadState.coverBase64 = coverBase64;
@@ -277,18 +277,15 @@
         }
 
         isChapterEmpty(chapter) {
-            if (!chapter.content || !Array.isArray(chapter.content)) {
-                return true;
-            }
+            if (!chapter.content || !Array.isArray(chapter.content)) return true;
 
             const hasContent = chapter.content.some(block => {
                 if (block.type === 'text') {
                     const text = block.text || '';
                     return text.trim() && !text.includes('[Ошибка загрузки главы');
-                }
-                if (block.type === 'image')
+                } else if (block.type === 'image')
                     return block.data && (block.data.base64 || block.data.src);
-                return false;
+                else return false;
             });
 
             return !hasContent;
@@ -571,7 +568,7 @@
             if (download) {
                 download.controller.pause();
                 this.eventBus.emit('download:paused', download);
-            }
+            } else console.log(`[DownloadManager] No active download with ID: ${downloadId}`);
         }
 
         resume(downloadId) {
@@ -579,7 +576,7 @@
             if (download) {
                 download.controller.resume();
                 this.eventBus.emit('download:resumed', download);
-            }
+            } else console.log(`[DownloadManager] No active download with ID: ${downloadId}`);
         }
 
         stop(downloadId) {
@@ -587,7 +584,7 @@
             if (download) {
                 download.controller.stop();
                 this.eventBus.emit('download:stopped', download);
-            }
+            } else console.log(`[DownloadManager] No active download with ID: ${downloadId}`);
         }
 
         getStatus(downloadId) {
