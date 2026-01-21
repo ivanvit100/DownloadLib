@@ -95,6 +95,7 @@
     global.RateLimiter = RateLimiter;
     
     if (!global.globalRateLimiter) global.globalRateLimiter = new RateLimiter({ maxRequestsPerMinute: 99 });
+    else console.log('[RateLimiter] Using existing global RateLimiter instance');
     
     console.log('[RateLimiter] Loaded');
 })(typeof window !== 'undefined' ? window : self);

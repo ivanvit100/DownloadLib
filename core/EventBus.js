@@ -20,6 +20,7 @@
         on(event, callback) {
             if (!this.listeners.has(event))
                 this.listeners.set(event, new Set());
+            else console.warn(`[EventBus] Listener added for existing event: ${event}`);
             this.listeners.get(event).add(callback);
             return () => this.off(event, callback);
         }
@@ -35,6 +36,7 @@
         off(event, callback) {
             if (this.listeners.has(event))
                 this.listeners.get(event).delete(callback);
+            else console.warn(`[EventBus] No listeners found for event: ${event}`);
         }
 
         emit(event, data) {
