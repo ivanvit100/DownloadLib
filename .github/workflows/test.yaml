@@ -20,12 +20,19 @@ jobs:
       - name: Setup Node.js
         uses: actions/setup-node@v3
         with:
-          node-version: '18'
-          
+          node-version: '25'
+
+      - name: Upgrade npm
+        run: npm install -g npm@latest
+
+      - name: Clean npm cache
+        run: npm cache clean --force
+
+      - name: Remove node_modules and lock
+        run: rm -rf node_modules package-lock.json
+
       - name: Install dependencies
-        working-directory: /
         run: npm install
-        
+
       - name: Run tests
-        working-directory: /
         run: npm run test --isolate
