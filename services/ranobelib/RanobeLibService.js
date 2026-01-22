@@ -80,7 +80,8 @@
         async fetchChapter(slug, number, volume = '1') {
             const params = new URLSearchParams();
             if (number !== undefined && number !== null) params.set('number', String(number));
-            if (volume !== undefined && volume !== null) params.set('volume', String(volume));
+            else params.set('number', '1');
+            params.set('volume', String(volume));
             const url = `${this.baseUrl}/api/manga/${slug}/chapter?${params.toString()}`;
             
             const response = await fetch(url, {
@@ -118,10 +119,9 @@
                 if (!node) return '';
                 if (typeof node === 'string') return node;
                 if (node.type === 'text' && node.text) return node.text;
-                if (node.type === 'image') return '';
                 if (Array.isArray(node.content))
                     return node.content.map(extractTextFromNode).filter(t => t !== '').join('');
-                return '';
+                else return '';
             };
             
             for (const item of content) {
@@ -140,7 +140,7 @@
                                                 type: 'image', 
                                                 src: img.image
                                             });
-                                        }
+                                        } else console.warn('[RanobeLibService] Image node missing image attribute:', img);
                                     }
                                 }
                             }
@@ -152,7 +152,7 @@
                                 result.push({ type: 'text', text: text });
                             }
                         }
-                    }
+                    } else console.warn('[RanobeLibService] Unexpected paragraph content:', item);
                 } else if (item.type === 'image' && item.attrs && Array.isArray(item.attrs.images)) {
                     for (const img of item.attrs.images) {
                         if (img.image) {
@@ -160,11 +160,11 @@
                                 type: 'image', 
                                 src: img.image
                             });
-                        }
+                        } else console.warn('[RanobeLibService] Image node missing image attribute:', img);
                     }
                 } else if (item.type === 'horizontalRule') {
                     result.push({ type: 'text', text: '\n---\n' });
-                }
+                } else console.warn('[RanobeLibService] Unknown content node type:', item);
             }
             
             return result;
@@ -179,9 +179,9 @@
             
             for (const block of extracted) {
                 if (block.type === 'text') {
-                    if (block.text && block.text.trim()) {
+                    if (block.text && block.text.trim())
                         result.push(block);
-                    }
+                    else console.warn('[RanobeLibService] Skipping empty text block');
                 } else if (block.type === 'image' && block.src) {
                     const imageUuid = block.src.replace(/\.(jpg|jpeg|png|webp)$/i, '');
                     
@@ -225,7 +225,7 @@
                     }
                     
                     if (!loaded) console.error('[RanobeLibService] Failed to load image:', imageUuid);
-                }
+                } else console.warn('[RanobeLibService] Unknown block type:', block);
             }
             
             return result;
