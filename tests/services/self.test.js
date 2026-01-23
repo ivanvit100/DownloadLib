@@ -31,4 +31,21 @@ describe('Services attaches to self', () => {
         if (originalSelf !== undefined) global.self = originalSelf;
         else delete global.self;
     });
+
+    it('Attaches MangaLibService to self', async () => {
+        const originalWindow = global.window;
+        const originalSelf = global.self;
+        delete global.window;
+        global.self = global;
+        const basePath = require.resolve('../../services/BaseService.js');
+        delete require.cache[basePath];
+        await import('../../services/BaseService.js');
+        const path = require.resolve('../../services/mangalib/MangaLibService.js');
+        delete require.cache[path];
+        await import('../../services/mangalib/MangaLibService.js');
+        expect(global.self.MangaLibService).toBeDefined();
+        if (originalWindow !== undefined) global.window = originalWindow;
+        if (originalSelf !== undefined) global.self = originalSelf;
+        else delete global.self;
+    });
 });

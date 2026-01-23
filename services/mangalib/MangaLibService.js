@@ -77,8 +77,8 @@
             const params = new URLSearchParams();
             if (chapterNumberOrId !== undefined && chapterNumberOrId !== null)
                 params.set('number', String(chapterNumberOrId));
-            if (volume !== undefined && volume !== null)
-                params.set('volume', String(volume));
+            else params.set('numer', '1');
+            params.set('volume', String(volume));
             const url = `${this.baseUrl}/api/manga/${slug}/chapter?${params.toString()}`;
             
             const response = await fetch(url, {
