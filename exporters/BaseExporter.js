@@ -79,7 +79,7 @@
                         return block.text;
                     if (block.type === 'text' && block.content)
                         return String(block.content);
-                    return '';
+                    else return '';
                 }).filter(Boolean).join('\n\n');
             }
 
