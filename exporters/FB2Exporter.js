@@ -87,7 +87,7 @@
                             }
                         } else if (block.type === 'image' && block._fb2ImageId) {
                             yield `    <p><image l:href="#${block._fb2ImageId}"/></p>\n`;
-                        }
+                        } else console.warn(`[FB2Exporter] Unsupported block type: ${block.type}`);
                     }
                 }
                 
@@ -129,6 +129,7 @@
                 const lastName = author.querySelector('last-name')?.textContent || '';
                 const name = [firstName, lastName].filter(Boolean).join(' ');
                 if (name) authors.push(name);
+                else authors.push('Unknown');
             });
 
             let cover = '';
@@ -150,9 +151,8 @@
                 
                 paragraphs.forEach(p => {
                     const text = p.textContent.trim();
-                    if (text) {
-                        content.push({ type: 'text', text });
-                    }
+                    if (text) content.push({ type: 'text', text });
+                    else content.push({ type: 'text', text: '' });
                 });
 
                 chapters.push({

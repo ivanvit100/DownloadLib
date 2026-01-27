@@ -62,9 +62,9 @@
                             manifest += `<item id="${imageId}" href="${filename}" media-type="${block.data.contentType}"/>\n`;
                             
                             block._epubImagePath = filename;
-                        }
+                        } else console.warn(`[EPUBExporter] Chapter ${i + 1} has unsupported image block or missing data`);
                     }
-                }
+                } else console.warn(`[EPUBExporter] Chapter ${i + 1} has no content array`);
             }
 
             for (let i = 0; i < chapters.length; i++) {
@@ -204,6 +204,7 @@
                 const rootfile = containerDoc.querySelector('rootfile');
                 const opfPath = rootfile?.getAttribute('full-path');
                 if (opfPath) opfFile = zipContent.file(opfPath);
+                else console.warn('[EPUBExporter] No full-path attribute found in container.xml');
             }
 
             if (!opfFile) {
@@ -211,7 +212,7 @@
                     if (filename.endsWith('.opf')) {
                         opfFile = zipContent.files[filename];
                         break;
-                    }
+                    } else console.warn(`[EPUBExporter] Skipping non-opf file: ${filename}`);
                 }
             }
 
@@ -240,6 +241,7 @@
 
                     const description = metadataNode.querySelector('dc\\:description, description')?.textContent;
                     if (description) metadata.summary = description;
+                    else console.warn('[EPUBExporter] No description found in metadata');
                 }
 
                 const manifest = opfDoc.querySelector('manifest');
@@ -252,7 +254,7 @@
                     if (coverFile) {
                         const coverBlob = await coverFile.async('blob');
                         cover = await this.blobToBase64(coverBlob);
-                    }
+                    } else console.warn('[EPUBExporter] Cover file not found in zip:', coverPath);
                 }
 
                 const spine = opfDoc.querySelector('spine');
@@ -292,6 +294,7 @@
                     paragraphs.forEach(p => {
                         const text = p.textContent.trim();
                         if (text) chapterContent.push({ type: 'text', text });
+                        else console.warn(`[EPUBExporter] Empty paragraph in chapter file: ${filename}`);
                     });
 
                     const images = body.querySelectorAll('img');
@@ -312,10 +315,10 @@
                                         contentType: imgBlob.type || 'image/jpeg'
                                     }
                                 });
-                            }
-                        }
+                            } else console.warn(`[EPUBExporter] Image file not found in zip: ${imgPath}`);
+                        } else console.warn(`[EPUBExporter] Image with no src attribute in chapter file: ${filename}`);
                     }
-                }
+                } else console.warn(`[EPUBExporter] No body found in chapter file: ${filename}`);
 
                 if (chapterContent.length > 0) {
                     chapters.push({
