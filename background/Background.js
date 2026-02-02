@@ -275,4 +275,33 @@ if (browserAPI && browserAPI.runtime && browserAPI.runtime.onMessage) {
     console.log('[Background] Message listener installed');
 }
 
+if (browserAPI && browserAPI.webRequest && browserAPI.webRequest.onBeforeRequest) {
+    browserAPI.webRequest.onBeforeRequest.addListener(
+        function(details) {
+            let isService = false;
+            try {
+                const tabUrl = details.documentUrl || details.initiator || details.originUrl || '';
+                if (
+                    tabUrl.includes('mangalib.me') ||
+                    tabUrl.includes('ranobelib.me')
+                ) {
+                    isService = true;
+                }
+            } catch (e) {}
+
+            if (
+                isService &&
+                (
+                    details.url.startsWith('https://mangalib.me/uploads/slider_items/') ||
+                    details.url.startsWith('https://yandex.ru')
+                )
+            ) {
+                return { cancel: true };
+            }
+        },
+        { urls: ['<all_urls>'] },
+        ['blocking']
+    );
+}
+
 console.log('[Background] Script loaded');

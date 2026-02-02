@@ -1,7 +1,7 @@
 {
     "manifest_version": 3,
     "name": "DownloadLib",
-    "version": "1.0",
+    "version": "1.0.1",
     "description": "Скачивает мангу с порталов MangaLib в удобном для чтения формате.",
     "author": "https://ivanvit.ru",
     "homepage_url": "https://github.com/ivanvit100/DownloadLib",
@@ -70,13 +70,23 @@
         "128": "icons/icon128.png"
     },
 
-    "content_scripts": [{
-        "matches": [
-            "*://*.mangalib.me/*",
-            "*://*.ranobelib.me/*",
-            "*://*.imgslib.link/*"
-        ],
-        "js": ["app.js"],
-        "run_at": "document_start"
-    }]
+    "content_scripts": [
+        {
+            "matches": [
+                "https://mangalib.me/*",
+                "https://ranobelib.me/*"
+            ],
+            "js": ["background/RemoveAds.js"],
+            "run_at": "document_idle"
+        },
+        {
+            "matches": [
+                "*://*.mangalib.me/*",
+                "*://*.ranobelib.me/*",
+                "*://*.imgslib.link/*"
+            ],
+            "js": ["app.js"],
+            "run_at": "document_start"
+        }
+    ]
 }

@@ -1,6 +1,6 @@
 # DownloadLib
 
-#### Браузерное расширение для загрузки манги | v1.0
+#### Браузерное расширение для загрузки манги | v1.0.1
 
 [![Test Extension](https://github.com/ivanvit100/DownloadLib/actions/workflows/test.yaml/badge.svg)](https://github.com/ivanvit/DownloadLib/actions/workflows/test.yaml)
 ![Code Coverage](https://img.shields.io/badge/Coverage-50%25-brightgreen)
@@ -34,6 +34,8 @@
   - Дополнение скачанной работы недостающими главами.
 - **Автоматическое кадрирование**
   - Разбиение длинных изображений манги на несколько страниц для удобного чтения с электронных книг.
+- **Удаление рекламы**
+  - Расширение автоматически скрывает рекламу со страниц тайтлов.
 
 ---
 
