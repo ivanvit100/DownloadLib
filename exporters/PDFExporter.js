@@ -4,7 +4,7 @@
  * @module exporters/PDFExporter
  * @license MIT
  * @author ivanvit
- * @version 1.0.0
+ * @version 1.0.1
  */
 
 'use strict';
@@ -119,7 +119,7 @@
                     if (currentHeight + lineHeight * 0.5 <= maxLinesForPage * lineHeight) {
                         currentPageLines.push('');
                         currentHeight += lineHeight * 0.5;
-                    }
+                    } else console.warn('[PDFExporter] Skipping empty paragraph due to page limit');
                     continue;
                 }
 
@@ -141,6 +141,7 @@
 
                 if (line.trim())
                     paragraphLines.push(line.trim());
+                else console.warn('[PDFExporter] Skipping empty line in paragraph');
 
                 const paragraphHeight = paragraphLines.length * lineHeight + 
                     (pIdx < paragraphs.length - 1 ? lineHeight * 0.3 : 0);
@@ -204,9 +205,6 @@
             if (coverBase64) {
                 const coverDataUrl = await this.ensureDataUrl(coverBase64);
                 if (coverDataUrl) {
-                    if (!isFirst) pdf.addPage();
-                    isFirst = false;
-
                     const img = new Image();
                     img.src = coverDataUrl;
                     await new Promise((resolve) => {
@@ -227,8 +225,8 @@
                     pageCount++;
 
                     img.src = '';
-                }
-            }
+                } else console.warn('[PDFExporter] Invalid cover image data, skipping cover page');
+            } 
 
             for (let chIdx = 0; chIdx < chapters.length; chIdx++) {
                 const ch = chapters[chIdx];
@@ -238,15 +236,15 @@
                 if (Array.isArray(ch.content)) {
                     for (const block of ch.content) {
                         if (block.type === 'text' && block.text) {
-                            const text = String(block.text || '').replace(/<[^>]+>/g, '').trim();
-                            if (text) {
+                            const text = String(block.text).replace(/<[^>]+>/g, '').trim();
+                            if (text)
                                 chapterText += (chapterText ? '\n' : '') + text;
-                            }
+                            else console.warn('[PDFExporter] Skipping empty text block in chapter content');
                         } else if (block.type === 'image' && block.data && block.data.base64) {
                             chapterImages.push(block);
-                        }
+                        } else console.warn(`[PDFExporter] Unsupported block type in chapter content: ${block.type}`);
                     }
-                }
+                } else console.warn('[PDFExporter] Chapter content is not an array, skipping chapter content processing');
 
                 if (chapterText) {
                     const chapterTitle = ch.title || `Глава ${chIdx + 1}`;
@@ -254,6 +252,7 @@
                     
                     for (let i = 0; i < textPages.length; i++) {
                         if (!isFirst) pdf.addPage();
+                        else console.log('[PDFExporter] Adding first text page without adding new page');
                         isFirst = false;
                         
                         const titleForPage = i === 0 ? chapterTitle : null;
@@ -263,6 +262,7 @@
 
                         if (pageCount % 10 === 0)
                             await this.delay(50);
+                        else console.log(`[PDFExporter] Added text page ${pageCount} for chapter ${chIdx + 1}`);
                     }
                 }
 
@@ -285,15 +285,14 @@
                     if (h > maxH) {
                         h = maxH;
                         w = h * imgRatio;
-                    }
+                    } else console.warn('[PDFExporter] Image fits within page without resizing');
                     pdf.addImage(dataUrl, 'JPEG', (pageWidth - w) / 2, (pageHeight - h) / 2, w, h);
                     pageCount++;
 
                     img.src = '';
 
-                    if (pageCount % 5 === 0) {
-                        await this.delay(50);
-                    }
+                    if (pageCount % 5 === 0) await this.delay(50);
+                    else console.log(`[PDFExporter] Added image page ${pageCount} for chapter ${chIdx + 1}`);
                 }
 
                 await this.delay(100);

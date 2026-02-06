@@ -3,7 +3,7 @@
 #### Браузерное расширение для загрузки манги | v1.0.1
 
 [![Test Extension](https://github.com/ivanvit100/DownloadLib/actions/workflows/test.yaml/badge.svg)](https://github.com/ivanvit/DownloadLib/actions/workflows/test.yaml)
-![Code Coverage](https://img.shields.io/badge/Coverage-50%25-brightgreen)
+![Code Coverage](https://img.shields.io/badge/Coverage-60.19%25-brightgreen)
 
 **DownloadLib** — расширение для браузера, позволяющее скачивать мангу с порталов [*MangaLib*](https://mangalib.me/) и [*RanobeLib*](https://ranobelib.me/) в форматах *FB2*, *EPUB* и *PDF*. Поддерживает автоматическую обработку изображений и текста, а также гибкие настройки скорости загрузки.
 
