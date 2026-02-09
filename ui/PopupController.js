@@ -110,17 +110,16 @@
                 formatContainer.appendChild(label);
                 formatContainer.appendChild(formatSelector);
                 btn.parentNode.insertBefore(formatContainer, btn);
-            }
+            } else console.warn('formatSelector found in DOM');
 
             const FORMAT_STORAGE_KEY = 'manga_parser_selected_format';
-            if (formatSelector && localStorage.getItem(FORMAT_STORAGE_KEY)) {
+            if (formatSelector && localStorage.getItem(FORMAT_STORAGE_KEY)) 
                 formatSelector.value = localStorage.getItem(FORMAT_STORAGE_KEY);
-            }
-            if (formatSelector) {
-                formatSelector.addEventListener('change', () => {
-                    localStorage.setItem(FORMAT_STORAGE_KEY, formatSelector.value);
-                });
-            }
+            else console.log('No saved format in localStorage');
+            
+            formatSelector.addEventListener('change', () => {
+                localStorage.setItem(FORMAT_STORAGE_KEY, formatSelector.value);
+            });
 
             let rateLimitInput = document.getElementById('rateLimitInput');
             if (!rateLimitInput) {
@@ -152,7 +151,7 @@
                 rateLimitContainer.appendChild(label);
                 rateLimitContainer.appendChild(rateLimitInput);
                 btn.parentNode.insertBefore(rateLimitContainer, btn);
-            }
+            } else console.warn('rateLimitInput found in DOM');
 
             let activeDownloadsInfo = document.getElementById('activeDownloadsInfo');
             if (!activeDownloadsInfo) {
@@ -382,7 +381,7 @@
                 rateLimitInput.value = rateLimitFromUrl;
             }
 
-            btn.disabled = true;
+            if (btn) btn.disabled = true;
             if (status) status.textContent = 'Получаем информацию...';
 
             try {
@@ -597,7 +596,7 @@
                 console.error('[PopupController] Failed to load metadata:', error);
                 if (desc) desc.textContent = `Ошибка: ${error.message}`;
                 if (status) status.textContent = '';
-                btn.disabled = true;
+                if (btn) btn.disabled = true;
             }
         }
 
