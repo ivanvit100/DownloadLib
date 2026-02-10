@@ -453,4 +453,483 @@ describe('PopupController', () => {
         input.dispatchEvent(new Event('input'));
         expect(input.value).toBe('50');
     });
+
+    it('Change on file input calls stopPropagation', async () => {
+        document.body.innerHTML = `<button id="downloadBtn"></button>`;
+        global.DownloadManager = class { constructor() { this.eventBus = { on: vi.fn() }; } };
+        global.browser = {
+            runtime: { sendMessage: vi.fn(async () => ({ ok: true, downloads: [] })), getURL: vi.fn() },
+            windows: { getCurrent: vi.fn(), create: vi.fn(), update: vi.fn() },
+            tabs: { query: vi.fn() }
+        };
+        global.chrome = undefined;
+        await import('../../ui/PopupController.js?nocache=' + Math.random());
+        const PopupControllerClass = global.PopupController;
+        new PopupControllerClass();
+        const input = document.getElementById('fileInput');
+        const event = new Event('change');
+        event.stopPropagation = vi.fn();
+        Object.defineProperty(input, 'files', { value: [new File([''], 'test.fb2')], configurable: true });
+        input.dispatchEvent(event);
+        expect(event.stopPropagation).toHaveBeenCalled();
+    });
+
+    it('Change on file input handles no file case', async () => {
+        document.body.innerHTML = `<button id="downloadBtn"></button><div id="status"></div>`;
+        global.DownloadManager = class { constructor() { this.eventBus = { on: vi.fn() }; } };
+        global.browser = {
+            runtime: { sendMessage: vi.fn(async () => ({ ok: true, downloads: [] })), getURL: vi.fn() },
+            windows: { getCurrent: vi.fn(), create: vi.fn(), update: vi.fn() },
+            tabs: { query: vi.fn() }
+        };
+        global.chrome = undefined;
+        await import('../../ui/PopupController.js?nocache=' + Math.random());
+        const PopupControllerClass = global.PopupController;
+        new PopupControllerClass();
+        const input = document.getElementById('fileInput');
+        const btn = document.getElementById('downloadBtn');
+        const status = document.getElementById('status');
+        const formatSelector = document.getElementById('formatSelector');
+        const customFileBtn = document.getElementById('customFileBtn');
+        const event = new Event('change');
+        event.stopPropagation = vi.fn();
+        Object.defineProperty(input, 'files', { value: [], configurable: true });
+        input.dispatchEvent(event);
+        expect(formatSelector.disabled).toBe(false);
+        expect(status.textContent).toBe('');
+        expect(customFileBtn.textContent).toBe('Загрузить файл для обновления');
+        expect(btn.textContent).toBe('Скачать');
+        expect(btn.style.display).toBe('block');
+    });
+
+    it('Warns if status not found when resetting after file deselection', async () => {
+        document.body.innerHTML = `<button id="downloadBtn"></button>`;
+        global.DownloadManager = class { constructor() { this.eventBus = { on: vi.fn() }; } };
+        global.browser = {
+            runtime: { sendMessage: vi.fn(async () => ({ ok: true, downloads: [] })), getURL: vi.fn() },
+            windows: { getCurrent: vi.fn(), create: vi.fn(), update: vi.fn() },
+            tabs: { query: vi.fn() }
+        };
+        global.chrome = undefined;
+        const consoleWarnSpy = vi.spyOn(console, 'warn');
+        await import('../../ui/PopupController.js?nocache=' + Math.random());
+        const PopupControllerClass = global.PopupController;
+        const controller = new PopupControllerClass();
+        const input = document.getElementById('fileInput');
+        const event = new Event('change');
+        event.stopPropagation = vi.fn();
+        Object.defineProperty(input, 'files', { value: [], configurable: true });
+        const formatSelector = document.getElementById('formatSelector');
+        if (formatSelector && formatSelector.parentNode) formatSelector.parentNode.removeChild(formatSelector);
+        const status = document.getElementById('status');
+        if (status && status.parentNode) status.parentNode.removeChild(status);
+        input.dispatchEvent(event);
+        expect(consoleWarnSpy).toHaveBeenCalledWith('Status element not found when resetting after file deselection');
+        consoleWarnSpy.mockRestore();
+    });
+
+    it('Sets status textContent to uploaded file name on file upload', async () => {
+        document.body.innerHTML = `<button id="downloadBtn"></button><div id="status"></div>`;
+        global.DownloadManager = class { constructor() { this.eventBus = { on: vi.fn() }; } };
+        global.browser = {
+            runtime: { sendMessage: vi.fn(async () => ({ ok: true, downloads: [] })), getURL: vi.fn() },
+            windows: { getCurrent: vi.fn(), create: vi.fn(), update: vi.fn() },
+            tabs: { query: vi.fn() }
+        };
+        global.chrome = undefined;
+        await import('../../ui/PopupController.js?nocache=' + Math.random());
+        const PopupControllerClass = global.PopupController;
+        new PopupControllerClass();
+        const input = document.getElementById('fileInput');
+        const status = document.getElementById('status');
+        const event = new Event('change');
+        event.stopPropagation = vi.fn();
+        Object.defineProperty(input, 'files', { value: [new File([''], 'test.fb2')], configurable: true });
+        input.dispatchEvent(event);
+        expect(status.textContent).toBe('Загружен файл: test.fb2');
+    });
+
+    it('Handles unsupported file type in fileInput change event', async () => {
+        document.body.innerHTML = `<button id="downloadBtn"></button><div id="status"></div>`;
+        global.DownloadManager = class { constructor() { this.eventBus = { on: vi.fn() }; } };
+        global.browser = {
+            runtime: { sendMessage: vi.fn(async () => ({ ok: true, downloads: [] })), getURL: vi.fn() },
+            windows: { getCurrent: vi.fn(), create: vi.fn(), update: vi.fn() },
+            tabs: { query: vi.fn() }
+        };
+        global.chrome = undefined;
+        await import('../../ui/PopupController.js?nocache=' + Math.random());
+        const PopupControllerClass = global.PopupController;
+        new PopupControllerClass();
+        const input = document.getElementById('fileInput');
+        const status = document.getElementById('status');
+        const formatSelector = document.getElementById('formatSelector');
+        const customFileBtn = document.getElementById('customFileBtn');
+        const btn = document.getElementById('downloadBtn');
+        const event = new Event('change');
+        event.stopPropagation = vi.fn();
+        Object.defineProperty(input, 'files', { value: [new File([''], 'test.txt')], configurable: true });
+        input.dispatchEvent(event);
+        expect(formatSelector.disabled).toBe(false);
+        expect(status.textContent).toBe('Ошибка: поддерживаются только файлы PDF, EPUB или FB2');
+        expect(customFileBtn.textContent).toBe('Загрузить файл для обновления');
+        expect(input.value).toBe('');
+        expect(btn.textContent).toBe('Скачать');
+    });
+
+    it('Warns if status element not found when showing file type error', async () => {
+        document.body.innerHTML = `<button id="downloadBtn"></button>`;
+        global.DownloadManager = class { constructor() { this.eventBus = { on: vi.fn() }; } };
+        global.browser = {
+            runtime: { sendMessage: vi.fn(async () => ({ ok: true, downloads: [] })), getURL: vi.fn() },
+            windows: { getCurrent: vi.fn(), create: vi.fn(), update: vi.fn() },
+            tabs: { query: vi.fn() }
+        };
+        global.chrome = undefined;
+        const consoleWarnSpy = vi.spyOn(console, 'warn');
+        await import('../../ui/PopupController.js?nocache=' + Math.random());
+        const PopupControllerClass = global.PopupController;
+        new PopupControllerClass();
+        const input = document.getElementById('fileInput');
+        const event = new Event('change');
+        event.stopPropagation = vi.fn();
+        Object.defineProperty(input, 'files', { value: [new File([''], 'test.txt')], configurable: true });
+        input.dispatchEvent(event);
+        expect(consoleWarnSpy).toHaveBeenCalledWith('Status element not found when showing file type error');
+        consoleWarnSpy.mockRestore();
+    });
+
+    it('Warns if fileInputContainer found in DOM', async () => {
+        vi.resetModules();
+        document.body.innerHTML = `<button id="downloadBtn"></button><div id="fileInputContainer"></div>`;
+        global.DownloadManager = class { constructor() { this.eventBus = { on: vi.fn() }; } };
+        global.browser = {
+            runtime: { sendMessage: vi.fn(async () => ({ ok: true, downloads: [] })), getURL: vi.fn() },
+            windows: { getCurrent: vi.fn(), create: vi.fn(), update: vi.fn() },
+            tabs: { query: vi.fn() }
+        };
+        global.chrome = undefined;
+        const consoleWarnSpy = vi.spyOn(console, 'warn');
+        await import('../../ui/PopupController.js?nocache=' + Math.random());
+        const PopupControllerClass = global.PopupController;
+        new PopupControllerClass();
+        expect(consoleWarnSpy).toHaveBeenCalledWith('fileInputContainer found in DOM');
+        consoleWarnSpy.mockRestore();
+    });
+
+    it('Warns if downloadControls container found in DOM', async () => {
+        vi.resetModules();
+        document.body.innerHTML = `<button id="downloadBtn"></button><div id="downloadControls"></div>`;
+        global.DownloadManager = class { constructor() { this.eventBus = { on: vi.fn() }; } };
+        global.browser = {
+            runtime: { sendMessage: vi.fn(async () => ({ ok: true, downloads: [] })), getURL: vi.fn() },
+            windows: { getCurrent: vi.fn(), create: vi.fn(), update: vi.fn() },
+            tabs: { query: vi.fn() }
+        };
+        global.chrome = undefined;
+        const consoleWarnSpy = vi.spyOn(console, 'warn');
+        await import('../../ui/PopupController.js?nocache=' + Math.random());
+        const PopupControllerClass = global.PopupController;
+        new PopupControllerClass();
+        expect(consoleWarnSpy).toHaveBeenCalledWith('downloadControls container found in DOM');
+        consoleWarnSpy.mockRestore();
+    });
+
+    it('Returns true if hasParams', async () => {
+        vi.resetModules();
+        delete global.PopupController;
+        global.browser = {
+            runtime: { sendMessage: vi.fn(async () => ({ ok: true, downloads: [] })), getURL: vi.fn() },
+            windows: { getCurrent: vi.fn(async () => ({ type: 'normal' })) },
+            tabs: { query: vi.fn(async () => ([{ url: 'https://ranobelib.me/manga/slug' }])) }
+        };
+        global.chrome = undefined;
+        const hasSpy = vi.spyOn(URLSearchParams.prototype, 'has').mockReturnValue(true);
+        await import('../../ui/PopupController.js?nocache=' + Math.random());
+        const PopupControllerClass = global.PopupController;
+        const controller = new PopupControllerClass();
+        const result = await controller.isInSeparateWindow();
+        expect(result).toBe(true);
+        expect(hasSpy).toHaveBeenCalled();
+        hasSpy.mockRestore();
+    });
+
+    it('Returns false and warns on exception', async () => {
+        const controller = new PopupController();
+        const origGetCurrent = global.browser.windows.getCurrent;
+        global.browser.windows.getCurrent = vi.fn(() => { throw new Error('fail'); });
+        const consoleWarnSpy = vi.spyOn(console, 'warn');
+        const result = await controller.isInSeparateWindow();
+        expect(result).toBe(false);
+        expect(consoleWarnSpy).toHaveBeenCalledWith('Failed to detect window type:', expect.any(Error));
+        consoleWarnSpy.mockRestore();
+        global.browser.windows.getCurrent = origGetCurrent;
+    });
+
+    it('Logs no background downloads currently active', async () => {
+        const controller = new PopupController();
+        global.browser.runtime.sendMessage = vi.fn(async () => ({ ok: true, downloads: [] }));
+        controller.isDownloading = true;
+        const activeDownloadsInfo = document.getElementById('activeDownloadsInfo');
+        const consoleLogSpy = vi.spyOn(console, 'log');
+        await controller.updateActiveDownloadsInfo();
+        expect(consoleLogSpy).toHaveBeenCalledWith('No background downloads currently active');
+        consoleLogSpy.mockRestore();
+    });
+
+    it('Warns if failed to get active downloads', async () => {
+        const controller = new PopupController();
+        global.browser.runtime.sendMessage = vi.fn(async () => ({ ok: false, downloads: null }));
+        const consoleWarnSpy = vi.spyOn(console, 'warn');
+        await controller.updateActiveDownloadsInfo();
+        expect(consoleWarnSpy).toHaveBeenCalledWith('Failed to get active downloads or no downloads found:', { ok: false, downloads: null });
+        consoleWarnSpy.mockRestore();
+    });
+
+    it('Logs error if exception thrown', async () => {
+        const controller = new PopupController();
+        const consoleErrorSpy = vi.spyOn(console, 'error');
+        global.browser.runtime.sendMessage = vi.fn(() => { throw new Error('fail'); });
+        await controller.updateActiveDownloadsInfo();
+        expect(consoleErrorSpy).toHaveBeenCalledWith('[PopupController] Failed to get active downloads:', expect.any(Error));
+        consoleErrorSpy.mockRestore();
+    });
+
+    it('Sets formatSelector value from url param', async () => {
+        const controller = new PopupController();
+        const formatSelector = document.getElementById('formatSelector');
+        const originalSearch = window.location.search;
+        const option = document.createElement('option');
+        option.value = 'epub';
+        formatSelector.appendChild(option);
+        Object.defineProperty(window, 'location', {
+            value: { search: '?format=epub' },
+            writable: true
+        });
+        await controller.loadMetadata();
+        expect(formatSelector.value).toBe('epub');
+        window.location.search = originalSearch;
+    });
+
+    it('Sets rateLimitInput value from url param', async () => {
+        const controller = new PopupController();
+        const rateLimitInput = document.getElementById('rateLimitInput');
+        const originalSearch = window.location.search;
+        Object.defineProperty(window, 'location', {
+            value: { search: '?rateLimit=77' },
+            writable: true
+        });
+        await controller.loadMetadata();
+        expect(rateLimitInput.value).toBe('77');
+        window.location.search = originalSearch;
+    });
+
+    it('Uses slug and service from url params', async () => {
+        const controller = new PopupController();
+        const originalSearch = window.location.search;
+        Object.defineProperty(window, 'location', {
+            value: { search: '?download=true&slug=testslug&service=ranobelib' },
+            writable: true
+        });
+        await controller.loadMetadata();
+        expect(controller.currentSlug).toBe('testslug');
+        expect(controller.currentServiceKey).toBe('ranobelib');
+        window.location.search = originalSearch;
+    });
+
+    it('Creates MangaLibService when serviceKey is mangalib', async () => {
+        global.MangaLibService = vi.fn().mockImplementation(() => ({
+            fetchMangaMetadata: vi.fn(async () => ({ data: { rus_name: 'Title', summary: 'Summary', cover: 'cover.png', authors: ['Author'], ageRestriction: { label: '18+' }, releaseDate: '2020' }, image: 'cover.png' })),
+            fetchChaptersList: vi.fn(async () => ({ data: [{}, {}] }))
+        }));
+        const controller = new PopupController();
+        Object.defineProperty(window, 'location', {
+            value: { search: '?download=true&slug=testslug&service=mangalib' },
+            writable: true
+        });
+        await controller.loadMetadata();
+        expect(global.MangaLibService).toHaveBeenCalled();
+    });
+
+    it('Throws error for unknown service in url params', async () => {
+        const controller = new PopupController();
+        Object.defineProperty(window, 'location', {
+            value: { search: '?download=true&slug=testslug&service=unknownservice' },
+            writable: true
+        });
+        const consoleErrorSpy = vi.spyOn(console, 'error');
+        await controller.loadMetadata();
+        expect(consoleErrorSpy).toHaveBeenCalledWith('[PopupController] Failed to load metadata:', expect.any(Error));
+        expect(document.getElementById('description').textContent).toContain('Ошибка: Unknown service: unknownservice');
+        consoleErrorSpy.mockRestore();
+    });
+
+    it('Sets hostname to mangalib.me for mangalib service', async () => {
+        let hostnameSet = false;
+        const origMangaLibService = global.MangaLibService;
+        global.MangaLibService = class {
+            constructor() {
+                hostnameSet = true;
+            }
+            fetchMangaMetadata = vi.fn(async () => ({ data: { rus_name: 'Title', summary: 'Summary', cover: 'cover.png', authors: ['Author'], ageRestriction: { label: '18+' }, releaseDate: '2020' }, image: 'cover.png' }));
+            fetchChaptersList = vi.fn(async () => ({ data: [{}, {}] }));
+        };
+        const controller = new PopupController();
+        Object.defineProperty(window, 'location', {
+            value: { search: '?download=true&slug=testslug&service=mangalib' },
+            writable: true
+        });
+        await controller.loadMetadata();
+        expect(hostnameSet).toBe(true);
+        global.MangaLibService = origMangaLibService;
+    });
+
+    it('Sets slug to null when no match in url', async () => {
+        const controller = new PopupController();
+        global.browser.tabs.query = vi.fn(async () => ([{ url: 'https://ranobelib.me/' }]));
+        const originalSearch = window.location.search;
+        Object.defineProperty(window, 'location', {
+            value: { search: '' },
+            writable: true
+        });
+        await controller.loadMetadata();
+        expect(controller.currentSlug).toBe(null);
+        window.location.search = originalSearch;
+    });
+
+    it('Disables UI and shows message if service is not found', async () => {
+        const controller = new PopupController();
+        global.serviceRegistry.getServiceByUrl = vi.fn(() => null);
+        Object.defineProperty(window, 'location', {
+            value: { search: '' },
+            writable: true
+        });
+        global.browser.tabs.query = vi.fn(async () => ([{ url: 'https://unknownsite.me/' }]));
+        await controller.loadMetadata();
+        expect(document.getElementById('logoInfo').textContent).toBe('');
+        expect(document.getElementById('cover').style.display).toBe('none');
+        expect(document.getElementById('description').textContent).toBe('Сперва откройте один из сайтов проекта MangaLib');
+        expect(document.getElementById('releaseDate').textContent).toBe('');
+        expect(document.getElementById('downloadBtn').disabled).toBe(true);
+        expect(document.getElementById('status').textContent).toBe('');
+    });
+
+    it('Warns for missing elements when showing no service error', async () => {
+        const controller = new PopupController();
+        global.serviceRegistry.getServiceByUrl = vi.fn(() => null);
+        Object.defineProperty(window, 'location', {
+            value: { search: '' },
+            writable: true
+        });
+        global.browser.tabs.query = vi.fn(async () => ([{ url: 'https://unknownsite.me/' }]));
+        const coverImg = document.getElementById('cover');
+        const desc = document.getElementById('description');
+        const releaseEl = document.getElementById('releaseDate');
+        const status = document.getElementById('status');
+        if (coverImg && coverImg.parentNode) coverImg.parentNode.removeChild(coverImg);
+        if (desc && desc.parentNode) desc.parentNode.removeChild(desc);
+        if (releaseEl && releaseEl.parentNode) releaseEl.parentNode.removeChild(releaseEl);
+        if (status && status.parentNode) status.parentNode.removeChild(status);
+        const consoleWarnSpy = vi.spyOn(console, 'warn');
+        await controller.loadMetadata();
+        expect(consoleWarnSpy).toHaveBeenCalledWith('No service found for current URL');
+        expect(consoleWarnSpy).toHaveBeenCalledWith('Description element found when showing no service error');
+        expect(consoleWarnSpy).toHaveBeenCalledWith('Release date element found when showing no service error');
+        expect(consoleWarnSpy).toHaveBeenCalledWith('Status element not found when showing no service error');
+        consoleWarnSpy.mockRestore();
+    });
+
+    it('Warns for missing elements when showing no slug error', async () => {
+        const controller = new PopupController();
+        global.serviceRegistry.getServiceByUrl = vi.fn(() => ({ name: 'ranobelib', fetchMangaMetadata: vi.fn(), fetchChaptersList: vi.fn() }));
+        Object.defineProperty(window, 'location', {
+            value: { search: '' },
+            writable: true
+        });
+        global.browser.tabs.query = vi.fn(async () => ([{ url: 'https://ranobelib.me/' }]));
+        const coverImg = document.getElementById('cover');
+        const desc = document.getElementById('description');
+        const releaseEl = document.getElementById('releaseDate');
+        const status = document.getElementById('status');
+        if (coverImg && coverImg.parentNode) coverImg.parentNode.removeChild(coverImg);
+        if (desc && desc.parentNode) desc.parentNode.removeChild(desc);
+        if (releaseEl && releaseEl.parentNode) releaseEl.parentNode.removeChild(releaseEl);
+        if (status && status.parentNode) status.parentNode.removeChild(status);
+        const consoleWarnSpy = vi.spyOn(console, 'warn');
+        await controller.loadMetadata();
+        expect(consoleWarnSpy).toHaveBeenCalledWith('Cover image element not found when showing no slug error');
+        expect(consoleWarnSpy).toHaveBeenCalledWith('Description element found when showing no slug error');
+        expect(consoleWarnSpy).toHaveBeenCalledWith('Release date element found when showing no slug error');
+        expect(consoleWarnSpy).toHaveBeenCalledWith('Status element not found when showing no slug error');
+        consoleWarnSpy.mockRestore();
+    });
+
+    it('Uses rawResp as metadata if data is missing', async () => {
+        const controller = new PopupController();
+        global.serviceRegistry.getServiceByUrl = vi.fn(() => ({
+            name: 'ranobelib',
+            fetchMangaMetadata: vi.fn(async () => ({
+                rus_name: 'Title',
+                summary: 'Summary',
+                cover: 'cover.png',
+                authors: ['Author'],
+                ageRestriction: { label: '18+' },
+                releaseDate: '2020'
+            })),
+            fetchChaptersList: vi.fn(async () => ({ data: [{}, {}] }))
+        }));
+        Object.defineProperty(window, 'location', {
+            value: { search: '' },
+            writable: true
+        });
+        global.browser.tabs.query = vi.fn(async () => ([{ url: 'https://ranobelib.me/manga/slug' }]));
+        await controller.loadMetadata();
+        expect(document.getElementById('logoInfo').textContent).toContain('Глав:');
+        expect(document.getElementById('description').innerHTML).toContain('Title');
+    });
+
+    it('Warns if site logo element not found when setting logo for service mangalib', async () => {
+        global.MangaLibService = class {
+            fetchMangaMetadata = vi.fn(async () => ({ data: { rus_name: 'Title', summary: 'Summary', cover: 'cover.png', authors: ['Author'], ageRestriction: { label: '18+' }, releaseDate: '2020' }, image: 'cover.png' }));
+            fetchChaptersList = vi.fn(async () => ({ data: [{}, {}] }));
+        };
+        const controller = new PopupController();
+        Object.defineProperty(window, 'location', {
+            value: { search: '?download=true&slug=testslug&service=mangalib' },
+            writable: true
+        });
+        global.browser.tabs.query = vi.fn(async () => ([{ url: 'https://mangalib.me/manga/testslug' }]));
+        const siteLogo = document.getElementById('siteLogo');
+        if (siteLogo && siteLogo.parentNode) siteLogo.parentNode.removeChild(siteLogo);
+        const consoleWarnSpy = vi.spyOn(console, 'warn');
+        await controller.loadMetadata();
+        expect(consoleWarnSpy).toHaveBeenCalledWith('Site logo element not found when setting logo for service:', 'mangalib');
+        consoleWarnSpy.mockRestore();
+    });
+
+    it('Uses empty array as chapters if chaptersData.data is missing', async () => {
+        const controller = new PopupController();
+        global.serviceRegistry.getServiceByUrl = vi.fn(() => ({
+            name: 'ranobelib',
+            fetchMangaMetadata: vi.fn(async () => ({
+                data: {
+                    rus_name: 'Title',
+                    summary: 'Summary',
+                    cover: 'cover.png',
+                    authors: ['Author'],
+                    ageRestriction: { label: '18+' },
+                    releaseDate: '2020'
+                },
+                image: 'cover.png'
+            })),
+            fetchChaptersList: vi.fn(async () => ({}))
+        }));
+        Object.defineProperty(window, 'location', {
+            value: { search: '' },
+            writable: true
+        });
+        global.browser.tabs.query = vi.fn(async () => ([{ url: 'https://ranobelib.me/manga/slug' }]));
+        await controller.loadMetadata();
+        expect(document.getElementById('logoInfo').textContent).not.toContain('Глав: 1');
+    });
 });

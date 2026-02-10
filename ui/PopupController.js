@@ -4,7 +4,7 @@
  * @module ui/PopupController
  * @license MIT
  * @author ivanvit
- * @version 1.0.0
+ * @version 1.0.1
  */
 
 'use strict';
@@ -200,8 +200,9 @@
                     this.loadedFile = null;
                     
                     if (!file) {
-                        if (formatSelector) formatSelector.disabled = false;
+                        formatSelector.disabled = false;
                         if (status) status.textContent = '';
+                        else console.warn('Status element not found when resetting after file deselection');
                         customFileBtn.textContent = 'Загрузить файл для обновления';
                         btn.textContent = 'Скачать';
                         btn.style.display = 'block';
@@ -210,25 +211,24 @@
                     
                     const ext = file.name.split('.').pop().toLowerCase();
                     if (['pdf', 'epub', 'fb2'].includes(ext)) {
-                        if (formatSelector) {
-                            formatSelector.value = ext;
-                            formatSelector.disabled = true;
-                        }
+                        formatSelector.value = ext;
+                        formatSelector.disabled = true;
                         if (status) status.textContent = `Загружен файл: ${file.name}`;
                         customFileBtn.textContent = `Файл загружен: ${file.name}`;
                         btn.textContent = 'Обновить файл';
                         btn.style.display = 'block';
                         this.loadedFile = file;
                     } else {
-                        if (formatSelector) formatSelector.disabled = false;
+                        formatSelector.disabled = false;
                         if (status) status.textContent = 'Ошибка: поддерживаются только файлы PDF, EPUB или FB2';
+                        else console.warn('Status element not found when showing file type error');
                         customFileBtn.textContent = 'Загрузить файл для обновления';
                         hiddenFileInput.value = '';
                         this.loadedFile = null;
                         btn.textContent = 'Скачать';
                     }
                 });
-            }
+            } else console.warn('fileInputContainer found in DOM');
 
             let controlsContainer = document.getElementById('downloadControls');
             if (!controlsContainer) {
@@ -289,7 +289,7 @@
                 controlsContainer.appendChild(btnRow);
                 controlsContainer.appendChild(stopBtn);
                 btn.parentNode.insertBefore(controlsContainer, btn.nextSibling);
-            }
+            } else console.warn('downloadControls container found in DOM');
 
             if (progress) progress.style.display = 'none';
 
@@ -330,6 +330,7 @@
                         const parts = [];
                         if (fgDownloads > 0) parts.push(`${fgDownloads} обычная`);
                         if (bgDownloads.length > 0) parts.push(`${bgDownloads.length} фоновая`);
+                        else console.log('No background downloads currently active');
                         
                         activeDownloadsInfo.textContent = `Активных загрузок: ${parts.join(' + ')}`;
                         activeDownloadsInfo.style.display = 'block';
@@ -339,11 +340,11 @@
                                 `${d.slug}: ${d.status} (${d.progress}%)`
                             ).join('\n');
                             activeDownloadsInfo.title = details;
-                        }
+                        } else console.log('No background downloads to show in tooltip');
                     } else {
                         activeDownloadsInfo.style.display = 'none';
                     }
-                }
+                } else console.warn('Failed to get active downloads or no downloads found:', response);
             } catch (e) {
                 console.error('[PopupController] Failed to get active downloads:', e);
             }
@@ -403,17 +404,13 @@
                 } else {
                     const tabs = await browserAPI.tabs.query({ active: true, currentWindow: true });
                     
-                    if (!tabs || !tabs[0]) {
-                        throw new Error('No active tab found');
-                    }
+                    if (!tabs || !tabs[0]) throw new Error('No active tab found');
                     
                     currentUrl = tabs[0].url;
                     console.log('[PopupController] Current URL:', currentUrl);
 
                     const match = currentUrl.match(/\/(manga|book)\/([^\/\?]+)/);
-                    if (match) {
-                        slug = match[2];
-                    }
+                    slug = match ? match[2] : null;
 
                     const url = new URL(currentUrl);
                     hostname = url.hostname;
@@ -422,10 +419,14 @@
                     if (!service) {
                         logoInfo.textContent = '';
                         if (coverImg) coverImg.style.display = 'none';
+                        else console.warn('No service found for current URL');
                         if (desc) desc.textContent = 'Сперва откройте один из сайтов проекта MangaLib';
+                        else console.warn('Description element found when showing no service error');
                         if (releaseEl) releaseEl.textContent = '';
+                        else console.warn('Release date element found when showing no service error');
                         btn.disabled = true;
                         if (status) status.textContent = '';
+                        else console.warn('Status element not found when showing no service error');
                         return;
                     }
                     
@@ -436,19 +437,25 @@
                     document.body.style.setProperty('--primary-color', '#2196f3');
                     document.body.style.setProperty('--secondary-color', '#1f82d3ff');
                     if (siteLogo) siteLogo.src = 'icons/logo3.png';
+                    else console.warn('Site logo element not found when setting logo for service:', serviceKey);
                 } else {
                     document.body.style.setProperty('--primary-color', '#ff9100');
                     document.body.style.setProperty('--secondary-color', '#c77101');
                     if (siteLogo) siteLogo.src = 'icons/logo1.png';
+                    else console.warn('Site logo element not found when setting logo for service:', serviceKey);
                 }
 
                 if (!slug) {
                     logoInfo.textContent = '';
                     if (coverImg) coverImg.style.display = 'none';
+                    else console.warn('Cover image element not found when showing no slug error');
                     if (desc) desc.textContent = 'Сперва откройте соответствующий тайтл';
+                    else console.warn('Description element found when showing no slug error');
                     if (releaseEl) releaseEl.textContent = '';
+                    else console.warn('Release date element found when showing no slug error');
                     btn.disabled = true;
                     if (status) status.textContent = '';
+                    else console.warn('Status element not found when showing no slug error');
                     return;
                 }
 
