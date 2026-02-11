@@ -485,20 +485,20 @@
 
                 let cover = null;
                 if (meta.cover) {
-                    if (typeof meta.cover === 'string') {
+                    if (typeof meta.cover === 'string')
                         cover = meta.cover;
-                    } else if (meta.cover.default) {
+                    else if (meta.cover.default)
                         cover = meta.cover.default;
-                    } else if (meta.cover.thumbnail) {
+                    else if (meta.cover.thumbnail)
                         cover = meta.cover.thumbnail;
-                    } else if (meta.cover.md) {
+                    else if (meta.cover.md)
                         cover = meta.cover.md;
-                    } else if (meta.cover.url) {
+                    else if (meta.cover.url)
                         cover = meta.cover.url;
-                    }
+                    else console.warn('No valid cover URL found in meta.cover object');
                 } else if (meta.image) {
                     cover = meta.image;
-                }
+                } else console.warn('No cover information found in metadata');
 
                 if (cover) {
                     coverImg.style.display = 'block';
@@ -511,37 +511,37 @@
                 const authors = (meta.authors && Array.isArray(meta.authors)) 
                     ? meta.authors.map(a => {
                         if (!a) return null;
-                        if (typeof a === 'string') return a;
-                        return a.name || a.rus_name || a.title || null;
+                        else if (typeof a === 'string') return a;
+                        else return a.name || a.rus_name || a.title || null;
                     }).filter(Boolean)
                     : null;
 
                 let rating = null;
-                if (meta.ageRestriction && meta.ageRestriction.label) {
+                if (meta.ageRestriction && meta.ageRestriction.label) 
                     rating = String(meta.ageRestriction.label);
-                }
-                if (!rating && (meta.adult === true || String(meta.adult) === '1')) {
-                    rating = '18+';
-                }
+                else console.warn('No age restriction label found in metadata');
 
                 const firstLineParts = [];
                 if (chaptersCount !== null) firstLineParts.push('Глав: ' + chaptersCount);
                 if (rating) firstLineParts.push('Рейтинг: ' + rating);
+                else console.warn('No rating information found in metadata');
 
                 const secondLine = (authors && authors.length) ? ('Авторы: ' + authors.join(', ')) : '';
 
                 let logoText = '';
-                if (firstLineParts.length) logoText += firstLineParts.join(' · ');
-                if (secondLine) logoText += (logoText ? '\n' : '') + secondLine;
+                logoText += firstLineParts.join(' · ');
+                if (secondLine) logoText += '\n' + secondLine;
                 logoInfo.textContent = logoText;
 
                 desc.innerHTML = `<strong>${title}</strong><br><small>${summary}</small>`;
                 
                 const release = meta.releaseDate || meta.releaseDateString || meta.release_date || meta.published || meta.year || meta.date || '';
                 if (releaseEl) releaseEl.textContent = release ? ('Дата выхода: ' + release) : '';
+                else console.warn('Release date element not found when setting release date:', release);
 
                 btn.disabled = false;
                 if (status) status.textContent = 'Нажмите "Скачать" для загрузки книги';
+                else console.warn('Status element not found when setting ready to download message');
 
                 if (customFileBtn) {
                     customFileBtn.onclick = async () => {
@@ -551,6 +551,7 @@
                             
                             if (inSeparateWindow) {
                                 if (status) status.textContent = 'Выберите файл для обновления';
+                                else console.warn('Status element not found when prompting for file selection in separate window');
                                 hiddenFileInput.click();
                             } else {
                                 const format = formatSelector ? formatSelector.value : 'fb2';
@@ -573,32 +574,32 @@
                                     if (win && win.id) {
                                         await new Promise(resolve => setTimeout(resolve, 500));
                                         browserAPI.windows.update(win.id, { focused: true });
-                                    }
+                                    } else console.warn('Window created but no ID found:', win);
                                 } catch (createError) {
                                     console.error('Failed to create window:', createError);
                                     if (status) status.textContent = 'Не удалось открыть окно, используем текущее';
+                                    else console.warn('Status element not found when showing window creation error');
                                     hiddenFileInput.click();
                                 }
                             }
                         } catch (e) {
                             console.error('Failed to handle file upload:', e);
                             if (status) status.textContent = 'Выберите файл для обновления';
+                            else console.warn('Status element not found when prompting for file selection after error');
                             hiddenFileInput.click();
                         }
                     };
-                }
+                } else console.warn('Custom file button not found when setting up file upload handler');
 
                 if (fileUploadMode && hiddenFileInput) {
                     if (status) status.textContent = 'Выберите файл для обновления';
+                    else console.warn('Status element not found when prompting for file selection in file upload mode');
                     setTimeout(() => {
                         hiddenFileInput.click();
                     }, 300);
                 }
 
-                if (autoDownload) {
-                    setTimeout(() => this.startDownload(), 500);
-                }
-
+                if (autoDownload) setTimeout(() => this.startDownload(), 500);
             } catch (error) {
                 console.error('[PopupController] Failed to load metadata:', error);
                 if (desc) desc.textContent = `Ошибка: ${error.message}`;

@@ -932,4 +932,846 @@ describe('PopupController', () => {
         await controller.loadMetadata();
         expect(document.getElementById('logoInfo').textContent).not.toContain('Глав: 1');
     });
+
+    it('Uses meta.name or slug as title when rus_name is missing', async () => {
+        const controller = new PopupController();
+        global.serviceRegistry.getServiceByUrl = vi.fn(() => ({
+            name: 'ranobelib',
+            fetchMangaMetadata: vi.fn(async () => ({
+                data: {
+                    name: 'MetaName',
+                    summary: 'Summary',
+                    cover: 'cover.png',
+                    authors: ['Author'],
+                    ageRestriction: { label: '18+' },
+                    releaseDate: '2020'
+                }
+            })),
+            fetchChaptersList: vi.fn(async () => ({ data: [{}, {}] }))
+        }));
+        Object.defineProperty(window, 'location', {
+            value: { search: '' },
+            writable: true
+        });
+        global.browser.tabs.query = vi.fn(async () => ([{ url: 'https://ranobelib.me/manga/slug1' }]));
+        await controller.loadMetadata();
+        expect(document.getElementById('description').innerHTML).toContain('MetaName');
+
+        global.serviceRegistry.getServiceByUrl = vi.fn(() => ({
+            name: 'ranobelib',
+            fetchMangaMetadata: vi.fn(async () => ({
+                data: {
+                    summary: 'Summary',
+                    cover: 'cover.png',
+                    authors: ['Author'],
+                    ageRestriction: { label: '18+' },
+                    releaseDate: '2020'
+                }
+            })),
+            fetchChaptersList: vi.fn(async () => ({ data: [{}, {}] }))
+        }));
+        global.browser.tabs.query = vi.fn(async () => ([{ url: 'https://ranobelib.me/manga/slug2' }]));
+        await controller.loadMetadata();
+        expect(document.getElementById('description').innerHTML).toContain('slug2');
+    });
+
+    it('Uses meta.description or fallback text when summary is missing', async () => {
+        const controller = new PopupController();
+        global.serviceRegistry.getServiceByUrl = vi.fn(() => ({
+            name: 'ranobelib',
+            fetchMangaMetadata: vi.fn(async () => ({
+                data: {
+                    name: 'MetaName',
+                    description: 'MetaDescription',
+                    cover: 'cover.png',
+                    authors: ['Author'],
+                    ageRestriction: { label: '18+' },
+                    releaseDate: '2020'
+                }
+            })),
+            fetchChaptersList: vi.fn(async () => ({ data: [{}, {}] }))
+        }));
+        Object.defineProperty(window, 'location', {
+            value: { search: '' },
+            writable: true
+        });
+        global.browser.tabs.query = vi.fn(async () => ([{ url: 'https://ranobelib.me/manga/slug1' }]));
+        await controller.loadMetadata();
+        expect(document.getElementById('description').innerHTML).toContain('MetaDescription');
+
+        global.serviceRegistry.getServiceByUrl = vi.fn(() => ({
+            name: 'ranobelib',
+            fetchMangaMetadata: vi.fn(async () => ({
+                data: {
+                    name: 'MetaName',
+                    cover: 'cover.png',
+                    authors: ['Author'],
+                    ageRestriction: { label: '18+' },
+                    releaseDate: '2020'
+                }
+            })),
+            fetchChaptersList: vi.fn(async () => ({ data: [{}, {}] }))
+        }));
+        global.browser.tabs.query = vi.fn(async () => ([{ url: 'https://ranobelib.me/manga/slug2' }]));
+        await controller.loadMetadata();
+        expect(document.getElementById('description').innerHTML).toContain('Описание отсутствует');
+    });
+
+    it('Warns if failed to fetch chapters count', async () => {
+        const controller = new PopupController();
+        global.serviceRegistry.getServiceByUrl = vi.fn(() => ({
+            name: 'ranobelib',
+            fetchMangaMetadata: vi.fn(async () => ({
+                data: {
+                    rus_name: 'Title',
+                    summary: 'Summary',
+                    cover: 'cover.png',
+                    authors: ['Author'],
+                    ageRestriction: { label: '18+' },
+                    releaseDate: '2020'
+                },
+                image: 'cover.png'
+            })),
+            fetchChaptersList: vi.fn(async () => { throw new Error('fail chapters'); })
+        }));
+        const consoleWarnSpy = vi.spyOn(console, 'warn');
+        await controller.loadMetadata();
+        expect(consoleWarnSpy).toHaveBeenCalledWith('[PopupController] Failed to fetch chapters count:', expect.any(Error));
+        consoleWarnSpy.mockRestore();
+    });
+
+    it('Warns if no valid cover URL found in meta.cover object', async () => {
+        const controller = new PopupController();
+        global.serviceRegistry.getServiceByUrl = vi.fn(() => ({
+            name: 'ranobelib',
+            fetchMangaMetadata: vi.fn(async () => ({
+                data: {
+                    rus_name: 'Title',
+                    summary: 'Summary',
+                    cover: { foo: 'bar' },
+                    authors: ['Author'],
+                    ageRestriction: { label: '18+' },
+                    releaseDate: '2020'
+                }
+            })),
+            fetchChaptersList: vi.fn(async () => ({ data: [{}, {}] }))
+        }));
+        Object.defineProperty(window, 'location', {
+            value: { search: '' },
+            writable: true
+        });
+        global.browser.tabs.query = vi.fn(async () => ([{ url: 'https://ranobelib.me/manga/slug' }]));
+        const consoleWarnSpy = vi.spyOn(console, 'warn');
+        await controller.loadMetadata();
+        expect(consoleWarnSpy).toHaveBeenCalledWith('No valid cover URL found in meta.cover object');
+        consoleWarnSpy.mockRestore();
+    });
+
+    it('Sets cover to meta.cover.default if present', async () => {
+        const controller = new PopupController();
+        global.serviceRegistry.getServiceByUrl = vi.fn(() => ({
+            name: 'ranobelib',
+            fetchMangaMetadata: vi.fn(async () => ({
+                data: {
+                    rus_name: 'Title',
+                    summary: 'Summary',
+                    cover: { default: 'default-cover.png' },
+                    authors: ['Author'],
+                    ageRestriction: { label: '18+' },
+                    releaseDate: '2020'
+                }
+            })),
+            fetchChaptersList: vi.fn(async () => ({ data: [{}, {}] }))
+        }));
+        Object.defineProperty(window, 'location', {
+            value: { search: '' },
+            writable: true
+        });
+        global.browser.tabs.query = vi.fn(async () => ([{ url: 'https://ranobelib.me/manga/slug' }]));
+        await controller.loadMetadata();
+        expect(document.getElementById('cover').src).toContain('default-cover.png');
+    });
+
+    it('Sets cover to meta.cover.thumbnail if present', async () => {
+        const controller = new PopupController();
+        global.serviceRegistry.getServiceByUrl = vi.fn(() => ({
+            name: 'ranobelib',
+            fetchMangaMetadata: vi.fn(async () => ({
+                data: {
+                    rus_name: 'Title',
+                    summary: 'Summary',
+                    cover: { thumbnail: 'thumbnail-cover.png' },
+                    authors: ['Author'],
+                    ageRestriction: { label: '18+' },
+                    releaseDate: '2020'
+                }
+            })),
+            fetchChaptersList: vi.fn(async () => ({ data: [{}, {}] }))
+        }));
+        Object.defineProperty(window, 'location', {
+            value: { search: '' },
+            writable: true
+        });
+        global.browser.tabs.query = vi.fn(async () => ([{ url: 'https://ranobelib.me/manga/slug' }]));
+        await controller.loadMetadata();
+        expect(document.getElementById('cover').src).toContain('thumbnail-cover.png');
+    });
+
+    it('Sets cover to meta.cover.md if present', async () => {
+        const controller = new PopupController();
+        global.serviceRegistry.getServiceByUrl = vi.fn(() => ({
+            name: 'ranobelib',
+            fetchMangaMetadata: vi.fn(async () => ({
+                data: {
+                    rus_name: 'Title',
+                    summary: 'Summary',
+                    cover: { md: 'md-cover.png' },
+                    authors: ['Author'],
+                    ageRestriction: { label: '18+' },
+                    releaseDate: '2020'
+                }
+            })),
+            fetchChaptersList: vi.fn(async () => ({ data: [{}, {}] }))
+        }));
+        Object.defineProperty(window, 'location', {
+            value: { search: '' },
+            writable: true
+        });
+        global.browser.tabs.query = vi.fn(async () => ([{ url: 'https://ranobelib.me/manga/slug' }]));
+        await controller.loadMetadata();
+        expect(document.getElementById('cover').src).toContain('md-cover.png');
+    });
+
+    it('Sets cover to meta.cover.url if present', async () => {
+        const controller = new PopupController();
+        global.serviceRegistry.getServiceByUrl = vi.fn(() => ({
+            name: 'ranobelib',
+            fetchMangaMetadata: vi.fn(async () => ({
+                data: {
+                    rus_name: 'Title',
+                    summary: 'Summary',
+                    cover: { url: 'url-cover.png' },
+                    authors: ['Author'],
+                    ageRestriction: { label: '18+' },
+                    releaseDate: '2020'
+                }
+            })),
+            fetchChaptersList: vi.fn(async () => ({ data: [{}, {}] }))
+        }));
+        Object.defineProperty(window, 'location', {
+            value: { search: '' },
+            writable: true
+        });
+        global.browser.tabs.query = vi.fn(async () => ([{ url: 'https://ranobelib.me/manga/slug' }]));
+        await controller.loadMetadata();
+        expect(document.getElementById('cover').src).toContain('url-cover.png');
+    });
+
+    it('Sets cover to meta.image if present', async () => {
+        const controller = new PopupController();
+        global.serviceRegistry.getServiceByUrl = vi.fn(() => ({
+            name: 'ranobelib',
+            fetchMangaMetadata: vi.fn(async () => ({
+                data: {
+                    rus_name: 'Title',
+                    summary: 'Summary',
+                    image: 'meta-image.png',
+                    authors: ['Author'],
+                    ageRestriction: { label: '18+' },
+                    releaseDate: '2020'
+                }
+            })),
+            fetchChaptersList: vi.fn(async () => ({ data: [{}, {}] }))
+        }));
+        Object.defineProperty(window, 'location', {
+            value: { search: '' },
+            writable: true
+        });
+        global.browser.tabs.query = vi.fn(async () => ([{ url: 'https://ranobelib.me/manga/slug' }]));
+        await controller.loadMetadata();
+        expect(document.getElementById('cover').src).toContain('meta-image.png');
+    });
+
+    it('Warns if no cover information found in metadata', async () => {
+        const controller = new PopupController();
+        global.serviceRegistry.getServiceByUrl = vi.fn(() => ({
+            name: 'ranobelib',
+            fetchMangaMetadata: vi.fn(async () => ({
+                data: {
+                    rus_name: 'Title',
+                    summary: 'Summary',
+                    authors: ['Author'],
+                    ageRestriction: { label: '18+' },
+                    releaseDate: '2020'
+                }
+            })),
+            fetchChaptersList: vi.fn(async () => ({ data: [{}, {}] }))
+        }));
+        Object.defineProperty(window, 'location', {
+            value: { search: '' },
+            writable: true
+        });
+        global.browser.tabs.query = vi.fn(async () => ([{ url: 'https://ranobelib.me/manga/slug' }]));
+        const consoleWarnSpy = vi.spyOn(console, 'warn');
+        await controller.loadMetadata();
+        expect(consoleWarnSpy).toHaveBeenCalledWith('No cover information found in metadata');
+        consoleWarnSpy.mockRestore();
+    });
+
+    it('Returns null for empty author in metadata', async () => {
+        const controller = new PopupController();
+        global.serviceRegistry.getServiceByUrl = vi.fn(() => ({
+            name: 'ranobelib',
+            fetchMangaMetadata: vi.fn(async () => ({
+                data: {
+                    rus_name: 'Title',
+                    summary: 'Summary',
+                    cover: 'cover.png',
+                    authors: [null, undefined, '', 'Author'],
+                    ageRestriction: { label: '18+' },
+                    releaseDate: '2020'
+                }
+            })),
+            fetchChaptersList: vi.fn(async () => ({ data: [{}, {}] }))
+        }));
+        Object.defineProperty(window, 'location', {
+            value: { search: '' },
+            writable: true
+        });
+        global.browser.tabs.query = vi.fn(async () => ([{ url: 'https://ranobelib.me/manga/slug' }]));
+        await controller.loadMetadata();
+        expect(document.getElementById('logoInfo').textContent).toContain('Авторы: Author');
+    });
+
+    it('Returns null for author object without name fields', async () => {
+        const controller = new PopupController();
+        global.serviceRegistry.getServiceByUrl = vi.fn(() => ({
+            name: 'ranobelib',
+            fetchMangaMetadata: vi.fn(async () => ({
+                data: {
+                    rus_name: 'Title',
+                    summary: 'Summary',
+                    cover: 'cover.png',
+                    authors: [{ foo: 'bar' }, 'Author'],
+                    ageRestriction: { label: '18+' },
+                    releaseDate: '2020'
+                }
+            })),
+            fetchChaptersList: vi.fn(async () => ({ data: [{}, {}] }))
+        }));
+        Object.defineProperty(window, 'location', {
+            value: { search: '' },
+            writable: true
+        });
+        global.browser.tabs.query = vi.fn(async () => ([{ url: 'https://ranobelib.me/manga/slug' }]));
+        await controller.loadMetadata();
+        expect(document.getElementById('logoInfo').textContent).toContain('Авторы: Author');
+    });
+
+    it('Sets authors to null if meta.authors is not an array', async () => {
+        const controller = new PopupController();
+        global.serviceRegistry.getServiceByUrl = vi.fn(() => ({
+            name: 'ranobelib',
+            fetchMangaMetadata: vi.fn(async () => ({
+                data: {
+                    rus_name: 'Title',
+                    summary: 'Summary',
+                    cover: 'cover.png',
+                    authors: 'Ivan',
+                    ageRestriction: { label: '18+' },
+                    releaseDate: '2020'
+                }
+            })),
+            fetchChaptersList: vi.fn(async () => ({ data: [{}, {}] }))
+        }));
+        Object.defineProperty(window, 'location', {
+            value: { search: '' },
+            writable: true
+        });
+        global.browser.tabs.query = vi.fn(async () => ([{ url: 'https://ranobelib.me/manga/slug' }]));
+        await controller.loadMetadata();
+        expect(document.getElementById('logoInfo').textContent).not.toContain('Авторы:');
+    });
+
+    it('Warns if no age restriction label found in metadata', async () => {
+        const controller = new PopupController();
+        global.serviceRegistry.getServiceByUrl = vi.fn(() => ({
+            name: 'ranobelib',
+            fetchMangaMetadata: vi.fn(async () => ({
+                data: {
+                    rus_name: 'Title',
+                    summary: 'Summary',
+                    cover: 'cover.png',
+                    authors: ['Author'],
+                    ageRestriction: {},
+                    releaseDate: '2020'
+                }
+            })),
+            fetchChaptersList: vi.fn(async () => ({ data: [{}, {}] }))
+        }));
+        Object.defineProperty(window, 'location', {
+            value: { search: '' },
+            writable: true
+        });
+        global.browser.tabs.query = vi.fn(async () => ([{ url: 'https://ranobelib.me/manga/slug' }]));
+        const consoleWarnSpy = vi.spyOn(console, 'warn');
+        await controller.loadMetadata();
+        expect(consoleWarnSpy).toHaveBeenCalledWith('No age restriction label found in metadata');
+        consoleWarnSpy.mockRestore();
+    });
+
+    it('Warns if no rating information found in metadata', async () => {
+        const controller = new PopupController();
+        global.serviceRegistry.getServiceByUrl = vi.fn(() => ({
+            name: 'ranobelib',
+            fetchMangaMetadata: vi.fn(async () => ({
+                data: {
+                    rus_name: 'Title',
+                    summary: 'Summary',
+                    cover: 'cover.png',
+                    authors: ['Author'],
+                    ageRestriction: {},
+                    releaseDate: '2020'
+                }
+            })),
+            fetchChaptersList: vi.fn(async () => ({ data: [{}, {}] }))
+        }));
+        Object.defineProperty(window, 'location', {
+            value: { search: '' },
+            writable: true
+        });
+        global.browser.tabs.query = vi.fn(async () => ([{ url: 'https://ranobelib.me/manga/slug' }]));
+        const consoleWarnSpy = vi.spyOn(console, 'warn');
+        await controller.loadMetadata();
+        expect(consoleWarnSpy).toHaveBeenCalledWith('No rating information found in metadata');
+        consoleWarnSpy.mockRestore();
+    });
+
+    it('Sets release date from releaseDate or releaseDateString or release_date or published or year or date or empty', async () => {
+        const controller = new PopupController();
+
+        global.serviceRegistry.getServiceByUrl = vi.fn(() => ({
+            name: 'ranobelib',
+            fetchMangaMetadata: vi.fn(async () => ({
+                data: {
+                    rus_name: 'Title',
+                    summary: 'Summary',
+                    cover: 'cover.png',
+                    authors: ['Author'],
+                    ageRestriction: { label: '18+' },
+                    releaseDate: '2022-01-01'
+                }
+            })),
+            fetchChaptersList: vi.fn(async () => ({ data: [{}, {}] }))
+        }));
+        global.browser.tabs.query = vi.fn(async () => ([{ url: 'https://ranobelib.me/manga/slug1' }]));
+        await controller.loadMetadata();
+        expect(document.getElementById('releaseDate').textContent).toContain('2022-01-01');
+
+        global.serviceRegistry.getServiceByUrl = vi.fn(() => ({
+            name: 'ranobelib',
+            fetchMangaMetadata: vi.fn(async () => ({
+                data: {
+                    rus_name: 'Title',
+                    summary: 'Summary',
+                    cover: 'cover.png',
+                    authors: ['Author'],
+                    ageRestriction: { label: '18+' },
+                    releaseDateString: '2023-02-02'
+                }
+            })),
+            fetchChaptersList: vi.fn(async () => ({ data: [{}, {}] }))
+        }));
+        global.browser.tabs.query = vi.fn(async () => ([{ url: 'https://ranobelib.me/manga/slug2' }]));
+        await controller.loadMetadata();
+        expect(document.getElementById('releaseDate').textContent).toContain('2023-02-02');
+
+        global.serviceRegistry.getServiceByUrl = vi.fn(() => ({
+            name: 'ranobelib',
+            fetchMangaMetadata: vi.fn(async () => ({
+                data: {
+                    rus_name: 'Title',
+                    summary: 'Summary',
+                    cover: 'cover.png',
+                    authors: ['Author'],
+                    ageRestriction: { label: '18+' },
+                    release_date: '2024-03-03'
+                }
+            })),
+            fetchChaptersList: vi.fn(async () => ({ data: [{}, {}] }))
+        }));
+        global.browser.tabs.query = vi.fn(async () => ([{ url: 'https://ranobelib.me/manga/slug3' }]));
+        await controller.loadMetadata();
+        expect(document.getElementById('releaseDate').textContent).toContain('2024-03-03');
+
+        global.serviceRegistry.getServiceByUrl = vi.fn(() => ({
+            name: 'ranobelib',
+            fetchMangaMetadata: vi.fn(async () => ({
+                data: {
+                    rus_name: 'Title',
+                    summary: 'Summary',
+                    cover: 'cover.png',
+                    authors: ['Author'],
+                    ageRestriction: { label: '18+' },
+                    published: '2025-04-04'
+                }
+            })),
+            fetchChaptersList: vi.fn(async () => ({ data: [{}, {}] }))
+        }));
+        global.browser.tabs.query = vi.fn(async () => ([{ url: 'https://ranobelib.me/manga/slug4' }]));
+        await controller.loadMetadata();
+        expect(document.getElementById('releaseDate').textContent).toContain('2025-04-04');
+
+        global.serviceRegistry.getServiceByUrl = vi.fn(() => ({
+            name: 'ranobelib',
+            fetchMangaMetadata: vi.fn(async () => ({
+                data: {
+                    rus_name: 'Title',
+                    summary: 'Summary',
+                    cover: 'cover.png',
+                    authors: ['Author'],
+                    ageRestriction: { label: '18+' },
+                    year: '2026'
+                }
+            })),
+            fetchChaptersList: vi.fn(async () => ({ data: [{}, {}] }))
+        }));
+        global.browser.tabs.query = vi.fn(async () => ([{ url: 'https://ranobelib.me/manga/slug5' }]));
+        await controller.loadMetadata();
+        expect(document.getElementById('releaseDate').textContent).toContain('2026');
+
+        global.serviceRegistry.getServiceByUrl = vi.fn(() => ({
+            name: 'ranobelib',
+            fetchMangaMetadata: vi.fn(async () => ({
+                data: {
+                    rus_name: 'Title',
+                    summary: 'Summary',
+                    cover: 'cover.png',
+                    authors: ['Author'],
+                    ageRestriction: { label: '18+' },
+                    date: '2027-06-06'
+                }
+            })),
+            fetchChaptersList: vi.fn(async () => ({ data: [{}, {}] }))
+        }));
+        global.browser.tabs.query = vi.fn(async () => ([{ url: 'https://ranobelib.me/manga/slug6' }]));
+        await controller.loadMetadata();
+        expect(document.getElementById('releaseDate').textContent).toContain('2027-06-06');
+
+        global.serviceRegistry.getServiceByUrl = vi.fn(() => ({
+            name: 'ranobelib',
+            fetchMangaMetadata: vi.fn(async () => ({
+                data: {
+                    rus_name: 'Title',
+                    summary: 'Summary',
+                    cover: 'cover.png',
+                    authors: ['Author'],
+                    ageRestriction: { label: '18+' }
+                }
+            })),
+            fetchChaptersList: vi.fn(async () => ({ data: [{}, {}] }))
+        }));
+        global.browser.tabs.query = vi.fn(async () => ([{ url: 'https://ranobelib.me/manga/slug7' }]));
+        await controller.loadMetadata();
+        expect(document.getElementById('releaseDate').textContent).toBe('');
+    });
+
+    it('Warns if release date element found when setting release date', async () => {
+        const controller = new PopupController();
+        global.serviceRegistry.getServiceByUrl = vi.fn(() => ({
+            name: 'ranobelib',
+            fetchMangaMetadata: vi.fn(async () => ({
+                data: {
+                    rus_name: 'Title',
+                    summary: 'Summary',
+                    cover: 'cover.png',
+                    authors: ['Author'],
+                    ageRestriction: { label: '18+' },
+                    releaseDate: '2020'
+                }
+            })),
+            fetchChaptersList: vi.fn(async () => ({ data: [{}, {}] }))
+        }));
+        Object.defineProperty(window, 'location', {
+            value: { search: '' },
+            writable: true
+        });
+        global.browser.tabs.query = vi.fn(async () => ([{ url: 'https://ranobelib.me/manga/slug' }]));
+        const releaseEl = document.getElementById('releaseDate');
+        if (releaseEl && releaseEl.parentNode) releaseEl.parentNode.removeChild(releaseEl);
+        const consoleWarnSpy = vi.spyOn(console, 'warn');
+        await controller.loadMetadata();
+        expect(consoleWarnSpy).toHaveBeenCalledWith('Release date element not found when setting release date:', '2020');
+        consoleWarnSpy.mockRestore();
+    });
+
+    it('Warns if status element not found when setting ready to download message', async () => {
+        const controller = new PopupController();
+        global.serviceRegistry.getServiceByUrl = vi.fn(() => ({
+            name: 'ranobelib',
+            fetchMangaMetadata: vi.fn(async () => ({
+                data: {
+                    rus_name: 'Title',
+                    summary: 'Summary',
+                    cover: 'cover.png',
+                    authors: ['Author'],
+                    ageRestriction: { label: '18+' },
+                    releaseDate: '2020'
+                }
+            })),
+            fetchChaptersList: vi.fn(async () => ({ data: [{}, {}] }))
+        }));
+        Object.defineProperty(window, 'location', {
+            value: { search: '' },
+            writable: true
+        });
+        global.browser.tabs.query = vi.fn(async () => ([{ url: 'https://ranobelib.me/manga/slug' }]));
+        const status = document.getElementById('status');
+        if (status && status.parentNode) status.parentNode.removeChild(status);
+        const consoleWarnSpy = vi.spyOn(console, 'warn');
+        await controller.loadMetadata();
+        expect(consoleWarnSpy).toHaveBeenCalledWith('Status element not found when setting ready to download message');
+        consoleWarnSpy.mockRestore();
+    });
+
+    it('Calls isInSeparateWindow when clicking file button', async () => {
+        const controller = new PopupController();
+        const isInSeparateWindowSpy = vi.spyOn(controller, 'isInSeparateWindow').mockResolvedValue(true);
+        const customFileBtn = document.getElementById('customFileBtn');
+        await controller.loadMetadata();
+        await customFileBtn.onclick();
+        expect(isInSeparateWindowSpy).toHaveBeenCalled();
+        isInSeparateWindowSpy.mockRestore();
+    });
+
+    it('Warns if status element not found when prompting for file selection in separate window', async () => {
+        const controller = new PopupController();
+        const isInSeparateWindowSpy = vi.spyOn(controller, 'isInSeparateWindow').mockResolvedValue(true);
+        const customFileBtn = document.getElementById('customFileBtn');
+        const status = document.getElementById('status');
+        if (status && status.parentNode) status.parentNode.removeChild(status);
+        const consoleWarnSpy = vi.spyOn(console, 'warn');
+        await controller.loadMetadata();
+        await customFileBtn.onclick();
+        expect(consoleWarnSpy).toHaveBeenCalledWith('Status element not found when prompting for file selection in separate window');
+        consoleWarnSpy.mockRestore();
+        isInSeparateWindowSpy.mockRestore();
+    });
+
+    it('Sets format from formatSelector value', async () => {
+        const controller = new PopupController();
+        const customFileBtn = document.getElementById('customFileBtn');
+        const formatSelector = document.createElement('select');
+        formatSelector.id = 'formatSelector';
+        const opt = document.createElement('option');
+        opt.value = 'epub';
+        formatSelector.appendChild(opt);
+        document.body.appendChild(formatSelector);
+
+        formatSelector.value = 'epub';
+        const isInSeparateWindowSpy = vi.spyOn(controller, 'isInSeparateWindow').mockResolvedValue(false);
+        const formatValues = [];
+        const origAlert = global.alert;
+        global.alert = (msg) => formatValues.push(msg);
+
+        await controller.loadMetadata();
+        await customFileBtn.onclick();
+        expect(formatSelector.value).toBe('epub');
+
+        formatSelector.parentNode.removeChild(formatSelector);
+        await customFileBtn.onclick();
+        global.alert = origAlert;
+        isInSeparateWindowSpy.mockRestore();
+    });
+
+    it('Defaults format to fb2 if formatSelector is missing', async () => {
+        const controller = new PopupController();
+        const customFileBtn = document.getElementById('customFileBtn');
+        const formatSelector = document.getElementById('formatSelector');
+        if (formatSelector && formatSelector.parentNode) formatSelector.parentNode.removeChild(formatSelector);
+        const isInSeparateWindowSpy = vi.spyOn(controller, 'isInSeparateWindow').mockResolvedValue(false);
+        const windowsCreateSpy = vi.spyOn(global.browser.windows, 'create');
+        await controller.loadMetadata();
+        await customFileBtn.onclick();
+        const urlArg = windowsCreateSpy.mock.calls[0][0].url;
+        expect(urlArg).toContain('format=fb2');
+        isInSeparateWindowSpy.mockRestore();
+        windowsCreateSpy.mockRestore();
+    });
+
+    it('Defaults rateLimit to 100 if rateLimitInput is missing', async () => {
+        const controller = new PopupController();
+        const customFileBtn = document.getElementById('customFileBtn');
+        const rateLimitInput = document.getElementById('rateLimitInput');
+        if (rateLimitInput && rateLimitInput.parentNode) rateLimitInput.parentNode.removeChild(rateLimitInput);
+        const isInSeparateWindowSpy = vi.spyOn(controller, 'isInSeparateWindow').mockResolvedValue(false);
+        const windowsCreateSpy = vi.spyOn(global.browser.windows, 'create');
+        await controller.loadMetadata();
+        await customFileBtn.onclick();
+        const urlArg = windowsCreateSpy.mock.calls[0][0].url;
+        expect(urlArg).toContain('rateLimit=100');
+        isInSeparateWindowSpy.mockRestore();
+        windowsCreateSpy.mockRestore();
+    });
+
+    it('Defaults rateLimit to 100 if rateLimitInput value is empty or invalid', async () => {
+        const controller = new PopupController();
+        const customFileBtn = document.getElementById('customFileBtn');
+        const rateLimitInput = document.getElementById('rateLimitInput');
+        rateLimitInput.value = '';
+        const isInSeparateWindowSpy = vi.spyOn(controller, 'isInSeparateWindow').mockResolvedValue(false);
+        const windowsCreateSpy = vi.spyOn(global.browser.windows, 'create');
+        await controller.loadMetadata();
+        await customFileBtn.onclick();
+        const urlArg = windowsCreateSpy.mock.calls[0][0].url;
+        expect(urlArg).toContain('rateLimit=100');
+        isInSeparateWindowSpy.mockRestore();
+        windowsCreateSpy.mockRestore();
+    });
+
+    it('Warns if window created but no ID found', async () => {
+        const controller = new PopupController();
+        const customFileBtn = document.getElementById('customFileBtn');
+        const isInSeparateWindowSpy = vi.spyOn(controller, 'isInSeparateWindow').mockResolvedValue(false);
+        const windowsCreateSpy = vi.spyOn(global.browser.windows, 'create').mockResolvedValue({});
+        const consoleWarnSpy = vi.spyOn(console, 'warn');
+        await controller.loadMetadata();
+        await customFileBtn.onclick();
+        expect(consoleWarnSpy).toHaveBeenCalledWith('Window created but no ID found:', {});
+        consoleWarnSpy.mockRestore();
+        isInSeparateWindowSpy.mockRestore();
+        windowsCreateSpy.mockRestore();
+    });
+
+    it('Handles error when window creation fails', async () => {
+        const controller = new PopupController();
+        const customFileBtn = document.getElementById('customFileBtn');
+        const isInSeparateWindowSpy = vi.spyOn(controller, 'isInSeparateWindow').mockResolvedValue(false);
+        const windowsCreateSpy = vi.spyOn(global.browser.windows, 'create').mockRejectedValue(new Error('fail create'));
+        const status = document.getElementById('status');
+        const hiddenFileInput = document.getElementById('fileInput');
+        const clickSpy = vi.spyOn(hiddenFileInput, 'click');
+        const consoleErrorSpy = vi.spyOn(console, 'error');
+        await controller.loadMetadata();
+        await customFileBtn.onclick();
+        expect(consoleErrorSpy).toHaveBeenCalledWith('Failed to create window:', expect.any(Error));
+        expect(status.textContent).toBe('Не удалось открыть окно, используем текущее');
+        expect(clickSpy).toHaveBeenCalled();
+        consoleErrorSpy.mockRestore();
+        isInSeparateWindowSpy.mockRestore();
+        windowsCreateSpy.mockRestore();
+        clickSpy.mockRestore();
+    });
+
+    it('Warns if status element not found when showing window creation error', async () => {
+        const controller = new PopupController();
+        const customFileBtn = document.getElementById('customFileBtn');
+        const isInSeparateWindowSpy = vi.spyOn(controller, 'isInSeparateWindow').mockResolvedValue(false);
+        const windowsCreateSpy = vi.spyOn(global.browser.windows, 'create').mockRejectedValue(new Error('fail create'));
+        const status = document.getElementById('status');
+        if (status && status.parentNode) status.parentNode.removeChild(status);
+        const hiddenFileInput = document.getElementById('fileInput');
+        const clickSpy = vi.spyOn(hiddenFileInput, 'click');
+        const consoleWarnSpy = vi.spyOn(console, 'warn');
+        const consoleErrorSpy = vi.spyOn(console, 'error');
+        await controller.loadMetadata();
+        await customFileBtn.onclick();
+        expect(consoleErrorSpy).toHaveBeenCalledWith('Failed to create window:', expect.any(Error));
+        expect(consoleWarnSpy).toHaveBeenCalledWith('Status element not found when showing window creation error');
+        expect(clickSpy).toHaveBeenCalled();
+        consoleWarnSpy.mockRestore();
+        consoleErrorSpy.mockRestore();
+        isInSeparateWindowSpy.mockRestore();
+        windowsCreateSpy.mockRestore();
+        clickSpy.mockRestore();
+    });
+
+    it('Handles error in file handler and shows prompt for file selection', async () => {
+        const controller = new PopupController();
+        const customFileBtn = document.getElementById('customFileBtn');
+        const isInSeparateWindowSpy = vi.spyOn(controller, 'isInSeparateWindow').mockImplementation(() => { throw new Error('fail isInSeparateWindow'); });
+        const status = document.getElementById('status');
+        const hiddenFileInput = document.getElementById('fileInput');
+        const clickSpy = vi.spyOn(hiddenFileInput, 'click');
+        const consoleErrorSpy = vi.spyOn(console, 'error');
+        await controller.loadMetadata();
+        await customFileBtn.onclick();
+        expect(consoleErrorSpy).toHaveBeenCalledWith('Failed to handle file upload:', expect.any(Error));
+        expect(status.textContent).toBe('Выберите файл для обновления');
+        expect(clickSpy).toHaveBeenCalled();
+        consoleErrorSpy.mockRestore();
+        isInSeparateWindowSpy.mockRestore();
+        clickSpy.mockRestore();
+    });
+
+    it('Warns if status element not found when prompting for file selection after error', async () => {
+        const controller = new PopupController();
+        const customFileBtn = document.getElementById('customFileBtn');
+        const isInSeparateWindowSpy = vi.spyOn(controller, 'isInSeparateWindow').mockImplementation(() => { throw new Error('fail isInSeparateWindow'); });
+        const status = document.getElementById('status');
+        if (status && status.parentNode) status.parentNode.removeChild(status);
+        const hiddenFileInput = document.getElementById('fileInput');
+        const clickSpy = vi.spyOn(hiddenFileInput, 'click');
+        const consoleWarnSpy = vi.spyOn(console, 'warn');
+        const consoleErrorSpy = vi.spyOn(console, 'error');
+        await controller.loadMetadata();
+        await customFileBtn.onclick();
+        expect(consoleErrorSpy).toHaveBeenCalledWith('Failed to handle file upload:', expect.any(Error));
+        expect(consoleWarnSpy).toHaveBeenCalledWith('Status element not found when prompting for file selection after error');
+        expect(clickSpy).toHaveBeenCalled();
+        consoleWarnSpy.mockRestore();
+        consoleErrorSpy.mockRestore();
+        isInSeparateWindowSpy.mockRestore();
+        clickSpy.mockRestore();
+    });
+
+    it('Clicks hidden file input if fileUploadMode is true and hiddenFileInput exists', async () => {
+        const controller = new PopupController();
+        const hiddenFileInput = document.getElementById('fileInput');
+        const clickSpy = vi.spyOn(hiddenFileInput, 'click');
+        Object.defineProperty(window, 'location', {
+            value: { search: '?fileUpload=true&slug=testslug&service=ranobelib' },
+            writable: true
+        });
+        await controller.loadMetadata();
+        await new Promise(resolve => setTimeout(resolve, 350));
+        expect(clickSpy).toHaveBeenCalled();
+        clickSpy.mockRestore();
+    });
+
+    it('Warns if status element not found when prompting for file selection in file upload mode', async () => {
+        const controller = new PopupController();
+        const status = document.getElementById('status');
+        if (status && status.parentNode) status.parentNode.removeChild(status);
+        const hiddenFileInput = document.getElementById('fileInput');
+        const clickSpy = vi.spyOn(hiddenFileInput, 'click');
+        Object.defineProperty(window, 'location', {
+            value: { search: '?fileUpload=true&slug=testslug&service=ranobelib' },
+            writable: true
+        });
+        const consoleWarnSpy = vi.spyOn(console, 'warn');
+        await controller.loadMetadata();
+        await new Promise(resolve => setTimeout(resolve, 350));
+        expect(consoleWarnSpy).toHaveBeenCalledWith('Status element not found when prompting for file selection in file upload mode');
+        expect(clickSpy).toHaveBeenCalled();
+        consoleWarnSpy.mockRestore();
+        clickSpy.mockRestore();
+    });
+
+    it('Returns input as is if text is falsy in truncateText', () => {
+        const controller = new PopupController();
+        expect(controller.truncateText(null)).toBe(null);
+        expect(controller.truncateText(undefined)).toBe(undefined);
+        expect(controller.truncateText('')).toBe('');
+    });
+
+    it('Warns if custom file button not found when setting up file upload handler', async () => {
+        const controller = new PopupController();
+        const customFileBtn = document.getElementById('customFileBtn');
+        if (customFileBtn && customFileBtn.parentNode) customFileBtn.parentNode.removeChild(customFileBtn);
+        const consoleWarnSpy = vi.spyOn(console, 'warn');
+        await controller.loadMetadata();
+        expect(consoleWarnSpy).toHaveBeenCalledWith('Custom file button not found when setting up file upload handler');
+        consoleWarnSpy.mockRestore();
+    });
 });
