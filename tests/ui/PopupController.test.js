@@ -1,8 +1,7 @@
 import { describe, it, expect, beforeEach, vi } from 'vitest';
-import fs from 'fs/promises';
-import vm from 'vm';
 
 let PopupController;
+let controller;
 
 function setupDOM() {
     document.body.innerHTML = `
@@ -20,9 +19,23 @@ function setupDOM() {
     `;
 }
 
+let intervals = [];
+
 beforeEach(async () => {
     vi.resetModules();
+    
+    intervals = [];
+    const originalSetInterval = global.setInterval;
+    global.setInterval = vi.fn((fn, ms) => {
+        const id = originalSetInterval(() => {
+            typeof document !== 'undefined' && document && document.getElementById && fn();
+        }, ms);
+        intervals.push(id);
+        return id;
+    });
+    
     setupDOM();
+    
     global.localStorage = {
         getItem: vi.fn(() => null),
         setItem: vi.fn(),
@@ -79,6 +92,13 @@ beforeEach(async () => {
     global.chrome = undefined;
     await import('../../ui/PopupController.js');
     PopupController = global.PopupController;
+});
+
+afterEach(() => {
+    intervals.forEach(id => clearInterval(id));
+    intervals = [];
+    if (controller) controller = null;
+    vi.clearAllTimers();
 });
 
 describe('PopupController', () => {
