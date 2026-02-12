@@ -53,6 +53,7 @@
 
     "host_permissions": [
         "https://mangalib.me/*",
+        "https://mangalib.org/*",
         "https://ranobelib.me/*",
         "https://api.cdnlibs.org/*",
         "https://img3.mixlib.me/*",
@@ -74,6 +75,7 @@
         {
             "matches": [
                 "https://mangalib.me/*",
+                "https://mangalib.org/*",
                 "https://ranobelib.me/*"
             ],
             "js": ["background/RemoveAds.js"],
@@ -82,6 +84,7 @@
         {
             "matches": [
                 "*://*.mangalib.me/*",
+                "*://*.mangalib.org/*",
                 "*://*.ranobelib.me/*",
                 "*://*.imgslib.link/*"
             ],

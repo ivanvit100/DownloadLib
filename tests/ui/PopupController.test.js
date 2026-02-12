@@ -1774,4 +1774,179 @@ describe('PopupController', () => {
         expect(consoleWarnSpy).toHaveBeenCalledWith('Custom file button not found when setting up file upload handler');
         consoleWarnSpy.mockRestore();
     });
+
+    it('Gets formatSelector and rateLimitInput elements when download button clicked', async () => {
+        const controller = new PopupController();
+        controller.currentSlug = 'slug';
+        controller.currentServiceKey = 'ranobelib';
+        const isInSeparateWindowSpy = vi.spyOn(controller, 'isInSeparateWindow').mockResolvedValue(false);
+        const windowsCreateSpy = vi.spyOn(global.browser.windows, 'create').mockResolvedValue({ id: 123 });
+        const windowsUpdateSpy = vi.spyOn(global.browser.windows, 'update').mockResolvedValue({});
+        const getElementByIdSpy = vi.spyOn(document, 'getElementById');
+        const downloadBtn = document.getElementById('downloadBtn');
+        await downloadBtn.click();
+        await new Promise(resolve => setTimeout(resolve, 100));
+        expect(getElementByIdSpy).toHaveBeenCalledWith('formatSelector');
+        expect(getElementByIdSpy).toHaveBeenCalledWith('rateLimitInput');
+        getElementByIdSpy.mockRestore();
+        isInSeparateWindowSpy.mockRestore();
+        windowsCreateSpy.mockRestore();
+        windowsUpdateSpy.mockRestore();
+    });
+
+    it('Defaults format to fb2 if formatSelector is missing when download button clicked', async () => {
+        const controller = new PopupController();
+        const formatSelector = document.getElementById('formatSelector');
+        if (formatSelector && formatSelector.parentNode) formatSelector.parentNode.removeChild(formatSelector);
+        controller.currentSlug = 'slug';
+        controller.currentServiceKey = 'ranobelib';
+        const isInSeparateWindowSpy = vi.spyOn(controller, 'isInSeparateWindow').mockResolvedValue(false);
+        const windowsCreateSpy = vi.spyOn(global.browser.windows, 'create').mockResolvedValue({ id: 123 });
+        const downloadBtn = document.getElementById('downloadBtn');
+        await downloadBtn.click();
+        await new Promise(resolve => setTimeout(resolve, 100));
+        const urlArg = windowsCreateSpy.mock.calls[0][0].url;
+        expect(urlArg).toContain('format=fb2');
+        isInSeparateWindowSpy.mockRestore();
+        windowsCreateSpy.mockRestore();
+    });
+
+    it('Defaults rateLimit to 100 if rateLimitInput value is empty or invalid', async () => {
+        const controller = new PopupController();
+        const rateLimitInput = document.getElementById('rateLimitInput');
+        rateLimitInput.value = '';
+        controller.currentSlug = 'slug';
+        controller.currentServiceKey = 'ranobelib';
+        const isInSeparateWindowSpy = vi.spyOn(controller, 'isInSeparateWindow').mockResolvedValue(false);
+        const windowsCreateSpy = vi.spyOn(global.browser.windows, 'create').mockResolvedValue({ id: 123 });
+        const downloadBtn = document.getElementById('downloadBtn');
+        await downloadBtn.click();
+        await new Promise(resolve => setTimeout(resolve, 100));
+        const urlArg = windowsCreateSpy.mock.calls[0][0].url;
+        expect(urlArg).toContain('rateLimit=100');
+        isInSeparateWindowSpy.mockRestore();
+        windowsCreateSpy.mockRestore();
+    });
+
+    it('Defaults rateLimit to 100 if rateLimitInput is missing', async () => {
+        const controller = new PopupController();
+        const rateLimitInput = document.getElementById('rateLimitInput');
+        if (rateLimitInput && rateLimitInput.parentNode) rateLimitInput.parentNode.removeChild(rateLimitInput);
+        controller.currentSlug = 'slug';
+        controller.currentServiceKey = 'ranobelib';
+        const isInSeparateWindowSpy = vi.spyOn(controller, 'isInSeparateWindow').mockResolvedValue(false);
+        const windowsCreateSpy = vi.spyOn(global.browser.windows, 'create').mockResolvedValue({ id: 123 });
+        const downloadBtn = document.getElementById('downloadBtn');
+        await downloadBtn.click();
+        await new Promise(resolve => setTimeout(resolve, 100));
+        const urlArg = windowsCreateSpy.mock.calls[0][0].url;
+        expect(urlArg).toContain('rateLimit=100');
+        isInSeparateWindowSpy.mockRestore();
+        windowsCreateSpy.mockRestore();
+    });
+
+    it('Calls windows update after window creation', async () => {
+        const controller = new PopupController();
+        controller.currentSlug = 'slug';
+        controller.currentServiceKey = 'ranobelib';
+        const isInSeparateWindowSpy = vi.spyOn(controller, 'isInSeparateWindow').mockResolvedValue(false);
+        const windowsCreateSpy = vi.spyOn(global.browser.windows, 'create').mockResolvedValue({ id: 123 });
+        const windowsUpdateSpy = vi.spyOn(global.browser.windows, 'update').mockResolvedValue({});
+        const downloadBtn = document.getElementById('downloadBtn');
+        await downloadBtn.click();
+        await new Promise(resolve => setTimeout(resolve, 600));
+        expect(windowsUpdateSpy).toHaveBeenCalledWith(123, { focused: true });
+        isInSeparateWindowSpy.mockRestore();
+        windowsCreateSpy.mockRestore();
+        windowsUpdateSpy.mockRestore();
+    });
+
+    it('Warns if window created but no ID found', async () => {
+        const controller = new PopupController();
+        controller.currentSlug = 'slug';
+        controller.currentServiceKey = 'ranobelib';
+        const isInSeparateWindowSpy = vi.spyOn(controller, 'isInSeparateWindow').mockResolvedValue(false);
+        const windowsCreateSpy = vi.spyOn(global.browser.windows, 'create').mockResolvedValue({});
+        const consoleWarnSpy = vi.spyOn(console, 'warn');
+        const downloadBtn = document.getElementById('downloadBtn');
+        await downloadBtn.click();
+        await new Promise(resolve => setTimeout(resolve, 100));
+        expect(consoleWarnSpy).toHaveBeenCalledWith('Window created but no ID found:', {});
+        consoleWarnSpy.mockRestore();
+        isInSeparateWindowSpy.mockRestore();
+        windowsCreateSpy.mockRestore();
+    });
+
+    it('Handles error in window creation and calls startDownload', async () => {
+        const controller = new PopupController();
+        controller.currentSlug = 'slug';
+        controller.currentServiceKey = 'ranobelib';
+        const isInSeparateWindowSpy = vi.spyOn(controller, 'isInSeparateWindow').mockResolvedValue(false);
+        const windowsCreateSpy = vi.spyOn(global.browser.windows, 'create').mockRejectedValue(new Error('fail create'));
+        const startDownloadSpy = vi.spyOn(controller, 'startDownload').mockResolvedValue();
+        const consoleErrorSpy = vi.spyOn(console, 'error');
+        const downloadBtn = document.getElementById('downloadBtn');
+        await downloadBtn.click();
+        await new Promise(resolve => setTimeout(resolve, 100));
+        expect(consoleErrorSpy).toHaveBeenCalledWith('Failed to create window:', expect.any(Error));
+        expect(startDownloadSpy).toHaveBeenCalled();
+        consoleErrorSpy.mockRestore();
+        isInSeparateWindowSpy.mockRestore();
+        windowsCreateSpy.mockRestore();
+        startDownloadSpy.mockRestore();
+    });
+
+    it('Toggles pause state when button clicked', async () => {
+        const controller = new PopupController();
+        const pauseBtn = document.getElementById('pauseBtn');
+        const status = document.getElementById('status');
+        pauseBtn.click();
+        expect(controller.isPaused).toBe(true);
+        expect(pauseBtn.textContent).toBe('Продолжить');
+        expect(status.textContent).toBe('Пауза...');
+        pauseBtn.click();
+        expect(controller.isPaused).toBe(false);
+        expect(pauseBtn.textContent).toBe('Пауза');
+        expect(status.textContent).toBe('Загрузка...');
+    });
+
+    it('Warns if status element not found when updating status on pause/resume', async () => {
+        const controller = new PopupController();
+        const pauseBtn = document.getElementById('pauseBtn');
+        const status = document.getElementById('status');
+        if (status && status.parentNode) status.parentNode.removeChild(status);
+        const consoleWarnSpy = vi.spyOn(console, 'warn');
+        pauseBtn.click();
+        expect(consoleWarnSpy).toHaveBeenCalledWith('Status element not found when updating status on pause/resume');
+        consoleWarnSpy.mockRestore();
+    });
+
+    it('Calls stopDownload when stop button clicked', async () => {
+        const controller = new PopupController();
+        const stopDownloadSpy = vi.spyOn(controller, 'stopDownload');
+        const stopBtn = document.getElementById('stopBtn');
+        stopBtn.click();
+        expect(stopDownloadSpy).toHaveBeenCalled();
+        stopDownloadSpy.mockRestore();
+    });
+
+    it('Logs error and returns early if currentDownloadId is missing when background button clicked', async () => {
+        const controller = new PopupController();
+        controller.currentDownloadId = null;
+        const backgroundBtn = document.getElementById('backgroundBtn');
+        const consoleErrorSpy = vi.spyOn(console, 'error');
+        backgroundBtn.click();
+        expect(consoleErrorSpy).toHaveBeenCalledWith('[PopupController] No currentDownloadId:', null);
+        consoleErrorSpy.mockRestore();
+    });
+
+    it('Logs attempt to move download to background', async () => {
+        const controller = new PopupController();
+        controller.currentDownloadId = 42;
+        const backgroundBtn = document.getElementById('backgroundBtn');
+        const consoleLogSpy = vi.spyOn(console, 'log');
+        backgroundBtn.click();
+        expect(consoleLogSpy).toHaveBeenCalledWith('[PopupController] Attempting to move download to background with ID:', 42);
+        consoleLogSpy.mockRestore();
+    });
 });

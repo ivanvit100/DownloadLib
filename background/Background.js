@@ -40,7 +40,7 @@ function detectServiceByReferer(details) {
     
     if (referer.includes('ranobelib.me'))
         return 'ranobelib';
-    if (referer.includes('mangalib.me'))
+    if (referer.includes('mangalib.me') || referer.includes('mangalib.org'))
         return 'mangalib';
     
     if (isImageRequest(details.url)) {
@@ -283,6 +283,7 @@ if (browserAPI && browserAPI.webRequest && browserAPI.webRequest.onBeforeRequest
                 const tabUrl = details.documentUrl || details.initiator || details.originUrl || '';
                 if (
                     tabUrl.includes('mangalib.me') ||
+                    tabUrl.includes('mangalib.org') ||
                     tabUrl.includes('ranobelib.me')
                 ) {
                     isService = true;

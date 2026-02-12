@@ -378,9 +378,8 @@
             }
 
             const rateLimitInput = document.getElementById('rateLimitInput');
-            if (rateLimitFromUrl && rateLimitInput) {
+            if (rateLimitFromUrl && rateLimitInput)
                 rateLimitInput.value = rateLimitFromUrl;
-            }
 
             if (btn) btn.disabled = true;
             if (status) status.textContent = 'Получаем информацию...';
@@ -392,13 +391,11 @@
                     slug = slugFromUrl;
                     serviceKey = serviceFromUrl;
                     
-                    if (serviceKey === 'ranobelib') {
+                    if (serviceKey === 'ranobelib')
                         service = new global.RanobeLibService();
-                    } else if (serviceKey === 'mangalib') {
+                    else if (serviceKey === 'mangalib')
                         service = new global.MangaLibService();
-                    } else {
-                        throw new Error(`Unknown service: ${serviceKey}`);
-                    }
+                    else throw new Error(`Unknown service: ${serviceKey}`);
                     
                     hostname = serviceKey === 'ranobelib' ? 'ranobelib.me' : 'mangalib.me';
                 } else {
@@ -648,14 +645,12 @@
                             if (win && win.id) {
                                 await new Promise(resolve => setTimeout(resolve, 500));
                                 browserAPI.windows.update(win.id, { focused: true });
-                            }
+                            } else console.warn('Window created but no ID found:', win);
                         } catch (e) {
                             console.error('Failed to create window:', e);
                             await this.startDownload();
                         }
-                    } else {
-                        await this.startDownload();
-                    }
+                    } else await this.startDownload();
                 });
                 console.log('[PopupController] Download button listener attached');
             }
@@ -666,19 +661,18 @@
                     pauseBtn.textContent = this.isPaused ? 'Продолжить' : 'Пауза';
                     const status = document.getElementById('status');
                     if (status) status.textContent = this.isPaused ? 'Пауза...' : 'Загрузка...';
+                    else console.warn('Status element not found when updating status on pause/resume');
                 });
             }
 
-            if (stopBtn) {
-                stopBtn.addEventListener('click', () => this.stopDownload());
-            }
+            if (stopBtn) stopBtn.addEventListener('click', () => this.stopDownload());
 
             if (backgroundBtn) {
                 backgroundBtn.addEventListener('click', async () => {
                     if (!this.currentDownloadId) {
                         console.error('[PopupController] No currentDownloadId:', this.currentDownloadId);
                         return;
-                    }
+                    } else console.log('[PopupController] Attempting to move download to background with ID:', this.currentDownloadId);
                     
                     try {
                         const downloadState = this.downloadManager.getDownloadState(this.currentDownloadId);
@@ -686,27 +680,25 @@
                         if (!downloadState) {
                             console.error('[PopupController] No downloadState for ID:', this.currentDownloadId);
                             return;
-                        }
-                        
-                        this.shouldStop = true;
-                        this.downloadManager.stop(this.currentDownloadId);
-                        
-                        const response = await browserAPI.runtime.sendMessage({
-                            action: 'takeOverDownload',
-                            ...downloadState
-                        });
-                        
-                        if (response.ok) {
-                            const inSeparateWindow = await this.isInSeparateWindow();
-                            if (inSeparateWindow) {
-                                window.close();
-                            } else {
-                                this.resetUI();
-                                const status = document.getElementById('status');
-                                if (status) status.textContent = 'Загрузка продолжается в фоне';
-                            }
                         } else {
-                            this.shouldStop = false;
+                            this.shouldStop = true;
+                            this.downloadManager.stop(this.currentDownloadId);
+                            
+                            const response = await browserAPI.runtime.sendMessage({
+                                action: 'takeOverDownload',
+                                ...downloadState
+                            });
+                            
+                            if (response.ok) {
+                                const inSeparateWindow = await this.isInSeparateWindow();
+                                if (inSeparateWindow) {
+                                    window.close();
+                                } else {
+                                    this.resetUI();
+                                    const status = document.getElementById('status');
+                                    if (status) status.textContent = 'Загрузка продолжается в фоне';
+                                }
+                            } else this.shouldStop = false;
                         }
                     } catch (e) {
                         console.error('[PopupController] Failed to move to background:', e);

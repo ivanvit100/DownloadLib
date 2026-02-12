@@ -731,4 +731,41 @@ describe('DownloadManager', () => {
         logSpy.mockRestore();
     });
 
+    it('Calculates total parts using Math.ceil when chapters exceed max per file for mangalib', async () => {
+        const dm = new DownloadManager();
+        const chapters = [];
+        for (let i = 1; i <= 181; i++) chapters.push({ volume: '1', number: String(i) });
+        serviceMock.fetchChaptersList = vi.fn(async () => ({ data: chapters }));
+        serviceMock.fetchChapter = vi.fn(async () => ({ data: { content: [{ type: 'text', text: 'ok' }] } }));
+        const mathCeilSpy = vi.spyOn(Math, 'ceil');
+        const saveFileSpy = vi.spyOn(dm, 'saveFile').mockResolvedValue();
+        const delaySpy = vi.spyOn(dm, 'delay').mockResolvedValue();
+        await dm.startDownload({ serviceKey: 'mangalib', url: 'https://site/manga/slug' });
+        expect(mathCeilSpy).toHaveBeenCalledWith(181 / 80);
+        expect(saveFileSpy).toHaveBeenCalledTimes(3);
+        mathCeilSpy.mockRestore();
+        saveFileSpy.mockRestore();
+        delaySpy.mockRestore();
+    }, 30000);
+
+    it('Breaks loop early when controller should stop', async () => {
+        const dm = new DownloadManager();
+        const chapters = [];
+        for (let i = 1; i <= 181; i++) chapters.push({ volume: '1', number: String(i) });
+        serviceMock.fetchChaptersList = vi.fn(async () => ({ data: chapters }));
+        serviceMock.fetchChapter = vi.fn(async () => ({ data: { content: [{ type: 'text', text: 'ok' }] } }));
+        const saveFileSpy = vi.spyOn(dm, 'saveFile').mockResolvedValue();
+        const delaySpy = vi.spyOn(dm, 'delay').mockResolvedValue();
+        const ctrl = dm.createController();
+        let stopCalled = false;
+        ctrl.shouldStop = () => {
+            stopCalled = true;
+            return true;
+        };
+        await dm.startDownload({ serviceKey: 'mangalib', url: 'https://site/manga/slug', controller: ctrl });
+        expect(stopCalled).toBe(true);
+        expect(saveFileSpy).toHaveBeenCalledTimes(0);
+        saveFileSpy.mockRestore();
+        delaySpy.mockRestore();
+    });
 });

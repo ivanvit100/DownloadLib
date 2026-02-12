@@ -4,7 +4,7 @@
  * @module services/mangalib/MangaLibService
  * @license MIT
  * @author ivanvit
- * @version 1.0.0
+ * @version 1.0.1
  */
 
 'use strict';
@@ -22,7 +22,7 @@
         static matches(url) {
             try {
                 const hostname = new URL(url).hostname;
-                return /mangalib\.me$/i.test(hostname) || /imgslib\.link$/i.test(hostname);
+                return /mangalib\.me$/i.test(hostname) || /imgslib\.link$/i.test(hostname) || /mangalib\.org$/i.test(hostname);
             } catch {
                 return false;
             }

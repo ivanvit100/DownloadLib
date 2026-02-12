@@ -4,7 +4,7 @@
  * @module core/ServiceRegistry
  * @license MIT
  * @author ivanvit
- * @version 1.0.0
+ * @version 1.0.1
  */
 
 'use strict';
@@ -34,6 +34,7 @@
 
         getServiceByUrl(url) {
             for (const [name, { instance, matcher }] of this.services) {
+                console.log(name, matcher);
                 try {
                     if (matcher(url)) return instance;
                 } catch (e) {
