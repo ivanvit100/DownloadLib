@@ -291,6 +291,102 @@
                 btn.parentNode.insertBefore(controlsContainer, btn.nextSibling);
             } else console.warn('downloadControls container found in DOM');
 
+            let chapterRangeContainer = document.getElementById('chapterRangeContainer');
+            if (!chapterRangeContainer) {
+                chapterRangeContainer = document.createElement('div');
+                chapterRangeContainer.id = 'chapterRangeContainer';
+                chapterRangeContainer.style.textAlign = 'center';
+                chapterRangeContainer.style.marginTop = '10px';
+                chapterRangeContainer.style.marginBottom = '10px';
+                chapterRangeContainer.style.display = 'none';
+
+                const selectRow = document.createElement('div');
+                selectRow.style.display = 'flex';
+                selectRow.style.justifyContent = 'space-between';
+                selectRow.style.alignItems = 'center';
+
+                const fromLabel = document.createElement('div');
+                fromLabel.textContent = 'от';
+                fromLabel.style.color = '#bdbdbd';
+                fromLabel.style.fontSize = '14px';
+                fromLabel.style.marginBottom = '2px';
+                fromLabel.style.width = '50%';
+                fromLabel.style.textAlign = 'center';
+
+                const toLabel = document.createElement('div');
+                toLabel.textContent = 'до';
+                toLabel.style.color = '#bdbdbd';
+                toLabel.style.fontSize = '14px';
+                toLabel.style.marginBottom = '2px';
+                toLabel.style.width = '50%';
+                toLabel.style.textAlign = 'center';
+
+                const labelsRow = document.createElement('div');
+                labelsRow.style.display = 'flex';
+                labelsRow.style.justifyContent = 'space-between';
+                labelsRow.appendChild(fromLabel);
+                labelsRow.appendChild(toLabel);
+
+                const fromSelect = document.createElement('select');
+                fromSelect.id = 'chapterFromSelect';
+                fromSelect.style.padding = '8px 16px';
+                fromSelect.style.fontSize = '14px';
+                fromSelect.style.width = 'calc(50% - 4px)';
+                fromSelect.style.cursor = 'pointer';
+                fromSelect.style.border = '2px solid var(--primary-color)';
+                fromSelect.style.background = '#252527';
+                fromSelect.style.color = '#bdbdbd';
+                fromSelect.style.transition = 'all 0.3s ease';
+
+                const toSelect = document.createElement('select');
+                toSelect.id = 'chapterToSelect';
+                toSelect.style.padding = '8px 16px';
+                toSelect.style.fontSize = '14px';
+                toSelect.style.width = 'calc(50% - 4px)';
+                toSelect.style.cursor = 'pointer';
+                toSelect.style.border = '2px solid var(--primary-color)';
+                toSelect.style.background = '#252527';
+                toSelect.style.color = '#bdbdbd';
+                toSelect.style.transition = 'all 0.3s ease';
+
+                fromSelect.addEventListener('change', () => {
+                    const fromIdx = parseInt(fromSelect.value);
+                    const toIdx = parseInt(toSelect.value);
+                    if (fromIdx > toIdx) toSelect.value = fromSelect.value;
+                });
+
+                toSelect.addEventListener('change', () => {
+                    const fromIdx = parseInt(fromSelect.value);
+                    const toIdx = parseInt(toSelect.value);
+                    if (toIdx < fromIdx) fromSelect.value = toSelect.value;
+                });
+
+                fromSelect.addEventListener('mouseenter', () => {
+                    fromSelect.style.border = '2px solid var(--secondary-color)';
+                });
+
+                fromSelect.addEventListener('mouseleave', () => {
+                    fromSelect.style.border = '2px solid var(--primary-color)';
+                });
+
+                toSelect.addEventListener('mouseenter', () => {
+                    toSelect.style.border = '2px solid var(--secondary-color)';
+                });
+
+                toSelect.addEventListener('mouseleave', () => {
+                    toSelect.style.border = '2px solid var(--primary-color)';
+                });
+
+                selectRow.appendChild(fromSelect);
+                selectRow.appendChild(toSelect);
+
+                chapterRangeContainer.appendChild(labelsRow);
+                chapterRangeContainer.appendChild(selectRow);
+
+                const rateLimitContainer = rateLimitInput.parentNode;
+                rateLimitContainer.parentNode.insertBefore(chapterRangeContainer, rateLimitContainer.nextSibling);
+            }
+
             if (progress) progress.style.display = 'none';
 
             console.log('[PopupController] UI setup complete');
@@ -370,6 +466,8 @@
             const serviceFromUrl = urlParams.get('service');
             const formatFromUrl = urlParams.get('format');
             const rateLimitFromUrl = urlParams.get('rateLimit');
+            const chapterFromUrl = urlParams.get('chapterFrom');
+            const chapterToUrl = urlParams.get('chapterTo');
 
             const formatSelector = document.getElementById('formatSelector');
             if (formatFromUrl && formatSelector) {
@@ -468,10 +566,44 @@
                 const meta = rawResp.data || rawResp;
 
                 let chaptersCount = null;
+                let chapters = [];
                 try {
                     const chaptersData = await service.fetchChaptersList(slug);
-                    const chapters = chaptersData.data || [];
+                    chapters = chaptersData.data || [];
                     chaptersCount = chapters.length;
+                    
+                    if (chaptersCount > 0) {
+                        const fromSelect = document.getElementById('chapterFromSelect');
+                        const toSelect = document.getElementById('chapterToSelect');
+                        const chapterRangeContainer = document.getElementById('chapterRangeContainer');
+                        
+                        if (fromSelect && toSelect && chapterRangeContainer) {
+                            fromSelect.innerHTML = '';
+                            toSelect.innerHTML = '';
+                            
+                            chapters.forEach((ch, idx) => {
+                                const optionFrom = document.createElement('option');
+                                optionFrom.value = idx;
+                                optionFrom.textContent = `Том ${ch.volume}, Глава ${ch.number}`;
+                                fromSelect.appendChild(optionFrom);
+                                
+                                const optionTo = document.createElement('option');
+                                optionTo.value = idx;
+                                optionTo.textContent = `Том ${ch.volume}, Глава ${ch.number}`;
+                                toSelect.appendChild(optionTo);
+                            });
+                            
+                            if (chapterFromUrl !== null && chapterToUrl !== null) {
+                                fromSelect.value = chapterFromUrl;
+                                toSelect.value = chapterToUrl;
+                                console.log('[PopupController] Restored chapter range from URL:', chapterFromUrl, '-', chapterToUrl);
+                            } else {
+                                toSelect.selectedIndex = chapters.length - 1;
+                            }
+                            
+                            chapterRangeContainer.style.display = 'block';
+                        }
+                    }
                 } catch (e) {
                     console.warn('[PopupController] Failed to fetch chapters count:', e);
                 }
@@ -557,10 +689,10 @@
                                 try {
                                     const win = await browserAPI.windows.create({
                                         url: browserAPI.runtime.getURL('popup.html') + 
-                                             '?fileUpload=true&slug=' + encodeURIComponent(slug) + 
-                                             '&service=' + encodeURIComponent(serviceKey) +
-                                             '&format=' + encodeURIComponent(format) +
-                                             '&rateLimit=' + encodeURIComponent(rateLimit),
+                                            '?fileUpload=true&slug=' + encodeURIComponent(slug) + 
+                                            '&service=' + encodeURIComponent(serviceKey) +
+                                            '&format=' + encodeURIComponent(format) +
+                                            '&rateLimit=' + encodeURIComponent(rateLimit),
                                         type: 'popup',
                                         width: 420,
                                         height: 650,
@@ -625,16 +757,24 @@
                     if (!this.loadedFile && !inSeparateWindow) {
                         const formatSelector = document.getElementById('formatSelector');
                         const rateLimitInput = document.getElementById('rateLimitInput');
+                        const fromSelect = document.getElementById('chapterFromSelect');
+                        const toSelect = document.getElementById('chapterToSelect');
+                        const chapterRangeContainer = document.getElementById('chapterRangeContainer');
+                        
                         const format = formatSelector ? formatSelector.value : 'fb2';
                         const rateLimit = rateLimitInput ? parseInt(rateLimitInput.value) || 100 : 100;
                         
+                        let urlParams = `?download=true&slug=${encodeURIComponent(this.currentSlug)}&service=${encodeURIComponent(this.currentServiceKey)}&format=${encodeURIComponent(format)}&rateLimit=${encodeURIComponent(rateLimit)}`;
+                        
+                        if (fromSelect && toSelect && chapterRangeContainer && chapterRangeContainer.style.display !== 'none') {
+                            const chapterFrom = fromSelect.value;
+                            const chapterTo = toSelect.value;
+                            urlParams += `&chapterFrom=${encodeURIComponent(chapterFrom)}&chapterTo=${encodeURIComponent(chapterTo)}`;
+                        }
+                        
                         try {
                             const win = await browserAPI.windows.create({
-                                url: browserAPI.runtime.getURL('popup.html') + 
-                                     '?download=true&slug=' + encodeURIComponent(this.currentSlug) + 
-                                     '&service=' + encodeURIComponent(this.currentServiceKey) +
-                                     '&format=' + encodeURIComponent(format) +
-                                     '&rateLimit=' + encodeURIComponent(rateLimit),
+                                url: browserAPI.runtime.getURL('popup.html') + urlParams,
                                 type: 'popup',
                                 width: 420,
                                 height: 650,
@@ -739,6 +879,10 @@
             const controlsContainer = document.getElementById('downloadControls');
             const hiddenFileInput = document.getElementById('fileInput');
             const customFileBtn = document.getElementById('customFileBtn');
+            const fileInputContainer = document.getElementById('fileInputContainer');
+            const chapterRangeContainer = document.getElementById('chapterRangeContainer');
+            const fromSelect = document.getElementById('chapterFromSelect');
+            const toSelect = document.getElementById('chapterToSelect');
 
             try {
                 if (rateLimitInput) {
@@ -747,6 +891,14 @@
                         action: 'setRateLimit',
                         limit: limit
                     });
+                }
+                
+                let chapterRange = null;
+                if (fromSelect && toSelect && chapterRangeContainer && chapterRangeContainer.style.display !== 'none') {
+                    chapterRange = {
+                        from: parseInt(fromSelect.value),
+                        to: parseInt(toSelect.value)
+                    };
                 }
                 
                 this.isDownloading = true;
@@ -759,8 +911,10 @@
                 if (rateLimitInput) rateLimitInput.disabled = true;
                 if (hiddenFileInput) hiddenFileInput.disabled = true;
                 if (customFileBtn) customFileBtn.disabled = true;
+                if (fileInputContainer) fileInputContainer.style.display = 'none';
                 if (progress) progress.style.display = 'block';
                 if (controlsContainer) controlsContainer.style.display = 'block';
+                if (chapterRangeContainer) chapterRangeContainer.style.display = 'none';
                 
                 const statusText = this.loadedFile ? 'Запуск обновления...' : 'Запуск скачивания...';
                 if (status) status.textContent = statusText;
@@ -772,14 +926,14 @@
                     serviceKey: this.currentServiceKey,
                     format: format,
                     loadedFile: this.loadedFile,
+                    chapterRange: chapterRange,
                     controller: {
                         isPaused: () => this.isPaused,
                         shouldStop: () => this.shouldStop,
                         stop: () => { this.shouldStop = true; },
                         waitIfPaused: async () => {
-                            while (this.isPaused && !this.shouldStop) {
+                            while (this.isPaused && !this.shouldStop)
                                 await new Promise(resolve => setTimeout(resolve, 100));
-                            }
                         }
                     }
                 });
@@ -790,7 +944,6 @@
                         : 'Файл уже актуален!';
                     if (status) status.textContent = message;
                 }
-
             } catch (error) {
                 console.error('[PopupController] Download failed:', error);
                 this.showError(error.message);
@@ -846,6 +999,9 @@
             }
             if (progress) progress.style.display = 'none';
             if (controls) controls.style.display = 'none';
+            
+            const chapterRangeContainer = document.getElementById('chapterRangeContainer');
+            if (chapterRangeContainer) chapterRangeContainer.style.display = 'none';
             
             this.currentDownloadId = null;
         }

@@ -28,18 +28,17 @@
                 serviceKey,
                 onProgress,
                 controller,
-                loadedFile
+                loadedFile,
+                chapterRange
             } = options;
 
             let service;
             if (serviceKey) {
-                if (serviceKey === 'ranobelib') {
+                if (serviceKey === 'ranobelib')
                     service = new global.RanobeLibService();
-                } else if (serviceKey === 'mangalib') {
+                else if (serviceKey === 'mangalib')
                     service = new global.MangaLibService();
-                } else {
-                    throw new Error(`Unknown service: ${serviceKey}`);
-                }
+                else throw new Error(`Unknown service: ${serviceKey}`);
             } else if (url) {
                 service = global.serviceRegistry.getServiceByUrl(url);
             } else {
@@ -114,7 +113,12 @@
                 
                 this.updateStatus(downloadId, 'Загрузка списка глав...', 10);
                 const chaptersData = await service.fetchChaptersList(downloadState.slug);
-                const chapters = this.sortChapters(chaptersData.data || []);
+                let chapters = this.sortChapters(chaptersData.data || []);
+
+                if (chapterRange && chapterRange.from !== undefined && chapterRange.to !== undefined) {
+                    chapters = chapters.slice(chapterRange.from, chapterRange.to + 1);
+                    console.log('[DownloadManager] Filtered chapters:', chapters.length, 'from', chapterRange.from, 'to', chapterRange.to);
+                }
 
                 downloadState.chapters = chapters;
 
@@ -145,7 +149,7 @@
                         this.updateStatus(downloadId, `Часть ${partIndex + 1}/${totalParts}: Создание ${format.toUpperCase()}...`, 90);
                         const exporter = global.ExporterFactory.create(format);
                         
-                        const partSuffix = ` (Часть ${partIndex + 1} из ${totalParts})`
+                        const partSuffix = totalParts > 1 ? ` (Часть ${partIndex + 1} из ${totalParts})` : '';
                         const mangaWithSuffix = { ...manga, rus_name: (manga.rus_name || manga.name) + partSuffix };
                         
                         const file = await exporter.export(mangaWithSuffix, chapterContents, coverBase64);
