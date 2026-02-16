@@ -48,7 +48,8 @@
         "downloads",
         "storage",
         "webRequest",
-        "webRequestBlocking"
+        "webRequestBlocking",
+        "scripting"
     ],
 
     "host_permissions": [

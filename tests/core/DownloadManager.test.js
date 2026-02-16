@@ -768,4 +768,75 @@ describe('DownloadManager', () => {
         saveFileSpy.mockRestore();
         delaySpy.mockRestore();
     });
+
+    it('Filters chapters by chapterRange and downloads only the specified range', async () => {
+        const dm = new DownloadManager();
+        const chapters = [
+            { volume: '1', number: '1' },
+            { volume: '1', number: '2' },
+            { volume: '1', number: '3' },
+            { volume: '1', number: '4' }
+        ];
+        const service = {
+            name: 'mangalib',
+            fetchMangaMetadata: vi.fn(async () => ({ data: { cover: { default: 'url' } } })),
+            fetchChaptersList: vi.fn(async () => ({ data: chapters })),
+            fetchChapter: vi.fn(async (slug, number, volume) => ({ data: { content: [{ type: 'text', text: `chapter${number}` }] } })),
+            extractText: vi.fn(content => content),
+            processChapterContent: vi.fn(async (content) => content)
+        };
+        globalThis.MangaLibService = vi.fn(function() { return service; });
+        globalThis.serviceRegistry = { getServiceByUrl: vi.fn(() => service) };
+        const exporter = {
+            export: vi.fn(async (manga, chapterContents, coverBase64) => ({ blob: {}, filename: 'file.fb2' }))
+        };
+        globalThis.ExporterFactory = { create: vi.fn(() => exporter) };
+        globalThis.FileUtils = { downloadBlob: vi.fn(async () => {}) };
+
+        const spy = vi.spyOn(dm, 'downloadChapters');
+        const options = {
+            serviceKey: 'mangalib',
+            url: 'https://site/manga/slug',
+            chapterRange: { from: 1, to: 2 }
+        };
+        await dm.startDownload(options);
+        expect(service.fetchChaptersList).toHaveBeenCalled();
+        expect(spy).toHaveBeenCalledWith(
+            service,
+            expect.anything(),
+            [
+                { volume: '1', number: '2' },
+                { volume: '1', number: '3' }
+            ],
+            undefined
+        );
+        spy.mockRestore();
+    });
+
+    it('Empty part suffix when total parts equals one', async () => {
+        const dm = new DownloadManager();
+        const chapters = [];
+        for (let i = 1; i <= 81; i++) chapters.push({ volume: '1', number: String(i) });
+        serviceMock.fetchChaptersList = vi.fn(async () => ({ data: chapters }));
+        serviceMock.fetchChapter = vi.fn(async () => ({ data: { content: [{ type: 'text', text: 'ok' }] } }));
+        const originalCeil = Math.ceil;
+        vi.spyOn(Math, 'ceil').mockImplementation((...args) => {
+            if (args[0] === 81 / 80) return 1;
+            return originalCeil(...args);
+        });
+        const saveFileSpy = vi.spyOn(dm, 'saveFile').mockResolvedValue();
+        const delaySpy = vi.spyOn(dm, 'delay').mockResolvedValue();
+        const manga = { rus_name: 'TestManga', cover: { default: 'url' } };
+        serviceMock.fetchMangaMetadata = vi.fn(async () => ({ data: manga }));
+        await dm.startDownload({ serviceKey: 'mangalib', url: 'https://site/manga/slug' });
+        expect(exporterMock.export).toHaveBeenCalledWith(
+            expect.objectContaining({ rus_name: 'TestManga' }),
+            expect.any(Array),
+            expect.any(String)
+        );
+        expect(saveFileSpy).toHaveBeenCalledTimes(1);
+        Math.ceil.mockRestore();
+        saveFileSpy.mockRestore();
+        delaySpy.mockRestore();
+    }, 30000);
 });

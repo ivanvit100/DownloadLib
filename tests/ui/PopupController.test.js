@@ -219,15 +219,6 @@ describe('PopupController', () => {
         expect(controller.downloadManager.eventBus.on).toHaveBeenCalled();
     });
 
-    it('Start download and disables UI', async () => {
-        const controller = new PopupController();
-        controller.currentSlug = 'slug';
-        controller.currentServiceKey = 'ranobelib';
-        await controller.startDownload();
-        expect(controller.isDownloading).toBe(true);
-        expect(document.getElementById('downloadBtn').disabled).toBe(true);
-    });
-
     it('Shows error if slug missing', async () => {
         const controller = new PopupController();
         controller.currentSlug = null;

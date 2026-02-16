@@ -837,6 +837,7 @@
                                     this.resetUI();
                                     const status = document.getElementById('status');
                                     if (status) status.textContent = 'Загрузка продолжается в фоне';
+                                    else console.warn('Status element not found when updating status after moving to background');
                                 }
                             } else this.shouldStop = false;
                         }
@@ -891,7 +892,7 @@
                         action: 'setRateLimit',
                         limit: limit
                     });
-                }
+                } else console.warn('Rate limit input not found when setting rate limit');
                 
                 let chapterRange = null;
                 if (fromSelect && toSelect && chapterRangeContainer && chapterRangeContainer.style.display !== 'none') {
@@ -908,13 +909,23 @@
                 btn.disabled = true;
                 btn.style.display = 'none';
                 if (formatSelector) formatSelector.disabled = true;
+                else console.warn('Format selector not found when disabling during download');
                 if (rateLimitInput) rateLimitInput.disabled = true;
+                else console.warn('Rate limit input not found when disabling during download');
                 if (hiddenFileInput) hiddenFileInput.disabled = true;
+                else console.warn('Hidden file input not found when disabling during download');
                 if (customFileBtn) customFileBtn.disabled = true;
+                else console.warn('Custom file button not found when disabling during download');
                 if (fileInputContainer) fileInputContainer.style.display = 'none';
+                else console.warn('File input container not found when disabling during download');
                 if (progress) progress.style.display = 'block';
+                else console.warn('Progress element not found when showing during download');
+                if (siteLogo) siteLogo.style.display = 'none';
+                else console.warn('Site logo element not found when hiding during download');
                 if (controlsContainer) controlsContainer.style.display = 'block';
+                else console.warn('Controls container not found when showing during download');
                 if (chapterRangeContainer) chapterRangeContainer.style.display = 'none';
+                else console.warn('Chapter range container not found when hiding during download');
                 
                 const statusText = this.loadedFile ? 'Запуск обновления...' : 'Запуск скачивания...';
                 if (status) status.textContent = statusText;
