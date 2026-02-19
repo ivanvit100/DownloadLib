@@ -47,6 +47,7 @@
     }
 
     if (document.body) cleanUp();
+    else console.warn('[RemoveAds] Document body not available, skipping initial cleanup');
 
     const observer = new MutationObserver(mutations => {
         for (const mutation of mutations) {
@@ -59,8 +60,8 @@
                     if (node.querySelector && node.querySelector('.popup_root, [class*="popup_root"], .popup-root, [class*="popup-root"], .mo_b')) {
                         debouncedCleanUp();
                         return;
-                    }
-                }
+                    } else console.debug('[RemoveAds] Added node does not match ad selectors:', node);
+                } else console.debug('[RemoveAds] Added node is not an element:', node);
             }
         }
     });
