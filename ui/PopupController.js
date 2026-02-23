@@ -353,12 +353,14 @@
                     const fromIdx = parseInt(fromSelect.value);
                     const toIdx = parseInt(toSelect.value);
                     if (fromIdx > toIdx) toSelect.value = fromSelect.value;
+                    else console.log('Chapter range selectors updated without invalid range');
                 });
 
                 toSelect.addEventListener('change', () => {
                     const fromIdx = parseInt(fromSelect.value);
                     const toIdx = parseInt(toSelect.value);
                     if (toIdx < fromIdx) fromSelect.value = toSelect.value;
+                    else console.log('Chapter range selectors updated without invalid range');
                 });
 
                 fromSelect.addEventListener('mouseenter', () => {
@@ -770,7 +772,7 @@
                             const chapterFrom = fromSelect.value;
                             const chapterTo = toSelect.value;
                             urlParams += `&chapterFrom=${encodeURIComponent(chapterFrom)}&chapterTo=${encodeURIComponent(chapterTo)}`;
-                        }
+                        } else console.warn('Chapter range selectors not found or not visible when constructing URL parameters for download');
                         
                         try {
                             const win = await browserAPI.windows.create({
@@ -920,8 +922,6 @@
                 else console.warn('File input container not found when disabling during download');
                 if (progress) progress.style.display = 'block';
                 else console.warn('Progress element not found when showing during download');
-                if (siteLogo) siteLogo.style.display = 'none';
-                else console.warn('Site logo element not found when hiding during download');
                 if (controlsContainer) controlsContainer.style.display = 'block';
                 else console.warn('Controls container not found when showing during download');
                 if (chapterRangeContainer) chapterRangeContainer.style.display = 'none';
@@ -929,6 +929,7 @@
                 
                 const statusText = this.loadedFile ? 'Запуск обновления...' : 'Запуск скачивания...';
                 if (status) status.textContent = statusText;
+                else console.warn('Status element not found when setting initial status for download start');
 
                 const format = formatSelector?.value || 'fb2';
 
@@ -954,6 +955,7 @@
                         ? `Файл обновлён! Добавлено глав: ${result.addedChapters}`
                         : 'Файл уже актуален!';
                     if (status) status.textContent = message;
+                    else console.warn('Status element not found when showing download result message');
                 }
             } catch (error) {
                 console.error('[PopupController] Download failed:', error);
@@ -969,6 +971,7 @@
                 this.downloadManager.stop(this.currentDownloadId);
             const status = document.getElementById('status');
             if (status) status.textContent = 'Досрочное завершение...';
+            else console.warn('Status element not found when setting status on download stop');
         }
 
         updateProgress(message, percent) {
@@ -976,7 +979,9 @@
             const progressEl = document.getElementById('progress');
 
             if (statusEl) statusEl.textContent = message;
+            else console.warn('Status element not found when updating progress status');
             if (progressEl) progressEl.value = percent;
+            else console.warn('Progress element not found when updating progress percentage');
         }
 
         resetUI() {
@@ -997,22 +1002,27 @@
                 btn.style.display = 'block';
                 btn.disabled = false;
                 btn.textContent = 'Скачать';
-            }
+            } else console.warn('Download button not found when resetting UI');
             if (formatSelector) formatSelector.disabled = false;
+            else console.warn('Format selector not found when resetting UI');
             if (rateLimitInput) rateLimitInput.disabled = false;
+            else console.warn('Rate limit input not found when resetting UI');
             if (hiddenFileInput) {
                 hiddenFileInput.disabled = false;
                 hiddenFileInput.value = '';
-            }
+            } else console.warn('Hidden file input not found when resetting UI');
             if (customFileBtn) {
                 customFileBtn.disabled = false;
                 customFileBtn.textContent = 'Загрузить файл для обновления';
-            }
+            } else console.warn('Custom file button not found when resetting UI');
             if (progress) progress.style.display = 'none';
+            else console.warn('Progress element not found when resetting UI');
             if (controls) controls.style.display = 'none';
+            else console.warn('Controls container not found when resetting UI');
             
             const chapterRangeContainer = document.getElementById('chapterRangeContainer');
             if (chapterRangeContainer) chapterRangeContainer.style.display = 'none';
+            else console.warn('Chapter range container not found when resetting UI');
             
             this.currentDownloadId = null;
         }
@@ -1023,7 +1033,7 @@
                 errorEl.textContent = message;
                 errorEl.classList.remove('hidden');
                 setTimeout(() => errorEl.classList.add('hidden'), 5000);
-            }
+            } else console.warn('Error element not found when showing error message');
         }
 
         showSuccess(message) {
@@ -1032,7 +1042,7 @@
                 successEl.textContent = message;
                 successEl.classList.remove('hidden');
                 setTimeout(() => successEl.classList.add('hidden'), 5000);
-            }
+            } else console.warn('Success element not found when showing success message');
         }
     }
 
