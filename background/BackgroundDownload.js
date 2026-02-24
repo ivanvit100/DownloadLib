@@ -217,3 +217,5 @@ class BackgroundDownload {
 const backgroundDownload = new BackgroundDownload();
 
 console.log('[BackgroundDownload] Loaded');
+
+if (typeof module !== 'undefined') module.exports = { BackgroundDownload, backgroundDownload };
