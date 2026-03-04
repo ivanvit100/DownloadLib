@@ -291,6 +291,41 @@ describe('Background', () => {
             });
             expect(result.requestHeaders).toEqual(headers);
         });
+
+        it('Falls back to empty array when requestHeaders is undefined', async () => {
+            const result = await capturedBeforeSendHeadersCb({
+                tabId: -1,
+                frameId: 0,
+                url: 'https://example.com/page',
+                requestHeaders: undefined,
+            });
+            expect(mockTrackRequest).not.toHaveBeenCalled();
+            expect(result).toEqual({ requestHeaders: [] });
+        });
+
+        it('Returns null for image request from unknown cdn without matching service url', async () => {
+            await capturedBeforeSendHeadersCb({
+                tabId: -1,
+                frameId: 0,
+                url: 'https://cdn.example.com/uploads/image.jpg',
+                requestHeaders: [],
+            });
+            expect(mockTrackRequest).not.toHaveBeenCalled();
+        });
+
+        it('Warns when no headers found for service config without targetHeaders', async () => {
+            const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
+            globalThis.mangalibConfig = { headers: null, imageHeaders: null };
+            await loadModule();
+            await capturedBeforeSendHeadersCb({
+                tabId: -1,
+                frameId: 0,
+                url: 'https://api.mangalib.me/data',
+                requestHeaders: [{ name: 'Referer', value: 'https://mangalib.me/' }],
+            });
+            expect(warnSpy).toHaveBeenCalledWith(expect.stringContaining('No headers found for service mangalib'));
+            warnSpy.mockRestore();
+        });
     });
 
     describe('Chrome mode', () => {
@@ -642,6 +677,48 @@ describe('Background', () => {
             expect(mockStop).toHaveBeenCalledWith('d1');
             expect(sendResponse).toHaveBeenCalledWith({ ok: true });
             expect(result).toBe(true);
+        });
+
+        it('Uses full reader result when split produces no base64 part', async () => {
+            const blob = new Blob(['img'], { type: 'image/jpeg' });
+            globalThis.fetch = vi.fn().mockResolvedValue({
+                ok: true,
+                blob: vi.fn().mockResolvedValue(blob),
+            });
+            globalThis.FileReader = class {
+                readAsDataURL() {
+                    setTimeout(() => {
+                        this.result = 'no-comma-here';
+                        this.onloadend();
+                    }, 0);
+                }
+            };
+            const sendResponse = vi.fn();
+            capturedMessageCb({ action: 'fetchImage', url: 'https://img.com/a.jpg' }, {}, sendResponse);
+            await vi.waitFor(() => expect(sendResponse).toHaveBeenCalled());
+            expect(sendResponse).toHaveBeenCalledWith(
+                expect.objectContaining({ ok: true, base64: 'no-comma-here' }),
+            );
+        });
+
+        it('Uses image/jpeg as fallback when blob type is empty', async () => {
+            const blob = new Blob(['img'], { type: '' });
+            globalThis.fetch = vi.fn().mockResolvedValue({
+                ok: true,
+                blob: vi.fn().mockResolvedValue(blob),
+            });
+            const sendResponse = vi.fn();
+            capturedMessageCb({ action: 'fetchImage', url: 'https://img.com/a.jpg' }, {}, sendResponse);
+            await vi.waitFor(() => expect(sendResponse).toHaveBeenCalled());
+            expect(sendResponse).toHaveBeenCalledWith(
+                expect.objectContaining({ ok: true, contentType: 'image/jpeg' }),
+            );
+        });
+
+        it('Returns false for unknown message action', () => {
+            const sendResponse = vi.fn();
+            const result = capturedMessageCb({ action: 'unknownAction' }, {}, sendResponse);
+            expect(result).toBe(false);
         });
     });
 

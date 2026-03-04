@@ -218,4 +218,5 @@ const backgroundDownload = new BackgroundDownload();
 
 console.log('[BackgroundDownload] Loaded');
 
+/* istanbul ignore next */
 if (typeof module !== 'undefined') module.exports = { BackgroundDownload, backgroundDownload };

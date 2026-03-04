@@ -48,6 +48,7 @@ function detectServiceByReferer(details) {
             return 'mangalib';
         if (details.url.includes('ranobelib.me'))
             return 'ranobelib';
+        return null;
     }
     
     return null;
@@ -94,7 +95,7 @@ if (isFirefox && browserAPI && browserAPI.webRequest) {
                         if (existing) existing.value = value;
                         else headers.push({ name, value });
                     }
-                }
+                } else console.warn(`[Background] No headers found for service ${serviceName} (isImage: ${isImage})`);
             }
 
             return { requestHeaders: headers };
@@ -114,9 +115,7 @@ if (isChrome && browserAPI && browserAPI.webRequest) {
             if (!isFromExtension(details)) return;
             
             const serviceName = detectServiceByReferer(details);
-            if (serviceName) {
-                await rateLimiter.trackRequest(serviceName);
-            }
+            serviceName && await rateLimiter.trackRequest(serviceName);
         },
         { urls: ['<all_urls>'] },
         ['requestHeaders']
@@ -132,14 +131,10 @@ if (browserAPI && browserAPI.runtime && browserAPI.runtime.onMessage) {
             rateLimiter.setLimit(message.limit);
             sendResponse({ ok: true });
             return true;
-        }
-
-        if (message.action === 'getRateLimiterStats') {
+        } else if (message.action === 'getRateLimiterStats') {
             sendResponse({ ok: true, stats: rateLimiter.getStats() });
             return true;
-        }
-        
-        if (message.action === 'fetchImage') {
+        } else if (message.action === 'fetchImage') {
             (async () => {
                 try {
                     const url = message.url;
@@ -187,9 +182,7 @@ if (browserAPI && browserAPI.runtime && browserAPI.runtime.onMessage) {
                 }
             })();
             return true;
-        }
-
-        if (message.action === 'fetchWithRateLimit') {
+        } else if (message.action === 'fetchWithRateLimit') {
             (async () => {
                 try {
                     const url = message.url;
@@ -222,9 +215,7 @@ if (browserAPI && browserAPI.runtime && browserAPI.runtime.onMessage) {
                 }
             })();
             return true;
-        }
-
-        if (message.action === 'takeOverDownload') {
+        } else if (message.action === 'takeOverDownload') {
             (async () => {
                 try {
                     const result = await backgroundDownload.takeOverDownload({
@@ -246,30 +237,22 @@ if (browserAPI && browserAPI.runtime && browserAPI.runtime.onMessage) {
                 }
             })();
             return true;
-        }
-
-        if (message.action === 'getActiveDownloads') {
+        } else if (message.action === 'getActiveDownloads') {
             sendResponse({ ok: true, downloads: backgroundDownload.getActiveDownloads() });
             return true;
-        }
-
-        if (message.action === 'pauseBackgroundDownload') {
+        } else if (message.action === 'pauseBackgroundDownload') {
             backgroundDownload.pause(message.downloadId);
             sendResponse({ ok: true });
             return true;
-        }
-
-        if (message.action === 'resumeBackgroundDownload') {
+        } else if (message.action === 'resumeBackgroundDownload') {
             backgroundDownload.resume(message.downloadId);
             sendResponse({ ok: true });
             return true;
-        }
-
-        if (message.action === 'stopBackgroundDownload') {
+        } else if (message.action === 'stopBackgroundDownload') {
             backgroundDownload.stop(message.downloadId);
             sendResponse({ ok: true });
             return true;
-        }
+        } else return false;
     });
     
     console.log('[Background] Message listener installed');
