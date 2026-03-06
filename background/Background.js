@@ -152,7 +152,15 @@ if (browserAPI && browserAPI.runtime && browserAPI.runtime.onMessage) {
                         mode: 'cors'
                     };
                     
-                    const response = await fetch(url, fetchOptions);
+                    const MAX_RETRIES = 4;
+                    let response;
+                    for (let attempt = 0; attempt < MAX_RETRIES; attempt++) {
+                        response = await fetch(url, fetchOptions);
+                        if (response.status !== 429) break;
+                        console.warn(`[Background] fetchImage 429 on attempt ${attempt + 1}, throttling 30s...`);
+                        rateLimiter.throttle(30000);
+                        await rateLimiter.trackRequest('429-retry');
+                    }
 
                     if (!response.ok) {
                         sendResponse({ ok: false, error: `HTTP ${response.status}` });
@@ -191,8 +199,16 @@ if (browserAPI && browserAPI.runtime && browserAPI.runtime.onMessage) {
                     
                     if (!fetchOptions.credentials)
                         fetchOptions.credentials = isFirefox ? 'include' : 'omit';
-                    
-                    const response = await fetch(url, fetchOptions);
+
+                    const MAX_RETRIES = 4;
+                    let response;
+                    for (let attempt = 0; attempt < MAX_RETRIES; attempt++) {
+                        response = await fetch(url, fetchOptions);
+                        if (response.status !== 429) break;
+                        console.warn(`[Background] fetchWithRateLimit 429 on attempt ${attempt + 1}, throttling 30s...`);
+                        rateLimiter.throttle(30000);
+                        await rateLimiter.trackRequest('429-retry');
+                    }
                     
                     if (!response.ok) {
                         sendResponse({ 

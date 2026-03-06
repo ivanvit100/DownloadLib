@@ -4,7 +4,7 @@
  * @module core/RateLimiter
  * @license MIT
  * @author ivanvit
- * @version 1.0.0
+ * @version 1.0.2
  */
 
 'use strict';
@@ -15,10 +15,12 @@
     class RateLimiter {
         constructor(options = {}) {
             this._requestsInLastMinute = 0;
-            this._maxRequestsPerMinute = options.maxRequestsPerMinute || 99;
+            this._maxRequestsPerMinute = options.maxRequestsPerMinute || 85;
             this._requestTimestamps = [];
             this._pendingQueue = [];
             this._isProcessing = false;
+            this._throttled = false;
+            this._throttleTimer = null;
             
             console.log(`[RateLimiter] Initialized with limit: ${this._maxRequestsPerMinute} requests/minute`);
         }
@@ -29,14 +31,33 @@
             console.log(`[RateLimiter] Rate limit set to: ${this._maxRequestsPerMinute} requests/minute`);
         }
 
+        throttle(duration = 30000) {
+            if (this._throttled) {
+                console.warn(`[RateLimiter] Already throttled, ignoring duplicate`);
+                return;
+            }
+            this._throttled = true;
+            console.warn(`[RateLimiter] 429 detected: blocking ALL requests for ${duration}ms`);
+            if (this._throttleTimer) clearTimeout(this._throttleTimer);
+            this._throttleTimer = setTimeout(() => {
+                this._throttled = false;
+                this._throttleTimer = null;
+                console.log(`[RateLimiter] Throttle lifted, resuming queue`);
+                this._processQueue();
+            }, duration);
+        }
+
         async _processQueue() {
             if (this._isProcessing) return;
             this._isProcessing = true;
 
             while (this._pendingQueue.length > 0) {
-                while (this._requestsInLastMinute >= this._maxRequestsPerMinute) {
-                    console.debug(`[RateLimiter] Rate limit reached: ${this._requestsInLastMinute}/${this._maxRequestsPerMinute}. Queue size: ${this._pendingQueue.length}. Waiting...`);
-                    await new Promise(resolve => setTimeout(resolve, 100));
+                while (this._throttled || this._requestsInLastMinute >= this._maxRequestsPerMinute) {
+                    if (this._throttled)
+                        console.debug(`[RateLimiter] Throttled (429). Queue size: ${this._pendingQueue.length}. Waiting...`);
+                    else
+                        console.debug(`[RateLimiter] Rate limit reached: ${this._requestsInLastMinute}/${this._maxRequestsPerMinute}. Queue size: ${this._pendingQueue.length}. Waiting...`);
+                    await new Promise(resolve => setTimeout(resolve, 500));
                 }
 
                 const request = this._pendingQueue.shift();
@@ -88,13 +109,18 @@
             this._requestTimestamps = [];
             this._pendingQueue = [];
             this._isProcessing = false;
+            this._throttled = false;
+            if (this._throttleTimer) {
+                clearTimeout(this._throttleTimer);
+                this._throttleTimer = null;
+            }
             console.log('[RateLimiter] Reset completed');
         }
     }
 
     global.RateLimiter = RateLimiter;
     
-    if (!global.globalRateLimiter) global.globalRateLimiter = new RateLimiter({ maxRequestsPerMinute: 99 });
+    if (!global.globalRateLimiter) global.globalRateLimiter = new RateLimiter({ maxRequestsPerMinute: 85 });
     else console.log('[RateLimiter] Using existing global RateLimiter instance');
     
     console.log('[RateLimiter] Loaded');

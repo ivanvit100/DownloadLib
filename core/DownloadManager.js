@@ -4,7 +4,7 @@
  * @module core/DownloadManager
  * @license MIT
  * @author ivanvit
- * @version 1.0.1
+ * @version 1.0.2
  */
 
 'use strict';
@@ -471,6 +471,12 @@
             const results = [];
             const total = totalChapters || chapters.length;
 
+            service._on429 = () => {
+                const dl = this.activeDownloads.get(downloadState.id);
+                this.updateStatus(downloadState.id, 'Ожидание разрешения от сервера...', dl ? dl.progress : 0);
+            };
+
+            try {
             for (let i = 0; i < chapters.length; i++) {
                 await downloadState.controller.waitIfPaused();
                 if (downloadState.controller.shouldStop()) break;
@@ -540,6 +546,10 @@
                 }
 
                 await this.delay(500);
+            }
+
+            } finally {
+                service._on429 = null;
             }
 
             return results;

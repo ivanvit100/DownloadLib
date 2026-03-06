@@ -139,7 +139,7 @@
                 rateLimitInput.min = '2';
                 rateLimitInput.max = '200';
                 rateLimitInput.step = '1';
-                rateLimitInput.value = '100';
+                rateLimitInput.value = '85';
                 
                 rateLimitInput.addEventListener('input', (e) => {
                     let val = parseInt(e.target.value);

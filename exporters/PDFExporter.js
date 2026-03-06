@@ -4,7 +4,7 @@
  * @module exporters/PDFExporter
  * @license MIT
  * @author ivanvit
- * @version 1.0.1
+ * @version 1.0.2
  */
 
 'use strict';
@@ -31,54 +31,33 @@
             ctx.textBaseline = 'top';
 
             const margin = 80;
-            const maxWidth = width - 2 * margin;
-            const maxHeight = height - 2 * margin;
+            const maxX = width - 2 * margin;
+            const maxY = height - margin;
             let y = margin;
 
             if (titleText) {
                 ctx.font = 'bold 48px Arial, sans-serif';
                 ctx.textAlign = 'center';
-                ctx.fillText(titleText, width / 2, y, maxWidth);
+                ctx.fillText(titleText, width / 2, y, maxX);
                 y += 100;
                 ctx.textAlign = 'left';
             }
 
             ctx.font = '28px Arial, sans-serif';
             const lineHeight = 40;
-            const paragraphs = text.split('\n');
-            
-            for (let pIdx = 0; pIdx < paragraphs.length; pIdx++) {
-                const paragraph = paragraphs[pIdx].trim();
-                
-                if (!paragraph) {
-                    y += lineHeight * 0.5;
+            const emptyLineHeight = lineHeight * 0.5;
+            const lines = text.split('\n');
+
+            for (const line of lines) {
+                if (!line.trim()) {
+                    y += emptyLineHeight;
                     continue;
                 }
 
-                const words = paragraph.split(/\s+/);
-                let line = '';
+                if (y + lineHeight > maxY) break;
 
-                for (const word of words) {
-                    const testLine = line + word + ' ';
-                    const metrics = ctx.measureText(testLine);
-
-                    if (metrics.width > maxWidth && line !== '') {
-                        if (y + lineHeight > margin + maxHeight) break;
-                        ctx.fillText(line.trim(), margin, y);
-                        line = word + ' ';
-                        y += lineHeight;
-                    } else {
-                        line = testLine;
-                    }
-                }
-
-                if (line.trim() && y + lineHeight <= margin + maxHeight) {
-                    ctx.fillText(line.trim(), margin, y);
-                    y += lineHeight;
-                }
-
-                if (pIdx < paragraphs.length - 1)
-                    y += lineHeight * 0.3;
+                ctx.fillText(line, margin, y);
+                y += lineHeight;
             }
 
             const dataUrl = canvas.toDataURL('image/jpeg', 0.7);
@@ -93,46 +72,38 @@
             const width = 1240;
             const height = 1754;
             const margin = 80;
-            const maxWidth = width - 2 * margin;
+            const maxX = width - 2 * margin;
             const maxHeight = height - 2 * margin;
             const lineHeight = 40;
+            const emptyLineHeight = lineHeight * 0.5;
 
+            canvas.width = width;
+            canvas.height = height;
             ctx.font = '28px Arial, sans-serif';
 
-            let availableHeight = maxHeight;
-            let isFirstPage = true;
-            
-            if (firstPageTitle)
-                availableHeight -= 100;
+            const titleReserve = firstPageTitle ? 100 : 0;
 
-            const pages = [];
+            // Word-wrap all paragraphs into a flat list of lines
+            const allLines = [];
             const paragraphs = text.split('\n');
-            
-            let currentPageLines = [];
-            let currentHeight = 0;
-            let maxLinesForPage = Math.floor(availableHeight / lineHeight);
 
             for (let pIdx = 0; pIdx < paragraphs.length; pIdx++) {
                 const paragraph = paragraphs[pIdx].trim();
-                
+
                 if (!paragraph) {
-                    if (currentHeight + lineHeight * 0.5 <= maxLinesForPage * lineHeight) {
-                        currentPageLines.push('');
-                        currentHeight += lineHeight * 0.5;
-                    } else console.warn('[PDFExporter] Skipping empty paragraph due to page limit');
+                    allLines.push('');
                     continue;
                 }
 
                 const words = paragraph.split(/\s+/);
                 let line = '';
-                const paragraphLines = [];
 
                 for (const word of words) {
                     const testLine = line + word + ' ';
                     const metrics = ctx.measureText(testLine);
 
-                    if (metrics.width > maxWidth && line !== '') {
-                        paragraphLines.push(line.trim());
+                    if (metrics.width > maxX && line !== '') {
+                        allLines.push(line.trim());
                         line = word + ' ';
                     } else {
                         line = testLine;
@@ -140,39 +111,49 @@
                 }
 
                 if (line.trim())
-                    paragraphLines.push(line.trim());
-                else console.warn('[PDFExporter] Skipping empty line in paragraph');
+                    allLines.push(line.trim());
 
-                const paragraphHeight = paragraphLines.length * lineHeight + 
-                    (pIdx < paragraphs.length - 1 ? lineHeight * 0.3 : 0);
-                
-                if (currentHeight + paragraphHeight > maxLinesForPage * lineHeight && currentPageLines.length > 0) {
-                    pages.push(currentPageLines.join('\n'));
-                    currentPageLines = [];
-                    currentHeight = 0;
-                    
-                    if (isFirstPage) {
-                        isFirstPage = false;
-                        availableHeight = maxHeight;
-                        maxLinesForPage = Math.floor(availableHeight / lineHeight);
-                    }
-                }
-
-                currentPageLines.push(...paragraphLines);
-                currentHeight += paragraphLines.length * lineHeight;
-
-                if (pIdx < paragraphs.length - 1) {
-                    currentPageLines.push('');
-                    currentHeight += lineHeight * 0.3;
-                }
+                // Paragraph spacing
+                if (pIdx < paragraphs.length - 1)
+                    allLines.push('');
             }
 
-            if (currentPageLines.length > 0)
-                pages.push(currentPageLines.join('\n'));
+            // Distribute lines across pages one by one
+            const pages = [];
+            let currentPageLines = [];
+            let currentHeight = titleReserve;
+
+            for (let i = 0; i < allLines.length; i++) {
+                const line = allLines[i];
+                const lineH = line === '' ? emptyLineHeight : lineHeight;
+
+                if (currentHeight + lineH > maxHeight && currentPageLines.length > 0) {
+                    // Trim trailing empty lines from current page
+                    while (currentPageLines.length > 0 && currentPageLines[currentPageLines.length - 1] === '')
+                        currentPageLines.pop();
+                    if (currentPageLines.length > 0)
+                        pages.push(currentPageLines.join('\n'));
+                    currentPageLines = [];
+                    currentHeight = 0;
+
+                    // Skip leading empty lines on new page
+                    if (line === '') continue;
+                }
+
+                currentPageLines.push(line);
+                currentHeight += lineH;
+            }
+
+            if (currentPageLines.length > 0) {
+                while (currentPageLines.length > 0 && currentPageLines[currentPageLines.length - 1] === '')
+                    currentPageLines.pop();
+                if (currentPageLines.length > 0)
+                    pages.push(currentPageLines.join('\n'));
+            }
 
             canvas.width = 1;
             canvas.height = 1;
-            
+
             return pages.length > 0 ? pages : [text];
         }
 

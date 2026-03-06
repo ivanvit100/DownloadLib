@@ -35,7 +35,7 @@
             
             console.log('[MangaLibService] Fetching metadata:', url);
             
-            const response = await fetch(url, {
+            const response = await this.fetchWithRateLimitRetry(url, {
                 method: 'GET',
                 headers: this.config.headers,
                 mode: 'cors',
@@ -57,7 +57,7 @@
             const url = `${this.baseUrl}/api/manga/${slug}/chapters`;
             console.log('[MangaLibService] Fetching chapters:', url);
             
-            const response = await fetch(url, {
+            const response = await this.fetchWithRateLimitRetry(url, {
                 method: 'GET',
                 headers: this.config.headers,
                 mode: 'cors',
@@ -81,7 +81,7 @@
             params.set('volume', String(volume));
             const url = `${this.baseUrl}/api/manga/${slug}/chapter?${params.toString()}`;
             
-            const response = await fetch(url, {
+            const response = await this.fetchWithRateLimitRetry(url, {
                 method: 'GET',
                 headers: this.config.headers,
                 mode: 'cors',

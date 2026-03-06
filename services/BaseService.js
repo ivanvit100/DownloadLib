@@ -4,7 +4,7 @@
  * @module services/BaseService
  * @license MIT
  * @author ivanvit
- * @version 1.0.0
+ * @version 1.0.2
  */
 
 'use strict';
@@ -53,6 +53,26 @@
                     await this.delay(1000 * (i + 1));
                 }
             }
+        }
+
+        async fetchWithRateLimitRetry(url, opts, maxRetries = 5) {
+            for (let attempt = 0; attempt < maxRetries; attempt++) {
+                const response = await fetch(url, opts);
+                if (response.status === 429) {
+                    const retryAfter = parseInt(response.headers.get('Retry-After'), 10);
+                    const waitMs = (retryAfter && retryAfter > 0) ? retryAfter * 1000 : 30000;
+                    console.warn(`[${this.name}] 429 Too Many Requests (attempt ${attempt + 1}/${maxRetries}), waiting ${waitMs}ms...`);
+                    if (this._on429) this._on429(waitMs);
+                    if (typeof global !== 'undefined' && global.globalRateLimiter && global.globalRateLimiter.throttle)
+                        global.globalRateLimiter.throttle(waitMs);
+                    else if (typeof self !== 'undefined' && self.globalRateLimiter && self.globalRateLimiter.throttle)
+                        self.globalRateLimiter.throttle(waitMs);
+                    await this.delay(waitMs);
+                    continue;
+                }
+                return response;
+            }
+            throw new Error(`Rate limited after ${maxRetries} retries (429)`);
         }
 
         delay(ms) {

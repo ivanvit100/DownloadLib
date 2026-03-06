@@ -4,7 +4,7 @@
  * @module services/ranobelib/RanobeLibService
  * @license MIT
  * @author ivanvit
- * @version 1.0.0
+ * @version 1.0.2
  */
 
 'use strict';
@@ -32,47 +32,47 @@
             const fields = this.config.fields;
             const query = fields.map(f => `fields[]=${f}`).join('&');
             const url = `${this.baseUrl}/api/manga/${slug}?${query}`;
-            
+
             console.log('[RanobeLibService] Fetching metadata:', url);
-            
-            const response = await fetch(url, {
+
+            const response = await this.fetchWithRateLimitRetry(url, {
                 method: 'GET',
                 headers: this.config.headers,
                 mode: 'cors',
                 credentials: 'include',
                 cache: 'no-store'
             });
-            
+
             if (!response.ok) {
                 const text = await response.text().catch(() => '');
                 console.error('[RanobeLibService] Error response:', text);
                 throw new Error(`Failed to fetch manga: ${response.status}`);
             }
-            
+
             const text = await response.text().catch(() => '');
             const result = text ? JSON.parse(text) : null;
-            
+
             if (result && result.data && result.data.id)
                 this._mangaIdCache = result.data.id;
-            
+
             return result;
         }
 
         async fetchChaptersList(slug) {
             const url = `${this.baseUrl}/api/manga/${slug}/chapters`;
             console.log('[RanobeLibService] Fetching chapters:', url);
-            
-            const response = await fetch(url, {
+
+            const response = await this.fetchWithRateLimitRetry(url, {
                 method: 'GET',
                 headers: this.config.headers,
                 mode: 'cors',
                 credentials: 'include',
                 cache: 'no-store'
             });
-            
+
             if (!response.ok)
                 throw new Error(`Failed to fetch chapters: ${response.status}`);
-            
+
             const text = await response.text().catch(() => '');
             return text ? JSON.parse(text) : null;
         }
@@ -83,20 +83,36 @@
             else params.set('number', '1');
             params.set('volume', String(volume));
             const url = `${this.baseUrl}/api/manga/${slug}/chapter?${params.toString()}`;
-            
-            const response = await fetch(url, {
+
+            const response = await this.fetchWithRateLimitRetry(url, {
                 method: 'GET',
                 headers: this.config.headers,
                 mode: 'cors',
                 credentials: 'include',
                 cache: 'no-store'
             });
-            
+
             if (!response.ok)
                 throw new Error(`Failed to fetch chapter: ${response.status}`);
-            
+
             const text = await response.text().catch(() => '');
             return text ? JSON.parse(text) : null;
+        }
+
+        stripHtml(str) {
+            if (!str) return '';
+            return str
+                .replace(/<br\s*\/?>/gi, '\n')
+                .replace(/<\/p>/gi, '\n')
+                .replace(/<[^>]*>/g, '')
+                .replace(/&nbsp;/gi, ' ')
+                .replace(/&amp;/gi, '&')
+                .replace(/&lt;/gi, '<')
+                .replace(/&gt;/gi, '>')
+                .replace(/&quot;/gi, '"')
+                .replace(/&#039;/gi, "'")
+                .replace(/\n{3,}/g, '\n\n')
+                .trim();
         }
 
         extractText(content) {
@@ -104,29 +120,32 @@
                 try {
                     content = JSON.parse(content);
                 } catch (e) {
-                    return [{ type: 'text', text: content }];
+                    const stripped = this.stripHtml(content);
+                    if (stripped) return [{ type: 'text', text: stripped }];
+                    return [];
                 }
             }
-            
+
             if (content && content.type === 'doc' && Array.isArray(content.content))
                 content = content.content;
-            
+
             if (!Array.isArray(content)) return [];
-            
+
             const result = [];
-            
+
             const extractTextFromNode = (node) => {
                 if (!node) return '';
-                if (typeof node === 'string') return node;
-                if (node.type === 'text' && node.text) return node.text;
+                if (typeof node === 'string') return this.stripHtml(node);
+                if (node.type === 'text' && node.text) return this.stripHtml(node.text);
+                if (node.type === 'hardBreak') return '\n';
                 if (Array.isArray(node.content))
                     return node.content.map(extractTextFromNode).filter(t => t !== '').join('');
                 else return '';
             };
-            
+
             for (const item of content) {
                 if (!item || typeof item !== 'object') continue;
-                
+
                 if (item.type === 'paragraph') {
                     if (Array.isArray(item.content)) {
                         let hasImage = false;
@@ -136,8 +155,8 @@
                                 if (child.attrs && Array.isArray(child.attrs.images)) {
                                     for (const img of child.attrs.images) {
                                         if (img.image) {
-                                            result.push({ 
-                                                type: 'image', 
+                                            result.push({
+                                                type: 'image',
                                                 src: img.image
                                             });
                                         } else console.warn('[RanobeLibService] Image node missing image attribute:', img);
@@ -145,28 +164,50 @@
                                 }
                             }
                         }
-                        
+
                         if (!hasImage) {
                             const text = extractTextFromNode(item);
                             if (text.trim()) {
                                 result.push({ type: 'text', text: text });
                             }
                         }
-                    } else console.warn('[RanobeLibService] Unexpected paragraph content:', item);
+                    } else if (typeof item.content === 'string') {
+                        const text = this.stripHtml(item.content);
+                        if (text.trim()) {
+                            result.push({ type: 'text', text: text });
+                        }
+                    } else {
+                        const text = extractTextFromNode(item);
+                        if (text && text.trim()) {
+                            result.push({ type: 'text', text: text });
+                        }
+                    }
                 } else if (item.type === 'image' && item.attrs && Array.isArray(item.attrs.images)) {
                     for (const img of item.attrs.images) {
                         if (img.image) {
-                            result.push({ 
-                                type: 'image', 
+                            result.push({
+                                type: 'image',
                                 src: img.image
                             });
                         } else console.warn('[RanobeLibService] Image node missing image attribute:', img);
                     }
                 } else if (item.type === 'horizontalRule') {
                     result.push({ type: 'text', text: '\n---\n' });
+                } else if (item.type === 'heading') {
+                    const text = extractTextFromNode(item);
+                    text.trim() && result.push({ type: 'text', text: text });
+                } else if (item.type === 'blockquote') {
+                    const text = extractTextFromNode(item);
+                    text.trim() && result.push({ type: 'text', text: text });
+                } else if (item.type === 'bulletList' || item.type === 'orderedList') {
+                    const text = extractTextFromNode(item);
+                    text.trim() && result.push({ type: 'text', text: text });
+                } else if (item.type === 'listItem') {
+                    const text = extractTextFromNode(item);
+                    text.trim() && result.push({ type: 'text', text: text });
                 } else console.warn('[RanobeLibService] Unknown content node type:', item);
             }
-            
+
             return result;
         }
 
@@ -174,9 +215,9 @@
             const chapterMeta = opts.chapterMeta || {};
             const mangaId = this._mangaIdCache || chapterMeta.manga_id;
             const chapterId = chapterMeta.id;
-            
+
             const result = [];
-            
+
             for (const block of extracted) {
                 if (block.type === 'text') {
                     if (block.text && block.text.trim())
@@ -184,13 +225,13 @@
                     else console.warn('[RanobeLibService] Skipping empty text block');
                 } else if (block.type === 'image' && block.src) {
                     const imageUuid = block.src.replace(/\.(jpg|jpeg|png|webp)$/i, '');
-                    
+
                     const extensions = ['png', 'jpg', 'jpeg', 'webp'];
                     let loaded = false;
-                    
+
                     for (const ext of extensions) {
                         const url = `https://ranobelib.me/uploads/ranobe/${mangaId}/chapters/${chapterId}/${imageUuid}.${ext}`;
-                        
+
                         try {
                             if (typeof browser === 'undefined' || !browser.runtime) {
                                 console.error('[RanobeLibService] browser.runtime not available!');
@@ -211,23 +252,23 @@
 
                             const base64Data = response.base64;
                             const contentType = response.contentType || 'image/png';
-                            
+
                             result.push({
                                 type: 'image',
                                 data: { base64: base64Data, contentType }
                             });
-                            
+
                             loaded = true;
                             break;
                         } catch (e) {
                             console.warn('[RanobeLibService] Failed ext:', ext, e);
                         }
                     }
-                    
+
                     if (!loaded) console.error('[RanobeLibService] Failed to load image:', imageUuid);
                 } else console.warn('[RanobeLibService] Unknown block type:', block);
             }
-            
+
             return result;
         }
     }

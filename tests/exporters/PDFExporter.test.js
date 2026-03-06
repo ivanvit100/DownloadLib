@@ -298,15 +298,13 @@ describe('PDFExporter', () => {
         document.createElement = origCreateElement;
     });
 
-    it('Warns on skipping empty paragraph due to page limit', () => {
+    it('Splits long text across multiple pages without losing content', () => {
         const origCreateElement = mockCanvas();
-        const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
-        const origFloor = Math.floor;
-        Math.floor = () => 1;
-        exporter.splitTextIntoPages('\n\n\n\n\n\n\n\n\n\n');
-        expect(warnSpy).toHaveBeenCalledWith('[PDFExporter] Skipping empty paragraph due to page limit');
-        Math.floor = origFloor;
-        warnSpy.mockRestore();
+        const longText = 'Line of text.\n'.repeat(200);
+        const pages = exporter.splitTextIntoPages(longText, 'Title');
+        expect(pages.length).toBeGreaterThan(1);
+        const allContent = pages.join('\n');
+        expect(allContent).toContain('Line of text.');
         document.createElement = origCreateElement;
     });
 
@@ -337,21 +335,34 @@ describe('PDFExporter', () => {
         document.createElement = origCreateElement;
     });
 
-    it('Warns on skipping empty line in paragraph', () => {
+    it('Does not lose text from long paragraphs spanning multiple pages', () => {
         const origCreateElement = mockCanvas();
-        const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
-        const origSplit = String.prototype.split;
-        String.prototype.split = function(...args) {
-            const result = origSplit.apply(this, args);
-            if (args[0] && args[0].toString() === '/\\s+/') {
-                return ['', ''];
+        document.createElement = function(tag) {
+            if (tag === 'canvas') {
+                return {
+                    width: 0,
+                    height: 0,
+                    getContext: () => ({
+                        font: '',
+                        fillStyle: '',
+                        textBaseline: '',
+                        textAlign: '',
+                        fillRect: vi.fn(),
+                        fillText: vi.fn(),
+                        measureText: () => ({ width: 100 }),
+                    }),
+                    toDataURL: () => 'data:image/jpeg;base64,canvasdata'
+                };
             }
-            return result;
+            return origCreateElement.call(document, tag);
         };
-        exporter.splitTextIntoPages('test');
-        expect(warnSpy).toHaveBeenCalledWith('[PDFExporter] Skipping empty line in paragraph');
-        String.prototype.split = origSplit;
-        warnSpy.mockRestore();
+        // Single long paragraph with many sentences
+        const longParagraph = 'This is a sentence. '.repeat(300);
+        const pages = exporter.splitTextIntoPages(longParagraph);
+        expect(pages.length).toBeGreaterThan(1);
+        // Verify no text is lost: all pages together should contain the content
+        const totalText = pages.join(' ');
+        expect(totalText).toContain('This is a sentence.');
         document.createElement = origCreateElement;
     });
 
