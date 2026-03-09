@@ -86,6 +86,17 @@
             });
         }
 
+        recordRequest(source = 'unknown') {
+            if (this._requestsInLastMinute >= this._maxRequestsPerMinute) return;
+            this._requestsInLastMinute++;
+            this._requestTimestamps.push(Date.now());
+            console.debug(`[RateLimiter] Recorded external request (${source}): ${this._requestsInLastMinute}/${this._maxRequestsPerMinute}`);
+            setTimeout(() => {
+                this._requestsInLastMinute--;
+                this._requestTimestamps.shift();
+            }, 60000);
+        }
+
         async acquire(serviceName = 'default') {
             return this.trackRequest(serviceName);
         }

@@ -29,6 +29,18 @@
             'Sec-Fetch-Mode': 'cors',
             'Sec-Fetch-Site': 'same-site',
             'Connection': 'keep-alive'
+        },
+
+        imageHeaders: {
+            'User-Agent': 'Mozilla/5.0 (X11; Linux x86_64; rv:146.0) Gecko/20100101 Firefox/146.0',
+            'Accept': 'image/webp,image/apng,image/*,*/*;q=0.8',
+            'Accept-Language': 'ru-RU,ru;q=0.8,en-US;q=0.5,en;q=0.3',
+            'Referer': 'https://ranobelib.me/',
+            'Sec-GPC': '1',
+            'Sec-Fetch-Dest': 'image',
+            'Sec-Fetch-Mode': 'no-cors',
+            'Sec-Fetch-Site': 'same-origin',
+            'Connection': 'keep-alive'
         }
     };
 })(typeof window !== 'undefined' ? window : self);

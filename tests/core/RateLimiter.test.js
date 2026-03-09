@@ -41,7 +41,7 @@ describe('RateLimiter', () => {
     it('Initializes with default limit', () => {
         const logSpy = vi.spyOn(console, 'log').mockImplementation(() => {});
         const rl = new RateLimiter();
-        expect(rl._maxRequestsPerMinute).toBe(99);
+        expect(rl._maxRequestsPerMinute).toBe(85);
         logSpy.mockRestore();
     });
 

@@ -33,16 +33,21 @@ function isImageRequest(url) {
            url.includes('/uploads/');
 }
 
+function detectServiceByUrl(url) {
+    if (url.includes('ranobelib.me')) return 'ranobelib';
+    if (url.includes('mangalib.me') || url.includes('mangalib.org')) return 'mangalib';
+    if (url.includes('mixlib.me') || url.includes('imglib.info') || url.includes('imgslib.link')) return 'mangalib';
+    return null;
+}
+
 function detectServiceByReferer(details) {
     const headers = details.requestHeaders || [];
     const refererHeader = headers.find(h => h.name.toLowerCase() === 'referer');
     const referer = refererHeader ? refererHeader.value : '';
-    
-    if (referer.includes('ranobelib.me'))
-        return 'ranobelib';
-    if (referer.includes('mangalib.me') || referer.includes('mangalib.org'))
-        return 'mangalib';
-    
+
+    if (referer.includes('ranobelib.me')) return 'ranobelib';
+    if (referer.includes('mangalib.me') || referer.includes('mangalib.org')) return 'mangalib';
+
     if (isImageRequest(details.url)) {
         if (details.url.includes('mixlib.me') || details.url.includes('imglib.info') || details.url.includes('imgslib.link'))
             return 'mangalib';
@@ -50,7 +55,7 @@ function detectServiceByReferer(details) {
             return 'ranobelib';
         return null;
     }
-    
+
     return null;
 }
 
@@ -72,9 +77,17 @@ if (isFirefox && browserAPI && browserAPI.webRequest) {
     
     browserAPI.webRequest.onBeforeSendHeaders.addListener(
         async (details) => {
-            if (!isFromExtension(details)) return {};
-
+            const fromExtension = isFromExtension(details);
             const serviceName = detectServiceByReferer(details);
+
+            if (!fromExtension) {
+                if (serviceName) rateLimiter.recordRequest(serviceName);
+                return {};
+            }
+
+            if (details.url.includes('ranobelib.me') && isImageRequest(details.url))
+                return {};
+
             if (serviceName) {
                 await rateLimiter.trackRequest(serviceName);
             }
@@ -88,9 +101,17 @@ if (isFirefox && browserAPI && browserAPI.webRequest) {
                 const targetHeaders = isImage && config.imageHeaders ? config.imageHeaders : config.headers;
                 
                 if (targetHeaders) {
+                    const targetKeys = Object.keys(targetHeaders).map(k => k.toLowerCase());
+
+                    const otherHeaders = isImage ? config.headers : config.imageHeaders;
+                    if (otherHeaders) {
+                        const otherKeys = Object.keys(otherHeaders).map(k => k.toLowerCase());
+                        const toRemove = otherKeys.filter(k => !targetKeys.includes(k));
+                        headers = headers.filter(h => !toRemove.includes(h.name.toLowerCase()));
+                    }
+
                     for (const [name, value] of Object.entries(targetHeaders)) {
                         const lowerName = name.toLowerCase();
-                        
                         const existing = headers.find(h => h.name.toLowerCase() === lowerName);
                         if (existing) existing.value = value;
                         else headers.push({ name, value });
@@ -112,10 +133,13 @@ if (isChrome && browserAPI && browserAPI.webRequest) {
     
     browserAPI.webRequest.onBeforeSendHeaders.addListener(
         async (details) => {
-            if (!isFromExtension(details)) return;
-            
             const serviceName = detectServiceByReferer(details);
-            serviceName && await rateLimiter.trackRequest(serviceName);
+            if (!serviceName) return;
+
+            if (isFromExtension(details))
+                await rateLimiter.trackRequest(serviceName);
+            else
+                rateLimiter.recordRequest(serviceName);
         },
         { urls: ['<all_urls>'] },
         ['requestHeaders']
@@ -139,12 +163,18 @@ if (browserAPI && browserAPI.runtime && browserAPI.runtime.onMessage) {
                 try {
                     const url = message.url;
                     
+                    const isRanobelib = url.includes('ranobelib.me');
+                    const defaultReferer = isRanobelib
+                        ? 'https://ranobelib.me/'
+                        : 'https://mangalib.me/';
+
                     const fetchOptions = {
                         method: 'GET',
                         headers: {
-                            'Referer': message.referer || 'https://mangalib.me/',
+                            'Referer': message.referer || defaultReferer,
                             'Accept': 'image/webp,image/apng,image/*,*/*;q=0.8',
-                            'X-Extension-Request': 'true'
+                            'Accept-Language': 'ru-RU,ru;q=0.8,en-US;q=0.5,en;q=0.3',
+                            ...(isRanobelib ? {} : { 'X-Extension-Request': 'true' })
                         },
                         credentials: isFirefox ? 'include' : 'omit',
                         cache: 'no-cache',
@@ -155,6 +185,8 @@ if (browserAPI && browserAPI.runtime && browserAPI.runtime.onMessage) {
                     const MAX_RETRIES = 4;
                     let response;
                     for (let attempt = 0; attempt < MAX_RETRIES; attempt++) {
+                        const service = detectServiceByUrl(url);
+                        if (service) await rateLimiter.trackRequest(service);
                         response = await fetch(url, fetchOptions);
                         if (response.status !== 429) break;
                         console.warn(`[Background] fetchImage 429 on attempt ${attempt + 1}, throttling 30s...`);
@@ -203,6 +235,8 @@ if (browserAPI && browserAPI.runtime && browserAPI.runtime.onMessage) {
                     const MAX_RETRIES = 4;
                     let response;
                     for (let attempt = 0; attempt < MAX_RETRIES; attempt++) {
+                        const service = detectServiceByUrl(url);
+                        if (service) await rateLimiter.trackRequest(service);
                         response = await fetch(url, fetchOptions);
                         if (response.status !== 429) break;
                         console.warn(`[Background] fetchWithRateLimit 429 on attempt ${attempt + 1}, throttling 30s...`);

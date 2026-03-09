@@ -349,18 +349,16 @@ describe('PDFExporter', () => {
                         textAlign: '',
                         fillRect: vi.fn(),
                         fillText: vi.fn(),
-                        measureText: () => ({ width: 100 }),
+                        measureText: (text) => ({ width: text.length * 12 }),
                     }),
                     toDataURL: () => 'data:image/jpeg;base64,canvasdata'
                 };
             }
             return origCreateElement.call(document, tag);
         };
-        // Single long paragraph with many sentences
         const longParagraph = 'This is a sentence. '.repeat(300);
         const pages = exporter.splitTextIntoPages(longParagraph);
         expect(pages.length).toBeGreaterThan(1);
-        // Verify no text is lost: all pages together should contain the content
         const totalText = pages.join(' ');
         expect(totalText).toContain('This is a sentence.');
         document.createElement = origCreateElement;

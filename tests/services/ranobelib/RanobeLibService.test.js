@@ -407,12 +407,12 @@ describe('RanobeLibService', () => {
         svc.extractText([
             {
                 type: 'paragraph',
-                content: 'not-an-array'
+                content: 123
             }
         ]);
         expect(warnSpy).toHaveBeenCalledWith(
             '[RanobeLibService] Unexpected paragraph content:',
-            { type: 'paragraph', content: 'not-an-array' }
+            { type: 'paragraph', content: 123 }
         );
         warnSpy.mockRestore();
     });

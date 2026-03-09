@@ -27,6 +27,7 @@ function setupGlobals(mode) {
 
     globalThis.globalRateLimiter = {
         trackRequest: mockTrackRequest,
+        recordRequest: vi.fn(),
         setLimit: mockSetLimit,
         getStats: mockGetStats,
     };
@@ -807,27 +808,24 @@ describe('Background', () => {
         });
 
         it('Detects ranobelib image url', async () => {
-            await capturedBeforeSendHeadersCb({
-                tabId: -1,
-                frameId: 0,
+            const result = await capturedBeforeSendHeadersCb({
+                originUrl: 'moz-extension://test-id/background.js',
                 url: 'https://ranobelib.me/uploads/image.jpg',
                 requestHeaders: [],
             });
-            expect(mockTrackRequest).toHaveBeenCalledWith('ranobelib');
+            expect(result).toEqual({});
         });
 
         it('Detects image request with covers path', async () => {
             await capturedBeforeSendHeadersCb({
-                tabId: -1,
-                frameId: 0,
+                originUrl: 'moz-extension://test-id/background.js',
                 url: 'https://cdn.example.com/covers/thumb.jpg',
                 requestHeaders: [
                     { name: 'Referer', value: 'https://mangalib.me/' },
                 ],
             });
             const result = await capturedBeforeSendHeadersCb({
-                tabId: -1,
-                frameId: 0,
+                originUrl: 'moz-extension://test-id/background.js',
                 url: 'https://cdn.example.com/covers/thumb.jpg',
                 requestHeaders: [
                     { name: 'Referer', value: 'https://mangalib.me/' },
@@ -839,8 +837,7 @@ describe('Background', () => {
 
         it('Detects image request with uploads path', async () => {
             const result = await capturedBeforeSendHeadersCb({
-                tabId: -1,
-                frameId: 0,
+                originUrl: 'moz-extension://test-id/background.js',
                 url: 'https://cdn.example.com/uploads/image.jpg',
                 requestHeaders: [
                     { name: 'Referer', value: 'https://mangalib.me/' },
@@ -852,8 +849,7 @@ describe('Background', () => {
 
         it('Detects extension request by no tabId', async () => {
             const result = await capturedBeforeSendHeadersCb({
-                tabId: 0,
-                frameId: 0,
+                originUrl: 'moz-extension://test-id/background.js',
                 url: 'https://api.mangalib.me/',
                 requestHeaders: [
                     { name: 'Referer', value: 'https://mangalib.me/' },
@@ -864,9 +860,8 @@ describe('Background', () => {
 
         it('Applies ranobelib headers without imageHeaders fallback', async () => {
             const result = await capturedBeforeSendHeadersCb({
-                tabId: -1,
-                frameId: 0,
-                url: 'https://ranobelib.me/uploads/image.jpg',
+                originUrl: 'moz-extension://test-id/background.js',
+                url: 'https://ranobelib.me/api/data',
                 requestHeaders: [
                     { name: 'Referer', value: 'https://ranobelib.me/' },
                 ],

@@ -177,6 +177,7 @@
                             result.push({ type: 'text', text: text });
                         }
                     } else {
+                        console.warn('[RanobeLibService] Unexpected paragraph content:', item);
                         const text = extractTextFromNode(item);
                         if (text && text.trim()) {
                             result.push({ type: 'text', text: text });
@@ -225,8 +226,10 @@
                     else console.warn('[RanobeLibService] Skipping empty text block');
                 } else if (block.type === 'image' && block.src) {
                     const imageUuid = block.src.replace(/\.(jpg|jpeg|png|webp)$/i, '');
+                    const originalExt = (block.src.match(/\.(jpg|jpeg|png|webp)$/i) || [])[1] || 'jpg';
 
-                    const extensions = ['png', 'jpg', 'jpeg', 'webp'];
+                    const fallbacks = ['jpg', 'jpeg', 'png', 'webp'].filter(e => e !== originalExt);
+                    const extensions = [originalExt, ...fallbacks];
                     let loaded = false;
 
                     for (const ext of extensions) {
@@ -241,7 +244,8 @@
                             const response = await new Promise((resolve, reject) => {
                                 browser.runtime.sendMessage({
                                     action: 'fetchImage',
-                                    url: url
+                                    url: url,
+                                    referer: 'https://ranobelib.me/'
                                 }).then(resolve).catch(reject);
                             });
 
