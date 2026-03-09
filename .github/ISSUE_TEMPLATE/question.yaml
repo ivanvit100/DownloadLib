@@ -1,0 +1,27 @@
+name: Question
+description: Что-то нуждается в разъяснении или дополнительной информации и может выявить проблемы (Something needs clarification or further information and may uncover problems)
+title: "[Question]: "
+labels: ["Question"]
+body:
+  - type: textarea
+    id: question
+    attributes:
+      label: Вопрос (Question)
+      description: Напишите свой вопрос полностью и как можно более подробно. Опишите объект путаницы как можно более конкретно. Также опишите возможные подвопросы или последующие вопросы.
+      placeholder: Что меня смущает? Можно ли разделить/структурировать вопрос на несколько отдельных, подлежащих ответу подвопросов? Есть ли у меня последующие вопросы?
+    validations:
+      required: true
+  - type: textarea
+    id: answer-contents
+    attributes:
+      label: Содержание ответа (Answer Contents)
+      description: Опишите информацию, которую должен предоставить ответ, как можно более подробно.
+      placeholder: Какую информацию должен содержать ответ, чтобы быть удовлетворительным?
+    validations:
+      required: true
+  - type: textarea
+    id: further-information
+    attributes:
+      label: Дополнительная информация (Further Information)
+      description: Добавьте дополнительную полезную информацию, связанную с проблемой, такую как ссылки, скриншоты, эскизы, соображения, мысли и т. д.
+      placeholder: Полезная информация

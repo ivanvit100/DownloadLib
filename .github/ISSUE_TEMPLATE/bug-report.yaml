@@ -1,0 +1,60 @@
+name: Bug Report
+description: Что-то не работает (Something is not working)
+title: "[Bug]: "
+labels: ["Bug"]
+body:
+  - type: input
+    id: affected-version
+    attributes:
+      label: Версия расширения (Extension Version)
+      description: Укажите, на какой версии расширения возникла проблема.
+      placeholder: Например, v1.0.0
+    validations:
+      required: true
+  - type: input
+    id: system-information
+    attributes:
+      label: Информация о системе (System Information)
+      description: Укажите любую потенциально полезную информацию о системе(ах), на которой возникла проблема, например, операционная система, браузер и его версия и т. д.
+      placeholder: Например, Windows 10 Pro, Firefox 108.0.2 64-bit
+    validations:
+        required: true
+  - type: textarea
+    id: bug-behavior
+    attributes:
+      label: Описание проблемы (Bug Behavior)
+      description: Опишите поведение ошибки как можно более подробно.
+      placeholder: Что произошло?
+    validations:
+      required: true
+  - type: textarea
+    id: expected-behavior
+    attributes:
+      label: Ожидаемое поведение (Expected Behavior)
+      description: Опишите, как вы ожидали, что программа будет работать, как можно более подробно.
+      placeholder: Что должно было произойти?
+    validations:
+      required: true
+  - type: textarea
+    id: reproduction
+    attributes:
+      label: Воспроизведение (Reproduction)
+      description: Опишите, как воспроизвести ошибку шаг за шагом, как можно более подробно. Используйте упорядоченный список для этого.
+      placeholder: |
+        1. Я начал здесь.
+        2. Затем я сделал это.
+        ...
+    validations:
+      required: true
+  - type: textarea
+    id: solution-proposal
+    attributes:
+      label: Предложение решения (Solution Proposal)
+      description: Опишите решение, которое вы имеете в виду, как можно более подробно, если вы знаете, как исправить ошибку.
+      placeholder: Как можно решить эту ошибку?
+  - type: textarea
+    id: further-information
+    attributes:
+      label: Дополнительная информация (Further Information)
+      description: Добавьте дополнительную полезную информацию, связанную с проблемой, такую как ссылки, скриншоты, эскизы, соображения, мысли и т. д.
+      placeholder: Полезная информация

@@ -1,0 +1,27 @@
+name: Feature Request
+description: Запрос нового функционала (Request for new functionality)
+title: "[Feature Request]: "
+labels: ["Feature Request"]
+body:
+  - type: textarea
+    id: problem-motivation
+    attributes:
+      label: Проблема (Problem/Motivation)
+      description: Опишите вашу проблему или мотивацию, которая вызвала ваш запрос, как можно более подробно.
+      placeholder: Какие потребности проект в настоящее время не удовлетворяет?
+    validations:
+      required: true
+  - type: textarea
+    id: solution-proposal
+    attributes:
+      label: Предложение решения (Solution Proposal)
+      description: Опишите решение, которое вы имеете в виду, как можно более подробно.
+      placeholder: Какова цель нового функционала? Как должен работать функционал? Как его следует интегрировать?
+    validations:
+      required: true
+  - type: textarea
+    id: further-information
+    attributes:
+      label: Дополнительная информация (Further Information)
+      description: Добавьте дополнительную полезную информацию, связанную с проблемой, такую как ссылки, скриншоты, эскизы, соображения, мысли и т. д.
+      placeholder: Полезная информация
