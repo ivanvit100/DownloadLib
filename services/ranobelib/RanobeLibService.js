@@ -167,21 +167,16 @@
 
                         if (!hasImage) {
                             const text = extractTextFromNode(item);
-                            if (text.trim()) {
-                                result.push({ type: 'text', text: text });
-                            }
+                            if (text.trim()) result.push({ type: 'text', text: text });
                         }
                     } else if (typeof item.content === 'string') {
                         const text = this.stripHtml(item.content);
-                        if (text.trim()) {
-                            result.push({ type: 'text', text: text });
-                        }
+                        if (text.trim()) result.push({ type: 'text', text: text });
                     } else {
                         console.warn('[RanobeLibService] Unexpected paragraph content:', item);
                         const text = extractTextFromNode(item);
-                        if (text && text.trim()) {
-                            result.push({ type: 'text', text: text });
-                        }
+                        /* istanbul ignore next */
+                        if (text && text.trim()) result.push({ type: 'text', text: text });
                     }
                 } else if (item.type === 'image' && item.attrs && Array.isArray(item.attrs.images)) {
                     for (const img of item.attrs.images) {

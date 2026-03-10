@@ -839,4 +839,68 @@ describe('DownloadManager', () => {
         saveFileSpy.mockRestore();
         delaySpy.mockRestore();
     }, 30000);
+
+    it('Calls _on429 handler with waiting status and current progress', async () => {
+        const dm = new DownloadManager();
+        const ctrl = dm.createController();
+        const ds = { id: 'test-id', slug: 'slug', controller: ctrl, chapterContents: [], progress: 55 };
+        dm.activeDownloads.set('test-id', ds);
+
+        const statusUpdates = [];
+        const originalUpdateStatus = dm.updateStatus.bind(dm);
+        dm.updateStatus = (id, msg, progress) => {
+            statusUpdates.push({ id, msg, progress });
+            originalUpdateStatus(id, msg, progress);
+        };
+
+        const service = {
+            fetchChapter: vi.fn(async () => ({ data: { content: [{ type: 'text', text: 'ok' }] } })),
+            extractText: vi.fn(content => content),
+            processChapterContent: vi.fn(async content => content)
+        };
+
+        const downloadPromise = dm.downloadChapters(service, ds, [{ number: '1', volume: '1' }], () => {});
+
+        await new Promise(resolve => setTimeout(resolve, 0));
+        ds.progress = 55;
+        service._on429();
+
+        await downloadPromise;
+
+        const waitingCall = statusUpdates.find(u => u.msg === 'Ожидание разрешения от сервера...');
+        expect(waitingCall).toBeDefined();
+        expect(waitingCall.id).toBe('test-id');
+        expect(waitingCall.progress).toBe(55);
+    });
+
+    it('Calls _on429 handler with zero progress when download is not in activeDownloads', async () => {
+        const dm = new DownloadManager();
+        const ctrl = dm.createController();
+        const ds = { id: 'ghost-id', slug: 'slug', controller: ctrl, chapterContents: [] };
+
+        const statusUpdates = [];
+        const originalUpdateStatus = dm.updateStatus.bind(dm);
+        dm.updateStatus = (id, msg, progress) => {
+            statusUpdates.push({ id, msg, progress });
+            originalUpdateStatus(id, msg, progress);
+        };
+
+        const service = {
+            fetchChapter: vi.fn(async () => ({ data: { content: [{ type: 'text', text: 'ok' }] } })),
+            extractText: vi.fn(content => content),
+            processChapterContent: vi.fn(async content => content)
+        };
+
+        const downloadPromise = dm.downloadChapters(service, ds, [{ number: '1', volume: '1' }], () => {});
+
+        await new Promise(resolve => setTimeout(resolve, 0));
+        service._on429();
+
+        await downloadPromise;
+
+        const waitingCall = statusUpdates.find(u => u.msg === 'Ожидание разрешения от сервера...');
+        expect(waitingCall).toBeDefined();
+        expect(waitingCall.id).toBe('ghost-id');
+        expect(waitingCall.progress).toBe(0);
+    });
 });

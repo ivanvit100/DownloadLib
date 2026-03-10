@@ -509,4 +509,311 @@ describe('RanobeLibService', () => {
         ]);
         delete global.browser;
     });
+
+    it('Fetch manga metadata returns null when response text is empty', async () => {
+        const svc = new RanobeLibService();
+        const fakeResponse = {
+            ok: true,
+            text: vi.fn().mockResolvedValue('')
+        };
+        global.fetch = vi.fn().mockResolvedValue(fakeResponse);
+        const result = await svc.fetchMangaMetadata('slug');
+        expect(result).toBeNull();
+        expect(svc._mangaIdCache).toBeNull();
+        delete global.fetch;
+    });
+
+    it('Fetch manga metadata does not cache id when result has no data.id', async () => {
+        const svc = new RanobeLibService();
+        const fakeJson = { data: { title: 'No Id' } };
+        const fakeResponse = {
+            ok: true,
+            text: vi.fn().mockResolvedValue(JSON.stringify(fakeJson))
+        };
+        global.fetch = vi.fn().mockResolvedValue(fakeResponse);
+        await svc.fetchMangaMetadata('slug');
+        expect(svc._mangaIdCache).toBeNull();
+        delete global.fetch;
+    });
+
+    it('Fetch chapters list returns null when response text is empty', async () => {
+        const svc = new RanobeLibService();
+        const fakeResponse = {
+            ok: true,
+            text: vi.fn().mockResolvedValue('')
+        };
+        global.fetch = vi.fn().mockResolvedValue(fakeResponse);
+        const result = await svc.fetchChaptersList('slug');
+        expect(result).toBeNull();
+        delete global.fetch;
+    });
+
+    it('Fetch chapter returns null when response text is empty', async () => {
+        const svc = new RanobeLibService();
+        const fakeResponse = {
+            ok: true,
+            text: vi.fn().mockResolvedValue('')
+        };
+        global.fetch = vi.fn().mockResolvedValue(fakeResponse);
+        const result = await svc.fetchChapter('slug', 1, 1);
+        expect(result).toBeNull();
+        delete global.fetch;
+    });
+
+    it('Fetch chapter sets number to 1 when number is null', async () => {
+        const svc = new RanobeLibService();
+        const fakeResponse = {
+            ok: true,
+            text: vi.fn().mockResolvedValue(JSON.stringify({ id: 1 }))
+        };
+        global.fetch = vi.fn().mockResolvedValue(fakeResponse);
+        await svc.fetchChapter('slug', null, '2');
+        const calledUrl = global.fetch.mock.calls[0][0];
+        expect(calledUrl).toMatch(/number=1/);
+        delete global.fetch;
+    });
+
+    it('Strip html returns empty string for falsy input', () => {
+        const svc = new RanobeLibService();
+        expect(svc.stripHtml('')).toBe('');
+        expect(svc.stripHtml(null)).toBe('');
+        expect(svc.stripHtml(undefined)).toBe('');
+    });
+
+    it('Strip html replaces html entities and tags', () => {
+        const svc = new RanobeLibService();
+        expect(svc.stripHtml('<b>hello</b>&amp;&lt;&gt;&quot;&#039;&nbsp;<br/><p>x</p>')).toBe('hello&<>"\' \nx');
+    });
+
+    it('Strip html collapses triple newlines', () => {
+        const svc = new RanobeLibService();
+        expect(svc.stripHtml('a\n\n\n\nb')).toBe('a\n\nb');
+    });
+
+    it('Extract text returns empty array when parsed string is non-array non-doc object', () => {
+        const svc = new RanobeLibService();
+        const result = svc.extractText(JSON.stringify({ foo: 'bar' }));
+        expect(result).toEqual([]);
+    });
+
+    it('Extract text returns empty array when string strips to empty', () => {
+        const svc = new RanobeLibService();
+        const result = svc.extractText('   ');
+        expect(result).toEqual([]);
+    });
+
+    it('Extract text handles hardBreak node in extractTextFromNode', () => {
+        const svc = new RanobeLibService();
+        const result = svc.extractText([
+            { type: 'paragraph', content: [{ type: 'hardBreak' }, { type: 'text', text: 'after' }] }
+        ]);
+        expect(result).toEqual([{ type: 'text', text: '\nafter' }]);
+    });
+
+    it('Extract text handles node with nested content array in extractTextFromNode', () => {
+        const svc = new RanobeLibService();
+        const result = svc.extractText([
+            { type: 'paragraph', content: [{ type: 'strong', content: [{ type: 'text', text: 'bold' }] }] }
+        ]);
+        expect(result).toEqual([{ type: 'text', text: 'bold' }]);
+    });
+
+    it('Extract text returns empty string for node with no content array in extractTextFromNode', () => {
+        const svc = new RanobeLibService();
+        const result = svc.extractText([
+            { type: 'paragraph', content: [{ type: 'unknown_leaf' }] }
+        ]);
+        expect(result).toEqual([]);
+    });
+
+    it('Extract text skips paragraph when image has no attrs', () => {
+        const svc = new RanobeLibService();
+        const result = svc.extractText([
+            { type: 'paragraph', content: [{ type: 'image' }] }
+        ]);
+        expect(result).toEqual([]);
+    });
+
+    it('Extract text skips paragraph when image attrs.images is not an array', () => {
+        const svc = new RanobeLibService();
+        const result = svc.extractText([
+            { type: 'paragraph', content: [{ type: 'image', attrs: { images: null } }] }
+        ]);
+        expect(result).toEqual([]);
+    });
+
+    it('Extract text does not push paragraph text when it is empty', () => {
+        const svc = new RanobeLibService();
+        const result = svc.extractText([
+            { type: 'paragraph', content: [{ type: 'text', text: '   ' }] }
+        ]);
+        expect(result).toEqual([]);
+    });
+
+    it('Extract text does not push paragraph string content when stripped is empty', () => {
+        const svc = new RanobeLibService();
+        const result = svc.extractText([
+            { type: 'paragraph', content: '<br/>' }
+        ]);
+        expect(result).toEqual([]);
+    });
+
+    it('Extract text unexpected paragraph: does not push text when extractTextFromNode returns empty', () => {
+        const svc = new RanobeLibService();
+        const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
+        const result = svc.extractText([
+            { type: 'paragraph', content: 123 }
+        ]);
+        expect(result).toEqual([]);
+        warnSpy.mockRestore();
+    });
+
+    it('Extract text skips top-level image item when attrs is missing', () => {
+        const svc = new RanobeLibService();
+        const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
+        svc.extractText([{ type: 'image' }]);
+        expect(warnSpy).toHaveBeenCalledWith(
+            '[RanobeLibService] Unknown content node type:',
+            { type: 'image' }
+        );
+        warnSpy.mockRestore();
+    });
+
+    it('Extract text skips top-level image item when attrs.images is not an array', () => {
+        const svc = new RanobeLibService();
+        const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
+        svc.extractText([{ type: 'image', attrs: { images: 'nope' } }]);
+        expect(warnSpy).toHaveBeenCalledWith(
+            '[RanobeLibService] Unknown content node type:',
+            { type: 'image', attrs: { images: 'nope' } }
+        );
+        warnSpy.mockRestore();
+    });
+
+    it('Extract text handles heading node', () => {
+        const svc = new RanobeLibService();
+        const result = svc.extractText([
+            { type: 'heading', content: [{ type: 'text', text: 'Title' }] }
+        ]);
+        expect(result).toEqual([{ type: 'text', text: 'Title' }]);
+    });
+
+    it('Extract text skips heading when text is empty', () => {
+        const svc = new RanobeLibService();
+        const result = svc.extractText([
+            { type: 'heading', content: [] }
+        ]);
+        expect(result).toEqual([]);
+    });
+
+    it('Extract text handles blockquote node', () => {
+        const svc = new RanobeLibService();
+        const result = svc.extractText([
+            { type: 'blockquote', content: [{ type: 'text', text: 'quote' }] }
+        ]);
+        expect(result).toEqual([{ type: 'text', text: 'quote' }]);
+    });
+
+    it('Extract text handles bulletList node', () => {
+        const svc = new RanobeLibService();
+        const result = svc.extractText([
+            { type: 'bulletList', content: [{ type: 'text', text: 'item' }] }
+        ]);
+        expect(result).toEqual([{ type: 'text', text: 'item' }]);
+    });
+
+    it('Extract text handles orderedList node', () => {
+        const svc = new RanobeLibService();
+        const result = svc.extractText([
+            { type: 'orderedList', content: [{ type: 'text', text: 'item' }] }
+        ]);
+        expect(result).toEqual([{ type: 'text', text: 'item' }]);
+    });
+
+    it('Extract text handles listItem node', () => {
+        const svc = new RanobeLibService();
+        const result = svc.extractText([
+            { type: 'listItem', content: [{ type: 'text', text: 'li' }] }
+        ]);
+        expect(result).toEqual([{ type: 'text', text: 'li' }]);
+    });
+
+    it('Process chapter content uses _mangaIdCache over chapterMeta.manga_id', async () => {
+        const svc = new RanobeLibService();
+        svc._mangaIdCache = 99;
+        global.browser = {
+            runtime: {
+                sendMessage: vi.fn().mockResolvedValue({ ok: true, base64: 'b64', contentType: 'image/jpeg' })
+            }
+        };
+        await svc.processChapterContent(
+            [{ type: 'image', src: 'img.jpg' }],
+            {},
+            { chapterMeta: { id: 5, manga_id: 1 } }
+        );
+        const calledUrl = global.browser.runtime.sendMessage.mock.calls[0][0].url;
+        expect(calledUrl).toContain('/ranobe/99/');
+        delete global.browser;
+    });
+
+    it('Process chapter content warns for image block with falsy src', async () => {
+        const svc = new RanobeLibService();
+        const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
+        await svc.processChapterContent([{ type: 'image', src: '' }], {});
+        expect(warnSpy).toHaveBeenCalledWith(
+            '[RanobeLibService] Unknown block type:',
+            { type: 'image', src: '' }
+        );
+        warnSpy.mockRestore();
+    });
+
+    it('Process chapter content succeeds on fallback extension after first fails', async () => {
+        const svc = new RanobeLibService();
+        svc._mangaIdCache = 1;
+        let callCount = 0;
+        global.browser = {
+            runtime: {
+                sendMessage: vi.fn().mockImplementation(async () => {
+                    callCount++;
+                    if (callCount === 1) return { ok: false, error: 'not found' };
+                    return { ok: true, base64: 'fb64', contentType: 'image/jpeg' };
+                })
+            }
+        };
+        const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
+        const result = await svc.processChapterContent(
+            [{ type: 'image', src: 'img.jpg' }],
+            {},
+            { chapterMeta: { id: 2, manga_id: 1 } }
+        );
+        expect(result).toEqual([{ type: 'image', data: { base64: 'fb64', contentType: 'image/jpeg' } }]);
+        warnSpy.mockRestore();
+        delete global.browser;
+    });
+
+    it('Process chapter content uses jpg as default extension when src has no recognized ext', async () => {
+        const svc = new RanobeLibService();
+        svc._mangaIdCache = 1;
+        global.browser = {
+            runtime: {
+                sendMessage: vi.fn().mockResolvedValue({ ok: true, base64: 'b', contentType: 'image/png' })
+            }
+        };
+        await svc.processChapterContent(
+            [{ type: 'image', src: 'someimage' }],
+            {},
+            { chapterMeta: { id: 3, manga_id: 1 } }
+        );
+        const calledUrl = global.browser.runtime.sendMessage.mock.calls[0][0].url;
+        expect(calledUrl).toMatch(/\.jpg$/);
+        delete global.browser;
+    });
+
+    it('Extract text pushes text when paragraph content is a non-empty string', () => {
+        const svc = new RanobeLibService();
+        const result = svc.extractText([
+            { type: 'paragraph', content: 'hello world' }
+        ]);
+        expect(result).toEqual([{ type: 'text', text: 'hello world' }]);
+    });
 });

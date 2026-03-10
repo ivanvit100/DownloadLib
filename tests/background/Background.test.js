@@ -327,6 +327,57 @@ describe('Background', () => {
             expect(warnSpy).toHaveBeenCalledWith(expect.stringContaining('No headers found for service mangalib'));
             warnSpy.mockRestore();
         });
+
+        it('Returns ranobelib when url contains ranobelib.me', async () => {
+            globalThis.fetch = vi.fn().mockResolvedValue({
+                ok: true,
+                status: 200,
+                text: vi.fn().mockResolvedValue(''),
+                headers: { get: vi.fn().mockReturnValue(null) },
+            });
+
+            const sendResponse = vi.fn();
+            capturedMessageCb(
+                { action: 'fetchWithRateLimit', url: 'https://ranobelib.me/api/v2/manga' },
+                {},
+                sendResponse,
+            );
+
+            await vi.waitFor(() => expect(sendResponse).toHaveBeenCalled());
+            expect(mockTrackRequest).toHaveBeenCalledWith('ranobelib');
+        });
+
+        it('Returns mangalib when url contains mixlib.me', async () => {
+            globalThis.fetch = vi.fn().mockResolvedValue({
+                ok: true,
+                status: 200,
+                text: vi.fn().mockResolvedValue(''),
+                headers: { get: vi.fn().mockReturnValue(null) },
+            });
+
+            const sendResponse = vi.fn();
+            capturedMessageCb(
+                { action: 'fetchWithRateLimit', url: 'https://mixlib.me/images/chapter.jpg' },
+                {},
+                sendResponse,
+            );
+
+            await vi.waitFor(() => expect(sendResponse).toHaveBeenCalled());
+            expect(mockTrackRequest).toHaveBeenCalledWith('mangalib');
+        });
+
+        it('Calls recordRequest for non-extension service request', async () => {
+            const details = {
+                tabId: 1,
+                frameId: 0,
+                url: 'https://api.mangalib.me/data',
+                requestHeaders: [
+                    { name: 'Referer', value: 'https://mangalib.me/' },
+                ],
+            };
+            await capturedBeforeSendHeadersCb(details);
+            expect(globalThis.globalRateLimiter.recordRequest).toHaveBeenCalledWith('mangalib');
+        })
     });
 
     describe('Chrome mode', () => {
@@ -868,6 +919,63 @@ describe('Background', () => {
             });
             const custom = result.requestHeaders.find(h => h.name === 'X-Custom');
             expect(custom.value).toBe('ranobelib');
+        });
+
+        it('Uses ranobelib.me as default referer when url is from ranobelib', async () => {
+            const blob = new Blob(['img'], { type: 'image/jpeg' });
+            globalThis.fetch = vi.fn().mockResolvedValue({
+                ok: true,
+                blob: vi.fn().mockResolvedValue(blob),
+            });
+
+            const sendResponse = vi.fn();
+            capturedMessageCb({ action: 'fetchImage', url: 'https://ranobelib.me/uploads/image.jpg' }, {}, sendResponse);
+
+            await vi.waitFor(() => expect(sendResponse).toHaveBeenCalled());
+            expect(globalThis.fetch).toHaveBeenCalledWith(
+                'https://ranobelib.me/uploads/image.jpg',
+                expect.objectContaining({
+                    headers: expect.objectContaining({ 'Referer': 'https://ranobelib.me/' }),
+                }),
+            );
+        });
+
+        it('Throttles and retries on 429 response', async () => {
+            const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
+            globalThis.globalRateLimiter.throttle = vi.fn();
+            const blob = new Blob(['img'], { type: 'image/jpeg' });
+            globalThis.fetch = vi.fn()
+                .mockResolvedValueOnce({ ok: false, status: 429, blob: vi.fn() })
+                .mockResolvedValue({ ok: true, blob: vi.fn().mockResolvedValue(blob) });
+
+            const sendResponse = vi.fn();
+            capturedMessageCb({ action: 'fetchImage', url: 'https://img.com/a.jpg' }, {}, sendResponse);
+
+            await vi.waitFor(() => expect(sendResponse).toHaveBeenCalled());
+            expect(warnSpy).toHaveBeenCalledWith(expect.stringContaining('fetchImage 429 on attempt 1'));
+            expect(globalThis.globalRateLimiter.throttle).toHaveBeenCalledWith(30000);
+            expect(mockTrackRequest).toHaveBeenCalledWith('429-retry');
+        });
+
+        it('Throttles and retries on 429 response in fetchWithRateLimit', async () => {
+            const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
+            globalThis.globalRateLimiter.throttle = vi.fn();
+            globalThis.fetch = vi.fn()
+                .mockResolvedValueOnce({ ok: false, status: 429 })
+                .mockResolvedValue({
+                    ok: true,
+                    status: 200,
+                    text: vi.fn().mockResolvedValue('ok'),
+                    headers: { get: vi.fn().mockReturnValue('text/plain') },
+                });
+
+            const sendResponse = vi.fn();
+            capturedMessageCb({ action: 'fetchWithRateLimit', url: 'https://mangalib.me/api/test' }, {}, sendResponse);
+
+            await vi.waitFor(() => expect(sendResponse).toHaveBeenCalled());
+            expect(warnSpy).toHaveBeenCalledWith(expect.stringContaining('fetchWithRateLimit 429 on attempt 1'));
+            expect(globalThis.globalRateLimiter.throttle).toHaveBeenCalledWith(30000);
+            expect(mockTrackRequest).toHaveBeenCalledWith('429-retry');
         });
     });
 

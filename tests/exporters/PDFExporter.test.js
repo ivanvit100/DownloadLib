@@ -895,4 +895,34 @@ describe('PDFExporter', () => {
         expect(result.filename).toBe('manga.pdf');
         document.createElement = origCreateElement;
     });
+
+    it('Stops rendering lines when text exceeds page height', () => {
+        const origCreateElement = mockCanvas();
+        let fillTextCount = 0;
+        document.createElement = function(tag) {
+            if (tag === 'canvas') {
+                return {
+                    width: 0,
+                    height: 0,
+                    getContext: () => ({
+                        font: '',
+                        fillStyle: '',
+                        textBaseline: '',
+                        textAlign: '',
+                        fillRect: vi.fn(),
+                        fillText: vi.fn(() => { fillTextCount++; }),
+                        measureText: () => ({ width: 10 }),
+                    }),
+                    toDataURL: () => 'data:image/jpeg;base64,canvasdata'
+                };
+            }
+            return origCreateElement.call(document, tag);
+        };
+        const lines = Array.from({ length: 50 }, (_, i) => `Line ${i + 1}`).join('\n');
+        exporter.renderTextToCanvas(lines, null);
+        expect(fillTextCount).toBe(39);
+        document.createElement = origCreateElement;
+    });
+
+
 });

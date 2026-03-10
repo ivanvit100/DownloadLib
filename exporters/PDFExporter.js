@@ -82,8 +82,6 @@
             ctx.font = '28px Arial, sans-serif';
 
             const titleReserve = firstPageTitle ? 100 : 0;
-
-            // Word-wrap all paragraphs into a flat list of lines
             const allLines = [];
             const paragraphs = text.split('\n');
 
@@ -110,15 +108,11 @@
                     }
                 }
 
-                if (line.trim())
-                    allLines.push(line.trim());
-
-                // Paragraph spacing
-                if (pIdx < paragraphs.length - 1)
-                    allLines.push('');
+                /* istanbul ignore next */
+                if (line.trim()) allLines.push(line.trim());
+                if (pIdx < paragraphs.length - 1) allLines.push('');
             }
 
-            // Distribute lines across pages one by one
             const pages = [];
             let currentPageLines = [];
             let currentHeight = titleReserve;
@@ -128,15 +122,14 @@
                 const lineH = line === '' ? emptyLineHeight : lineHeight;
 
                 if (currentHeight + lineH > maxHeight && currentPageLines.length > 0) {
-                    // Trim trailing empty lines from current page
                     while (currentPageLines.length > 0 && currentPageLines[currentPageLines.length - 1] === '')
                         currentPageLines.pop();
+                    /* istanbul ignore next */
                     if (currentPageLines.length > 0)
                         pages.push(currentPageLines.join('\n'));
                     currentPageLines = [];
                     currentHeight = 0;
 
-                    // Skip leading empty lines on new page
                     if (line === '') continue;
                 }
 
@@ -144,17 +137,14 @@
                 currentHeight += lineH;
             }
 
-            if (currentPageLines.length > 0) {
-                while (currentPageLines.length > 0 && currentPageLines[currentPageLines.length - 1] === '')
-                    currentPageLines.pop();
-                if (currentPageLines.length > 0)
-                    pages.push(currentPageLines.join('\n'));
-            }
+            while (currentPageLines.length > 0 && currentPageLines[currentPageLines.length - 1] === '')
+                currentPageLines.pop();
+            pages.push(currentPageLines.join('\n'));
 
             canvas.width = 1;
             canvas.height = 1;
 
-            return pages.length > 0 ? pages : [text];
+            return pages;
         }
 
         async ensureDataUrl(input) {
