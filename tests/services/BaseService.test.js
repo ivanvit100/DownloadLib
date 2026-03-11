@@ -121,4 +121,114 @@ describe('BaseService', () => {
         expect(result).toBe('data:base64,xyz');
         global.FileReader = origFileReader;
     });
+
+    it('Handles 429 response with on429, global throttling and delay then retries', async () => {
+        const svc = new BaseService({ name: 'TestService', baseUrl: 'https://test.com' });
+        const response429 = {
+            status: 429,
+            headers: { get: vi.fn(() => '2') }
+        };
+        const responseOk = { status: 200 };
+        const fetchMock = vi.fn()
+            .mockResolvedValueOnce(response429)
+            .mockResolvedValueOnce(responseOk);
+        global.fetch = fetchMock;
+        const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
+        const delaySpy = vi.spyOn(svc, 'delay').mockResolvedValue();
+        let on429Called = false;
+        svc._on429 = (ms) => { on429Called = ms === 2000; };
+        global.globalRateLimiter = { throttle: vi.fn() };
+        const result = await svc.fetchWithRateLimitRetry('url', {}, 2);
+        expect(result).toBe(responseOk);
+        expect(fetchMock).toHaveBeenCalledTimes(2);
+        expect(warnSpy).toHaveBeenCalledWith('[TestService] 429 Too Many Requests (attempt 1/2), waiting 2000ms...');
+        expect(on429Called).toBe(true);
+        expect(global.globalRateLimiter.throttle).toHaveBeenCalledWith(2000);
+        expect(delaySpy).toHaveBeenCalledWith(2000);
+        warnSpy.mockRestore();
+        delaySpy.mockRestore();
+        delete global.fetch;
+        delete global.globalRateLimiter;
+    });
+
+    it('Warns when no globalRateLimiter is found and proceeds with local delay', async () => {
+        const svc = new BaseService({ name: 'TestService', baseUrl: 'https://test.com' });
+        const response429 = {
+            status: 429,
+            headers: { get: vi.fn(() => '1') }
+        };
+        const responseOk = { status: 200 };
+        const fetchMock = vi.fn()
+            .mockResolvedValueOnce(response429)
+            .mockResolvedValueOnce(responseOk);
+        global.fetch = fetchMock;
+        const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
+        const delaySpy = vi.spyOn(svc, 'delay').mockResolvedValue();
+        delete global.globalRateLimiter;
+        delete global.self;
+        const result = await svc.fetchWithRateLimitRetry('url', {}, 2);
+        expect(result).toBe(responseOk);
+        expect(warnSpy).toHaveBeenCalledWith('[TestService] No globalRateLimiter found, proceeding with local delay.');
+        warnSpy.mockRestore();
+        delaySpy.mockRestore();
+        delete global.fetch;
+    });
+
+    it('Uses self globalRateLimiter throttle when global is missing but self is present', async () => {
+        const svc = new BaseService({ name: 'TestService', baseUrl: 'https://test.com' });
+        const response429 = {
+            status: 429,
+            headers: { get: vi.fn(() => '1') }
+        };
+        const responseOk = { status: 200 };
+        const fetchMock = vi.fn()
+            .mockResolvedValueOnce(response429)
+            .mockResolvedValueOnce(responseOk);
+        global.fetch = fetchMock;
+        delete global.globalRateLimiter;
+        global.self = { globalRateLimiter: { throttle: vi.fn() } };
+        const delaySpy = vi.spyOn(svc, 'delay').mockResolvedValue();
+        const result = await svc.fetchWithRateLimitRetry('url', {}, 2);
+        expect(result).toBe(responseOk);
+        expect(global.self.globalRateLimiter.throttle).toHaveBeenCalledWith(1000);
+        delaySpy.mockRestore();
+        delete global.fetch;
+        delete global.self;
+    });
+
+    it('Uses default waitMs 30000 when Retry-After header is missing or invalid', async () => {
+        const svc = new BaseService({ name: 'TestService', baseUrl: 'https://test.com' });
+        const response429 = {
+            status: 429,
+            headers: { get: vi.fn(() => null) }
+        };
+        const responseOk = { status: 200 };
+        const fetchMock = vi.fn()
+            .mockResolvedValueOnce(response429)
+            .mockResolvedValueOnce(responseOk);
+        global.fetch = fetchMock;
+        const delaySpy = vi.spyOn(svc, 'delay').mockResolvedValue();
+        global.globalRateLimiter = { throttle: vi.fn() };
+        const result = await svc.fetchWithRateLimitRetry('url', {}, 2);
+        expect(result).toBe(responseOk);
+        expect(delaySpy).toHaveBeenCalledWith(30000);
+        delaySpy.mockRestore();
+        delete global.fetch;
+        delete global.globalRateLimiter;
+    });
+
+    it('Throws error after maxRetries when always rate limited', async () => {
+        const svc = new BaseService({ name: 'TestService', baseUrl: 'https://test.com' });
+        const response429 = {
+            status: 429,
+            headers: { get: vi.fn(() => '1') }
+        };
+        const fetchMock = vi.fn().mockResolvedValue(response429);
+        global.fetch = fetchMock;
+        const delaySpy = vi.spyOn(svc, 'delay').mockResolvedValue();
+        await expect(svc.fetchWithRateLimitRetry('url', {}, 3)).rejects.toThrow('Rate limited after 3 retries (429)');
+        expect(fetchMock).toHaveBeenCalledTimes(3);
+        delaySpy.mockRestore();
+        delete global.fetch;
+    });
 });

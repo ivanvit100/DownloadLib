@@ -62,11 +62,12 @@
                     const retryAfter = parseInt(response.headers.get('Retry-After'), 10);
                     const waitMs = (retryAfter && retryAfter > 0) ? retryAfter * 1000 : 30000;
                     console.warn(`[${this.name}] 429 Too Many Requests (attempt ${attempt + 1}/${maxRetries}), waiting ${waitMs}ms...`);
-                    if (this._on429) this._on429(waitMs);
+                    this._on429 && this._on429(waitMs);
                     if (typeof global !== 'undefined' && global.globalRateLimiter && global.globalRateLimiter.throttle)
                         global.globalRateLimiter.throttle(waitMs);
                     else if (typeof self !== 'undefined' && self.globalRateLimiter && self.globalRateLimiter.throttle)
                         self.globalRateLimiter.throttle(waitMs);
+                    else console.warn(`[${this.name}] No globalRateLimiter found, proceeding with local delay.`);
                     await this.delay(waitMs);
                     continue;
                 }

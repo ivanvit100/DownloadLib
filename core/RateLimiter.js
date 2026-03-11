@@ -53,10 +53,8 @@
 
             while (this._pendingQueue.length > 0) {
                 while (this._throttled || this._requestsInLastMinute >= this._maxRequestsPerMinute) {
-                    if (this._throttled)
-                        console.debug(`[RateLimiter] Throttled (429). Queue size: ${this._pendingQueue.length}. Waiting...`);
-                    else
-                        console.debug(`[RateLimiter] Rate limit reached: ${this._requestsInLastMinute}/${this._maxRequestsPerMinute}. Queue size: ${this._pendingQueue.length}. Waiting...`);
+                    if (this._throttled) console.debug(`[RateLimiter] Throttled (429). Queue size: ${this._pendingQueue.length}. Waiting...`);
+                    else console.debug(`[RateLimiter] Rate limit reached: ${this._requestsInLastMinute}/${this._maxRequestsPerMinute}. Queue size: ${this._pendingQueue.length}. Waiting...`);
                     await new Promise(resolve => setTimeout(resolve, 500));
                 }
 

@@ -178,4 +178,120 @@ describe('RateLimiter', () => {
     it('globalRateLimiter is defined and is instance of RateLimiter', () => {
         expect(global.globalRateLimiter).toBeInstanceOf(RateLimiter);
     });
+
+    it('Blocks requests and unblocks after duration when throttle is called', async () => {
+        const rl = new RateLimiter({ maxRequestsPerMinute: 5 });
+        const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
+        const logSpy = vi.spyOn(console, 'log').mockImplementation(() => {});
+        const processSpy = vi.spyOn(rl, '_processQueue').mockImplementation(() => {});
+        vi.useFakeTimers();
+        rl.throttle(1234);
+        expect(rl._throttled).toBe(true);
+        expect(warnSpy).toHaveBeenCalledWith('[RateLimiter] 429 detected: blocking ALL requests for 1234ms');
+        vi.advanceTimersByTime(1234);
+        expect(rl._throttled).toBe(false);
+        expect(logSpy).toHaveBeenCalledWith('[RateLimiter] Throttle lifted, resuming queue');
+        expect(processSpy).toHaveBeenCalled();
+        vi.useRealTimers();
+        warnSpy.mockRestore();
+        logSpy.mockRestore();
+        processSpy.mockRestore();
+    });
+
+    it('Ignores duplicate throttle calls when already throttled', () => {
+        const rl = new RateLimiter({ maxRequestsPerMinute: 5 });
+        const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
+        rl._throttled = true;
+        rl.throttle(5000);
+        expect(warnSpy).toHaveBeenCalledWith('[RateLimiter] Already throttled, ignoring duplicate');
+        expect(rl._throttled).toBe(true);
+        warnSpy.mockRestore();
+    });
+
+    it('Clears previous throttle timer if throttle is called again before timeout', () => {
+        const rl = new RateLimiter({ maxRequestsPerMinute: 5 });
+        const clearSpy = vi.spyOn(global, 'clearTimeout');
+        const timer = setTimeout(() => {}, 10000);
+        rl._throttleTimer = timer;
+        rl._throttled = false;
+        rl.throttle(1000);
+        expect(clearSpy).toHaveBeenCalledWith(timer);
+        clearSpy.mockRestore();
+    });
+
+    it('Uses default duration 30000 when throttle is called without argument', () => {
+        const rl = new RateLimiter({ maxRequestsPerMinute: 5 });
+        const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
+        const logSpy = vi.spyOn(console, 'log').mockImplementation(() => {});
+        const processSpy = vi.spyOn(rl, '_processQueue').mockImplementation(() => {});
+        vi.useFakeTimers();
+        rl.throttle();
+        expect(warnSpy).toHaveBeenCalledWith('[RateLimiter] 429 detected: blocking ALL requests for 30000ms');
+        vi.advanceTimersByTime(30000);
+        expect(logSpy).toHaveBeenCalledWith('[RateLimiter] Throttle lifted, resuming queue');
+        expect(processSpy).toHaveBeenCalled();
+        vi.useRealTimers();
+        warnSpy.mockRestore();
+        logSpy.mockRestore();
+        processSpy.mockRestore();
+    });
+
+    it('Logs debug message when throttled', async () => {
+        const rl = new RateLimiter({ maxRequestsPerMinute: 5 });
+        const debugSpy = vi.spyOn(console, 'debug').mockImplementation(() => {});
+        rl._pendingQueue = [{ source: 'test', resolve: vi.fn() }];
+        rl._throttled = true;
+        const processPromise = rl._processQueue();
+        await Promise.resolve();
+        expect(debugSpy).toHaveBeenCalledWith(expect.stringContaining('[RateLimiter] Throttled (429). Queue size: 1. Waiting...'));
+        rl._throttled = false;
+        await processPromise;
+        debugSpy.mockRestore();
+    });
+
+    it('Records external request, logs debug and decrements after timeout', async () => {
+        const rl = new RateLimiter({ maxRequestsPerMinute: 5 });
+        const debugSpy = vi.spyOn(console, 'debug').mockImplementation(() => {});
+        vi.useFakeTimers();
+        rl.recordRequest('svc');
+        expect(rl._requestsInLastMinute).toBe(1);
+        expect(rl._requestTimestamps.length).toBe(1);
+        expect(debugSpy).toHaveBeenCalledWith('[RateLimiter] Recorded external request (svc): 1/5');
+        vi.advanceTimersByTime(60000);
+        await Promise.resolve();
+        expect(rl._requestsInLastMinute).toBe(0);
+        expect(rl._requestTimestamps.length).toBe(0);
+        vi.useRealTimers();
+        debugSpy.mockRestore();
+    });
+
+    it('Does nothing and returns immediately if requestsInLastMinute exceeds maxRequestsPerMinute', () => {
+        const rl = new RateLimiter({ maxRequestsPerMinute: 2 });
+        rl._requestsInLastMinute = 2;
+        const debugSpy = vi.spyOn(console, 'debug').mockImplementation(() => {});
+        rl.recordRequest('svc');
+        expect(rl._requestsInLastMinute).toBe(2);
+        expect(rl._requestTimestamps.length).toBe(0);
+        expect(debugSpy).not.toHaveBeenCalled();
+        debugSpy.mockRestore();
+    });
+
+    it('Uses default source unknown when recordRequest is called without argument', () => {
+        const rl = new RateLimiter({ maxRequestsPerMinute: 5 });
+        const debugSpy = vi.spyOn(console, 'debug').mockImplementation(() => {});
+        rl.recordRequest();
+        expect(debugSpy).toHaveBeenCalledWith('[RateLimiter] Recorded external request (unknown): 1/5');
+        debugSpy.mockRestore();
+    });
+
+    it('Clears throttle timer and sets it to null when reset is called with active timer', () => {
+        const rl = new RateLimiter({ maxRequestsPerMinute: 5 });
+        const clearSpy = vi.spyOn(global, 'clearTimeout');
+        const timer = setTimeout(() => {}, 10000);
+        rl._throttleTimer = timer;
+        rl.reset();
+        expect(clearSpy).toHaveBeenCalledWith(timer);
+        expect(rl._throttleTimer).toBeNull();
+        clearSpy.mockRestore();
+    });
 });
