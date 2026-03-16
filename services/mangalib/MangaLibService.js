@@ -30,27 +30,42 @@
 
         async fetchMangaMetadata(slug) {
             const fields = this.config.fields;
-            const query = fields.map(f => `fields[]=${f}`).join('&');
-            const url = `${this.baseUrl}/api/manga/${slug}?${query}`;
-            
-            console.log('[MangaLibService] Fetching metadata:', url);
-            
-            const response = await this.fetchWithRateLimitRetry(url, {
-                method: 'GET',
-                headers: this.config.headers,
-                mode: 'cors',
-                credentials: 'include',
-                cache: 'no-store'
-            });
-            
-            if (!response.ok) {
+            const query = Array.isArray(fields) && fields.length
+                ? fields.map(f => `fields[]=${f}`).join('&')
+                : '';
+            const urls = [];
+
+            if (query) urls.push(`${this.baseUrl}/api/manga/${slug}?${query}`);
+            urls.push(`${this.baseUrl}/api/manga/${slug}`);
+
+            for (let i = 0; i < urls.length; i++) {
+                const url = urls[i];
+                console.log('[MangaLibService] Fetching metadata:', url);
+
+                const response = await this.fetchWithRateLimitRetry(url, {
+                    method: 'GET',
+                    headers: this.config.headers,
+                    mode: 'cors',
+                    credentials: 'include',
+                    cache: 'no-store'
+                });
+
+                if (!response.ok) {
+                    const text = await response.text().catch(() => '');
+                    if (response.status === 403) {
+                        if (i < urls.length - 1)
+                            console.warn('[MangaLibService] Metadata endpoint rejected, retrying with fallback URL');
+                        continue;
+                    }
+                    console.error('[MangaLibService] Error response:', text);
+                    throw new Error(`Failed to fetch manga: ${response.status}`);
+                }
+
                 const text = await response.text().catch(() => '');
-                console.error('[MangaLibService] Error response:', text);
-                throw new Error(`Failed to fetch manga: ${response.status}`);
+                return text ? JSON.parse(text) : null;
             }
-            
-            const text = await response.text().catch(() => '');
-            return text ? JSON.parse(text) : null;
+
+            return null;
         }
 
         async fetchChaptersList(slug) {

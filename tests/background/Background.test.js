@@ -366,7 +366,7 @@ describe('Background', () => {
             expect(mockTrackRequest).toHaveBeenCalledWith('mangalib');
         });
 
-        it('Calls recordRequest for non-extension service request', async () => {
+        it('Does not track non-extension service request', async () => {
             const details = {
                 tabId: 1,
                 frameId: 0,
@@ -376,8 +376,98 @@ describe('Background', () => {
                 ],
             };
             await capturedBeforeSendHeadersCb(details);
-            expect(globalThis.globalRateLimiter.recordRequest).toHaveBeenCalledWith('mangalib');
-        })
+            expect(globalThis.globalRateLimiter.recordRequest).not.toHaveBeenCalled();
+            expect(mockTrackRequest).not.toHaveBeenCalled();
+        });
+
+        it('Detects service by X-DL-Service header', async () => {
+            await capturedBeforeSendHeadersCb({
+                tabId: -1,
+                frameId: 0,
+                url: 'https://api.cdnlibs.org/api/manga/slug',
+                requestHeaders: [
+                    { name: 'X-DL-Service', value: 'ranobelib' },
+                ],
+            });
+            expect(mockTrackRequest).toHaveBeenCalledWith('ranobelib');
+        });
+
+        it('Detects mangalib by X-DL-Service header', async () => {
+            await capturedBeforeSendHeadersCb({
+                tabId: -1,
+                frameId: 0,
+                url: 'https://api.cdnlibs.org/api/manga/slug',
+                requestHeaders: [
+                    { name: 'X-DL-Service', value: 'mangalib' },
+                    { name: 'Site-Id', value: '3' },
+                ],
+            });
+            expect(mockTrackRequest).toHaveBeenCalledWith('mangalib');
+        });
+
+        it('Detects service by Site-Id header', async () => {
+            await capturedBeforeSendHeadersCb({
+                tabId: -1,
+                frameId: 0,
+                url: 'https://api.cdnlibs.org/api/manga/slug',
+                requestHeaders: [
+                    { name: 'Site-Id', value: '1' },
+                ],
+            });
+            expect(mockTrackRequest).toHaveBeenCalledWith('mangalib');
+        });
+
+        it('Detects ranobelib by Site-Id 3 when service header value is empty', async () => {
+            await capturedBeforeSendHeadersCb({
+                tabId: -1,
+                frameId: 0,
+                url: 'https://api.cdnlibs.org/api/manga/slug',
+                requestHeaders: [
+                    { name: 'X-DL-Service', value: undefined },
+                    { name: 'Site-Id', value: '3' },
+                ],
+            });
+            expect(mockTrackRequest).toHaveBeenCalledWith('ranobelib');
+        });
+
+        it('Falls back from unknown service header to Site-Id mapping', async () => {
+            await capturedBeforeSendHeadersCb({
+                tabId: -1,
+                frameId: 0,
+                url: 'https://api.cdnlibs.org/api/manga/slug',
+                requestHeaders: [
+                    { name: 'X-DL-Service', value: 'unknown-service' },
+                    { name: 'Site-Id', value: '1' },
+                ],
+            });
+            expect(mockTrackRequest).toHaveBeenCalledWith('mangalib');
+        });
+
+        it('Falls back from unknown Site-Id to referer mapping', async () => {
+            await capturedBeforeSendHeadersCb({
+                tabId: -1,
+                frameId: 0,
+                url: 'https://api.cdnlibs.org/api/manga/slug',
+                requestHeaders: [
+                    { name: 'Site-Id', value: '2' },
+                    { name: 'Referer', value: 'https://ranobelib.me/title' },
+                ],
+            });
+            expect(mockTrackRequest).toHaveBeenCalledWith('ranobelib');
+        });
+
+        it('Falls back from empty Site-Id value to referer mapping', async () => {
+            await capturedBeforeSendHeadersCb({
+                tabId: -1,
+                frameId: 0,
+                url: 'https://api.cdnlibs.org/api/manga/slug',
+                requestHeaders: [
+                    { name: 'Site-Id', value: undefined },
+                    { name: 'Referer', value: 'https://mangalib.me/title' },
+                ],
+            });
+            expect(mockTrackRequest).toHaveBeenCalledWith('mangalib');
+        });
     });
 
     describe('Chrome mode', () => {

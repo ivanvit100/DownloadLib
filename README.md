@@ -1,6 +1,6 @@
 # DownloadLib
 
-#### Браузерное расширение для загрузки манги | v1.0.2
+#### Браузерное расширение для загрузки манги | v1.0.3
 
 [![Test Extension](https://github.com/ivanvit100/DownloadLib/actions/workflows/test.yaml/badge.svg)](https://github.com/ivanvit/DownloadLib/actions/workflows/test.yaml)
 ![Code Coverage](https://img.shields.io/badge/Coverage-100%25-brightgreen)

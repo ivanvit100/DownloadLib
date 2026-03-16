@@ -67,6 +67,52 @@ describe('RanobeLibService', () => {
         delete global.fetch;
     });
 
+    it('Fetch manga metadata retries fallback url on 403', async () => {
+        const svc = new RanobeLibService();
+        const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
+
+        global.fetch = vi.fn()
+            .mockResolvedValueOnce({
+                ok: false,
+                status: 403,
+                text: vi.fn().mockResolvedValue('forbidden')
+            })
+            .mockResolvedValueOnce({
+                ok: true,
+                text: vi.fn().mockResolvedValue(JSON.stringify({ data: { id: 77 } }))
+            });
+
+        const result = await svc.fetchMangaMetadata('slug');
+
+        expect(result).toEqual({ data: { id: 77 } });
+        expect(svc._mangaIdCache).toBe(77);
+        expect(global.fetch).toHaveBeenCalledTimes(2);
+        expect(global.fetch.mock.calls[0][0]).toContain('fields[]=id');
+        expect(global.fetch.mock.calls[1][0]).toBe('https://ranobelib.me/api/manga/slug');
+        expect(warnSpy).toHaveBeenCalledWith('[RanobeLibService] Metadata endpoint rejected, retrying with fallback URL');
+
+        warnSpy.mockRestore();
+        delete global.fetch;
+    });
+
+    it('Fetch manga metadata uses base url without fields when fields are empty', async () => {
+        global.ranolibConfig.fields = [];
+        const svc = new RanobeLibService();
+        const fakeResponse = {
+            ok: true,
+            text: vi.fn().mockResolvedValue(JSON.stringify({ id: 123 }))
+        };
+
+        global.fetch = vi.fn().mockResolvedValue(fakeResponse);
+        const result = await svc.fetchMangaMetadata('slug');
+
+        expect(result).toEqual({ id: 123 });
+        expect(global.fetch).toHaveBeenCalledTimes(1);
+        expect(global.fetch.mock.calls[0][0]).toBe('https://ranobelib.me/api/manga/slug');
+
+        delete global.fetch;
+    });
+
     it('Fetch chapters list returns parsed result', async () => {
         const svc = new RanobeLibService();
         const fakeJson = [{ id: 1 }];

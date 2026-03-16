@@ -42,6 +42,20 @@ function detectServiceByUrl(url) {
 
 function detectServiceByReferer(details) {
     const headers = details.requestHeaders || [];
+    const serviceHeader = headers.find(h => h.name.toLowerCase() === 'x-dl-service');
+    if (serviceHeader) {
+        const serviceValue = String(serviceHeader.value || '').toLowerCase();
+        if (serviceValue === 'mangalib') return 'mangalib';
+        else if (serviceValue === 'ranobelib') return 'ranobelib';
+    }
+
+    const siteIdHeader = headers.find(h => h.name.toLowerCase() === 'site-id');
+    if (siteIdHeader) {
+        const siteId = String(siteIdHeader.value || '').trim();
+        if (siteId === '1') return 'mangalib';
+        else if (siteId === '3') return 'ranobelib';
+    }
+
     const refererHeader = headers.find(h => h.name.toLowerCase() === 'referer');
     const referer = refererHeader ? refererHeader.value : '';
 
@@ -80,10 +94,7 @@ if (isFirefox && browserAPI && browserAPI.webRequest) {
             const fromExtension = isFromExtension(details);
             const serviceName = detectServiceByReferer(details);
 
-            if (!fromExtension) {
-                if (serviceName) rateLimiter.recordRequest(serviceName);
-                return {};
-            }
+            if (!fromExtension) return {};
 
             if (details.url.includes('ranobelib.me') && isImageRequest(details.url))
                 return {};
@@ -138,8 +149,6 @@ if (isChrome && browserAPI && browserAPI.webRequest) {
 
             if (isFromExtension(details))
                 await rateLimiter.trackRequest(serviceName);
-            else
-                rateLimiter.recordRequest(serviceName);
         },
         { urls: ['<all_urls>'] },
         ['requestHeaders']
