@@ -110,7 +110,7 @@ describe('App initialization', () => {
         expect(addEventListenerSpy).toHaveBeenCalledWith('DOMContentLoaded', expect.any(Function));
     });
 
-    it('Check if window.chrome is assigned to window.browser', async () => {
+    it('Does not force assigning window.chrome from window.browser', async () => {
         const originalBrowser = global.browser;
         const originalChrome = global.chrome;
         const originalWindow = global.window;
@@ -121,7 +121,7 @@ describe('App initialization', () => {
 
         await import('../app.js?chrome-test');
 
-        expect(global.window.chrome).toBe(global.browser);
+        expect(global.window.chrome).toBeUndefined();
 
         if (originalBrowser !== undefined) global.browser = originalBrowser;
         else delete global.browser;

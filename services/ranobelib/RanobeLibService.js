@@ -4,13 +4,17 @@
  * @module services/ranobelib/RanobeLibService
  * @license MIT
  * @author ivanvit
- * @version 1.0.2
+ * @version 1.0.4
  */
 
 'use strict';
 
 (function(global) {
     console.log('[RanobeLibService] Loading...');
+
+    const extensionApi = typeof global.getExtensionApi === 'function'
+        ? global.getExtensionApi()
+        : ((typeof global.browser !== 'undefined' && global.browser) || (typeof global.chrome !== 'undefined' && global.chrome) || null);
 
     class RanobeLibService extends global.BaseService {
         constructor() {
@@ -246,13 +250,13 @@
                         const url = `https://ranobelib.me/uploads/ranobe/${mangaId}/chapters/${chapterId}/${imageUuid}.${ext}`;
 
                         try {
-                            if (typeof browser === 'undefined' || !browser.runtime) {
+                            if (!extensionApi || !extensionApi.runtime || !extensionApi.runtime.sendMessage) {
                                 console.error('[RanobeLibService] browser.runtime not available!');
                                 continue;
                             }
 
                             const response = await new Promise((resolve, reject) => {
-                                browser.runtime.sendMessage({
+                                extensionApi.runtime.sendMessage({
                                     action: 'fetchImage',
                                     url: url,
                                     referer: 'https://ranobelib.me/'

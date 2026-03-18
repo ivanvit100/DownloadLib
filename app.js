@@ -11,8 +11,12 @@
 (function() {
     console.log('[App] Initializing...');
 
-    if (typeof browser !== 'undefined' && typeof chrome === 'undefined')
-        window.chrome = browser;
+    const extensionApi = typeof getExtensionApi === 'function'
+        ? getExtensionApi()
+        : ((typeof browser !== 'undefined' && browser) || (typeof chrome !== 'undefined' && chrome) || null);
+
+    if (!extensionApi)
+        console.warn('[App] Extension API is not available in this context');
 
     const dependencies = [
         'EventBus',

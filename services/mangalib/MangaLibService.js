@@ -4,13 +4,17 @@
  * @module services/mangalib/MangaLibService
  * @license MIT
  * @author ivanvit
- * @version 1.0.1
+ * @version 1.0.4
  */
 
 'use strict';
 
 (function(global) {
     console.log('[MangaLibService] Loading...');
+
+    const extensionApi = typeof global.getExtensionApi === 'function'
+        ? global.getExtensionApi()
+        : ((typeof global.browser !== 'undefined' && global.browser) || (typeof global.chrome !== 'undefined' && global.chrome) || null);
 
     class MangaLibService extends global.BaseService {
         constructor() {
@@ -236,13 +240,13 @@
                 if (this._imageCache.has(url))
                     return this._imageCache.get(url);
 
-                if (typeof browser === 'undefined' || !browser.runtime) {
+                if (!extensionApi || !extensionApi.runtime || !extensionApi.runtime.sendMessage) {
                     console.error('[MangaLibService] browser.runtime not available!');
                     return null;
                 }
 
                 const response = await new Promise((resolve, reject) => {
-                    browser.runtime.sendMessage({
+                    extensionApi.runtime.sendMessage({
                         action: 'fetchImage',
                         url: url
                     }).then(resolve).catch(reject);

@@ -12,7 +12,9 @@
 (function(global) {
     console.log('[PopupController] Loading...');
 
-    const browserAPI = typeof chrome !== 'undefined' && chrome.runtime ? chrome : (typeof browser !== 'undefined' ? browser : null);
+    const browserAPI = typeof global.getExtensionApi === 'function'
+        ? global.getExtensionApi()
+        : ((typeof global.browser !== 'undefined' && global.browser) || (typeof global.chrome !== 'undefined' && global.chrome) || null);
 
     if (!browserAPI) {
         console.error('[PopupController] No browser API available');

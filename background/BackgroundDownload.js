@@ -4,12 +4,16 @@
  * @module background/BackgroundDownload
  * @license MIT
  * @author ivanvit
- * @version 1.0.0
+ * @version 1.0.4
  */
 
 'use strict';
 
 console.log('[BackgroundDownload] Loading...');
+
+const extensionApi = typeof getExtensionApi === 'function'
+    ? getExtensionApi()
+    : ((typeof browser !== 'undefined' && browser) || (typeof chrome !== 'undefined' && chrome) || null);
 
 class BackgroundDownload {
     constructor() {
@@ -135,7 +139,11 @@ class BackgroundDownload {
             const blob = file.blob;
             
             const url = URL.createObjectURL(blob);
-            const downloadItem = await browser.downloads.download({
+
+            if (!extensionApi || !extensionApi.downloads || !extensionApi.downloads.download)
+                throw new Error('downloads API is not available');
+
+            const downloadItem = await extensionApi.downloads.download({
                 url: url,
                 filename: filename,
                 saveAs: false

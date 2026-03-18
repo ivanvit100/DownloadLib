@@ -28,9 +28,9 @@ describe('RemoveAds', () => {
         vi.restoreAllMocks();
     });
 
-    it('Removes popup_root, popup-root, mo_b, and slider ads on load', async () => {
-        expect(document.querySelector('.popup_root')).toBeNull();
-        expect(document.querySelector('.popup-root')).toBeNull();
+    it('Removes only explicit ad blocks on load', async () => {
+        expect(document.querySelector('.popup_root')).not.toBeNull();
+        expect(document.querySelector('.popup-root')).not.toBeNull();
         expect(document.querySelector('.mo_b')).toBeNull();
         expect(document.querySelector('div.section[data-home-block="slider"]')).toBeNull();
         expect(document.getElementById('other')).not.toBeNull();
@@ -38,7 +38,7 @@ describe('RemoveAds', () => {
 
     it('Injects style to hide ad elements', async () => {
         const style = Array.from(document.documentElement.querySelectorAll('style'))
-            .find(s => s.textContent.includes('.popup_root'));
+            .find(s => s.textContent.includes('data-home-block="slider"'));
         expect(style).toBeDefined();
         expect(style.textContent).toContain('display: none');
     });
@@ -81,7 +81,7 @@ describe('RemoveAds', () => {
 
         const wrapper = document.createElement('div');
         const inner = document.createElement('div');
-        inner.className = 'popup_root';
+        inner.className = 'mo_b';
         wrapper.appendChild(inner);
 
         observerCallback([{ addedNodes: [wrapper] }]);
@@ -93,7 +93,7 @@ describe('RemoveAds', () => {
         timerCallback();
 
         expect(document.querySelector('.mo_b')).toBeNull();
-        expect(document.querySelector('.popup_root')).toBeNull();
+        expect(document.querySelector('.popup_root')).not.toBeNull();
         expect(document.querySelector('div.section[data-home-block="slider"]')).toBeNull();
 
         global.setTimeout = originalSetTimeout;
@@ -118,7 +118,7 @@ describe('RemoveAds', () => {
         const makeWrapper = () => {
             const wrapper = document.createElement('div');
             const inner = document.createElement('div');
-            inner.className = 'popup_root';
+            inner.className = 'mo_b';
             wrapper.appendChild(inner);
             return wrapper;
         };
@@ -147,7 +147,7 @@ describe('RemoveAds', () => {
         if (originalBody) Object.defineProperty(document, 'body', originalBody);
     });
 
-    it('Removes node immediately if it matches ad selector', async () => {
+    it('Removes node immediately if it matches slider ad selector', async () => {
         vi.resetModules();
 
         if (!document.body) {
@@ -166,7 +166,8 @@ describe('RemoveAds', () => {
         await import('../../background/RemoveAds.js');
 
         const node = document.createElement('div');
-        node.className = 'popup_root';
+        node.className = 'section';
+        node.setAttribute('data-home-block', 'slider');
         document.body.appendChild(node);
 
         expect(document.body.contains(node)).toBe(true);
@@ -176,7 +177,7 @@ describe('RemoveAds', () => {
         expect(document.body.contains(node)).toBe(false);
     });
 
-    it('Logs debug when added node is not an element', async () => {
+    it('Ignores added node when it is not an element', async () => {
         vi.resetModules();
 
         let observerCallback;
@@ -185,19 +186,19 @@ describe('RemoveAds', () => {
             observe() {}
             disconnect() {}
         };
-
-        const debugSpy = vi.spyOn(console, 'debug');
 
         await import('../../background/RemoveAds.js');
 
         const textNode = document.createTextNode('ad text');
         observerCallback([{ addedNodes: [textNode] }]);
-
-        expect(debugSpy).toHaveBeenCalledWith('[RemoveAds] Added node is not an element:', textNode);
     });
 
-    it('Logs debug when added node does not match ad selectors', async () => {
+    it('Does not remove generic popup nodes without ad markers', async () => {
         vi.resetModules();
+
+        let timerCallback;
+        const originalSetTimeout = global.setTimeout;
+        global.setTimeout = vi.fn((cb, ms) => { timerCallback = cb; return 123; });
 
         let observerCallback;
         global.MutationObserver = class {
@@ -206,15 +207,161 @@ describe('RemoveAds', () => {
             disconnect() {}
         };
 
-        const debugSpy = vi.spyOn(console, 'debug');
+        await import('../../background/RemoveAds.js');
+
+        const node = document.createElement('div');
+        node.className = 'popup_root';
+        document.body.appendChild(node);
+        observerCallback([{ addedNodes: [node] }]);
+
+        expect(typeof timerCallback).toBe('function');
+        timerCallback();
+        expect(document.body.contains(node)).toBe(true);
+        global.setTimeout = originalSetTimeout;
+    });
+
+    it('Removes ad generic popup with flocktory markers', async () => {
+        vi.resetModules();
+
+        let timerCallback;
+        const originalSetTimeout = global.setTimeout;
+        global.setTimeout = vi.fn((cb, ms) => { timerCallback = cb; return 123; });
+
+        let observerCallback;
+        global.MutationObserver = class {
+            constructor(cb) { observerCallback = cb; }
+            observe() {}
+            disconnect() {}
+        };
 
         await import('../../background/RemoveAds.js');
 
         const node = document.createElement('div');
-        node.className = 'not-an-ad';
+        node.className = 'popup-root';
+        node.innerHTML = `
+            <div class="popup" data-popup-id="ad-id">
+                <div class="popup__content" role="dialog" aria-modal="true">
+                    <div class="aek_ael">
+                        <a href="https://share.flocktory.com/exchange/login" target="_blank">Выбрать</a>
+                    </div>
+                </div>
+            </div>
+        `;
+
+        document.body.appendChild(node);
         observerCallback([{ addedNodes: [node] }]);
 
-        expect(debugSpy).toHaveBeenCalledWith('[RemoveAds] Added node does not match ad selectors:', node);
+        expect(typeof timerCallback).toBe('function');
+        timerCallback();
+
+        expect(document.body.contains(node)).toBe(false);
+        global.setTimeout = originalSetTimeout;
+    });
+
+    it('Restores scroll after ad popup removal when no dialogs remain', async () => {
+        vi.resetModules();
+
+        let timerCallback;
+        const originalSetTimeout = global.setTimeout;
+        global.setTimeout = vi.fn((cb, ms) => { timerCallback = cb; return 123; });
+
+        let observerCallback;
+        global.MutationObserver = class {
+            constructor(cb) { observerCallback = cb; }
+            observe() {}
+            disconnect() {}
+        };
+
+        await import('../../background/RemoveAds.js');
+
+        document.body.style.overflow = 'hidden';
+        document.documentElement.style.overflow = 'hidden';
+        document.body.classList.add('modal-open');
+        document.documentElement.classList.add('overflow-hidden');
+
+        const node = document.createElement('div');
+        node.className = 'popup-root';
+        node.innerHTML = `
+            <div class="popup" data-popup-id="ad-id">
+                <div class="popup__content" role="dialog" aria-modal="true">
+                    <div class="aek_ael"><a href="https://flocktory.com">ad</a></div>
+                </div>
+            </div>
+        `;
+
+        document.body.appendChild(node);
+        observerCallback([{ addedNodes: [node] }]);
+
+        expect(typeof timerCallback).toBe('function');
+        timerCallback();
+
+        expect(document.body.style.overflow).toBe('');
+        expect(document.documentElement.style.overflow).toBe('');
+        expect(document.body.classList.contains('modal-open')).toBe(false);
+        expect(document.documentElement.classList.contains('overflow-hidden')).toBe(false);
+
+        global.setTimeout = originalSetTimeout;
+    });
+
+    it('Removes .mo_b only when it has no interactive fields', async () => {
+        vi.resetModules();
+
+        let timerCallback;
+        const originalSetTimeout = global.setTimeout;
+        global.setTimeout = vi.fn((cb, ms) => { timerCallback = cb; return 123; });
+
+        let observerCallback;
+        global.MutationObserver = class {
+            constructor(cb) { observerCallback = cb; }
+            observe() {}
+            disconnect() {}
+        };
+
+        await import('../../background/RemoveAds.js');
+
+        const node = document.createElement('div');
+        node.className = 'mo_b';
+        const input = document.createElement('input');
+        input.type = 'text';
+        node.appendChild(input);
+
+        document.body.appendChild(node);
+        observerCallback([{ addedNodes: [node] }]);
+
+        expect(typeof timerCallback).toBe('function');
+        timerCallback();
+
+        expect(document.body.contains(node)).toBe(true);
+        global.setTimeout = originalSetTimeout;
+    });
+
+    it('Removes .mo_b without interactive fields', async () => {
+        vi.resetModules();
+
+        let timerCallback;
+        const originalSetTimeout = global.setTimeout;
+        global.setTimeout = vi.fn((cb, ms) => { timerCallback = cb; return 123; });
+
+        let observerCallback;
+        global.MutationObserver = class {
+            constructor(cb) { observerCallback = cb; }
+            observe() {}
+            disconnect() {}
+        };
+
+        await import('../../background/RemoveAds.js');
+
+        const node = document.createElement('div');
+        node.className = 'mo_b';
+
+        document.body.appendChild(node);
+        observerCallback([{ addedNodes: [node] }]);
+
+        expect(typeof timerCallback).toBe('function');
+        timerCallback();
+
+        expect(document.body.contains(node)).toBe(false);
+        global.setTimeout = originalSetTimeout;
     });
 
     it('Cleans up ads on DOMContentLoaded when document is loading', async () => {
@@ -252,7 +399,7 @@ describe('RemoveAds', () => {
 
         handler();
 
-        expect(document.querySelector('.popup_root')).toBeNull();
+        expect(document.querySelector('.popup_root')).not.toBeNull();
         expect(document.querySelector('.mo_b')).toBeNull();
         expect(document.querySelector('div.section[data-home-block="slider"]')).toBeNull();
     });

@@ -3,7 +3,8 @@
 console.log('[ServiceWorker] Loading scripts...');
 
 try {
-    importScripts('/core/RateLimiter.js',
+    importScripts('/core/BrowserApi.js',
+        '/core/RateLimiter.js',
         '/core/EventBus.js',
         '/services/mangalib/config.js',
         '/services/ranobelib/config.js',

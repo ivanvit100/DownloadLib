@@ -4,16 +4,25 @@
  * @module background/Background
  * @license MIT
  * @author ivanvit
- * @version 1.0.0
+ * @version 1.0.4
  */
 
 'use strict';
 
 console.log('[Background] Script loading...');
 
-const browserAPI = (typeof chrome !== 'undefined' && chrome.runtime) ? chrome : ((typeof browser !== 'undefined') ? browser : null);
-const isChrome = typeof chrome !== 'undefined' && chrome.runtime && chrome.declarativeNetRequest;
-const isFirefox = (typeof browser !== 'undefined') && !isChrome;
+const browserAPI = typeof getExtensionApi === 'function'
+    ? getExtensionApi()
+    : ((typeof browser !== 'undefined' && browser) || (typeof chrome !== 'undefined' && chrome) || null);
+const browserEnv = typeof getBrowserEnv === 'function'
+    ? getBrowserEnv()
+    : {
+        isFirefox: typeof browser !== 'undefined' && !!browser,
+        isChromium: typeof chrome !== 'undefined' && !!chrome,
+        supportsDnr: typeof chrome !== 'undefined' && !!chrome?.declarativeNetRequest
+    };
+const isChrome = !!browserEnv.isChromium || !!browserEnv.supportsDnr;
+const isFirefox = !!browserEnv.isFirefox;
 
 console.log('[Background] Detected browser:', isChrome ? 'Chrome' : (isFirefox ? 'Firefox' : 'Unknown'));
 
@@ -74,14 +83,12 @@ function detectServiceByReferer(details) {
 }
 
 function isFromExtension(details) {
-    if (isFirefox) {
-        return details.tabId === -1 || 
-               details.frameId === -1 ||
-               !details.tabId ||
-               (details.originUrl && details.originUrl.startsWith('moz-extension://')) ||
-               (details.documentUrl && details.documentUrl.startsWith('moz-extension://'));
-    }
-    
+    const extensionSchemes = ['moz-extension://', 'chrome-extension://'];
+    const originCandidates = [details.originUrl, details.documentUrl, details.initiator].filter(Boolean);
+    const hasExtensionOrigin = originCandidates.some(url => extensionSchemes.some(scheme => url.startsWith(scheme)));
+
+    if (hasExtensionOrigin) return true;
+
     const originHeader = details.requestHeaders?.find(h => h.name.toLowerCase() === 'x-extension-request');
     return originHeader?.value === 'true';
 }
@@ -132,7 +139,17 @@ if (isFirefox && browserAPI && browserAPI.webRequest) {
 
             return { requestHeaders: headers };
         },
-        { urls: ['<all_urls>'] },
+        {
+            urls: [
+                'https://api.cdnlibs.org/*',
+                'https://*.mixlib.me/*',
+                'https://*.imglib.info/*',
+                'https://*.imgslib.link/*',
+                'https://*.ranobelib.me/*',
+                'https://*.mangalib.me/*',
+                'https://*.mangalib.org/*'
+            ]
+        },
         ['blocking', 'requestHeaders']
     );
     
@@ -150,7 +167,17 @@ if (isChrome && browserAPI && browserAPI.webRequest) {
             if (isFromExtension(details))
                 await rateLimiter.trackRequest(serviceName);
         },
-        { urls: ['<all_urls>'] },
+        {
+            urls: [
+                'https://api.cdnlibs.org/*',
+                'https://*.mixlib.me/*',
+                'https://*.imglib.info/*',
+                'https://*.imgslib.link/*',
+                'https://*.ranobelib.me/*',
+                'https://*.mangalib.me/*',
+                'https://*.mangalib.org/*'
+            ]
+        },
         ['requestHeaders']
     );
     
@@ -342,7 +369,12 @@ if (browserAPI && browserAPI.webRequest && browserAPI.webRequest.onBeforeRequest
                 return { cancel: true };
             }
         },
-        { urls: ['<all_urls>'] },
+        {
+            urls: [
+                'https://mangalib.me/uploads/slider_items/*',
+                'https://yandex.ru/*'
+            ]
+        },
         ['blocking']
     );
 }
