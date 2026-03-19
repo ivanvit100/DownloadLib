@@ -1,4 +1,4 @@
-import { describe, it, expect, beforeEach } from 'vitest';
+import { describe, it, expect, beforeEach, vi } from 'vitest';
 
 let FB2Exporter;
 beforeEach(async () => {
@@ -47,6 +47,8 @@ describe('FB2Exporter', () => {
         expect(result).toContain('<binary id="image1" content-type="image/png">imgdata</binary>');
         expect(result).toContain('<image l:href="#cover.jpg"/>');
         expect(result).toContain('<image l:href="#image1"/>');
+        expect(result).not.toContain('<p><image l:href="#cover.jpg"/></p>');
+        expect(result).not.toContain('<p><image l:href="#image1"/></p>');
     });
 
     it('Return blob, filename and mimeType', async () => {

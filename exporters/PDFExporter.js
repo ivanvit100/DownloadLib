@@ -173,9 +173,19 @@
             let pageCount = 0;
             let isFirst = true;
 
+            const ensurePageForNextContent = () => {
+                if (isFirst) {
+                    isFirst = false;
+                    return;
+                }
+                pdf.addPage();
+            };
+
             if (coverBase64) {
                 const coverDataUrl = await this.ensureDataUrl(coverBase64);
                 if (coverDataUrl) {
+                    ensurePageForNextContent();
+
                     const img = new Image();
                     img.src = coverDataUrl;
                     await new Promise((resolve) => {
@@ -222,9 +232,7 @@
                     const textPages = this.splitTextIntoPages(chapterText, chapterTitle);
                     
                     for (let i = 0; i < textPages.length; i++) {
-                        if (!isFirst) pdf.addPage();
-                        else console.log('[PDFExporter] Adding first text page without adding new page');
-                        isFirst = false;
+                        ensurePageForNextContent();
                         
                         const titleForPage = i === 0 ? chapterTitle : null;
                         const textCanvas = this.renderTextToCanvas(textPages[i], titleForPage);
@@ -238,9 +246,10 @@
                 }
 
                 for (const imageBlock of chapterImages) {
-                    pdf.addPage();
+                    ensurePageForNextContent();
                     
-                    const dataUrl = `data:${imageBlock.data.contentType};base64,${imageBlock.data.base64}`;
+                    const contentType = imageBlock.data.contentType || 'image/jpeg';
+                    const dataUrl = `data:${contentType};base64,${imageBlock.data.base64}`;
                     const img = new Image();
                     img.src = dataUrl;
                     await new Promise((resolve) => {

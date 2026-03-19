@@ -18,6 +18,8 @@ let isFirefoxMode;
 let isChromeMode;
 
 function setupGlobals(mode) {
+    delete globalThis.getExtensionApi;
+
     isFirefoxMode = mode === 'firefox';
     isChromeMode = mode === 'chrome';
 
@@ -121,7 +123,17 @@ describe('Background', () => {
         it('Registers webRequest listener with blocking mode', () => {
             expect(mockAddListenerBeforeSendHeaders).toHaveBeenCalledWith(
                 expect.any(Function),
-                { urls: ['<all_urls>'] },
+                {
+                    urls: [
+                        'https://api.cdnlibs.org/*',
+                        'https://*.mixlib.me/*',
+                        'https://*.imglib.info/*',
+                        'https://*.imgslib.link/*',
+                        'https://*.ranobelib.me/*',
+                        'https://*.mangalib.me/*',
+                        'https://*.mangalib.org/*'
+                    ]
+                },
                 ['blocking', 'requestHeaders'],
             );
         });
@@ -133,7 +145,12 @@ describe('Background', () => {
         it('Registers onBeforeRequest listener', () => {
             expect(mockAddListenerOnBeforeRequest).toHaveBeenCalledWith(
                 expect.any(Function),
-                { urls: ['<all_urls>'] },
+                {
+                    urls: [
+                        'https://mangalib.me/uploads/slider_items/*',
+                        'https://yandex.ru/*'
+                    ]
+                },
                 ['blocking'],
             );
         });
@@ -154,6 +171,7 @@ describe('Background', () => {
                 frameId: 0,
                 url: 'https://api.mangalib.me/data',
                 requestHeaders: [
+                    { name: 'X-Extension-Request', value: 'true' },
                     { name: 'Referer', value: 'https://mangalib.me/some-manga' },
                 ],
             });
@@ -167,6 +185,7 @@ describe('Background', () => {
                 frameId: 0,
                 url: 'https://api.ranobelib.me/data',
                 requestHeaders: [
+                    { name: 'X-Extension-Request', value: 'true' },
                     { name: 'Referer', value: 'https://ranobelib.me/some-ranobe' },
                 ],
             });
@@ -179,6 +198,7 @@ describe('Background', () => {
                 frameId: 0,
                 url: 'https://api.mangalib.me/data',
                 requestHeaders: [
+                    { name: 'X-Extension-Request', value: 'true' },
                     { name: 'Referer', value: 'https://mangalib.me/' },
                 ],
             });
@@ -192,6 +212,7 @@ describe('Background', () => {
                 frameId: 0,
                 url: 'https://img.mixlib.me/some-image.jpg',
                 requestHeaders: [
+                    { name: 'X-Extension-Request', value: 'true' },
                     { name: 'Referer', value: 'https://mangalib.me/' },
                 ],
             });
@@ -205,6 +226,7 @@ describe('Background', () => {
                 frameId: 0,
                 url: 'https://api.mangalib.me/data',
                 requestHeaders: [
+                    { name: 'X-Extension-Request', value: 'true' },
                     { name: 'Referer', value: 'https://mangalib.me/' },
                     { name: 'Accept', value: 'old-value' },
                 ],
@@ -257,7 +279,7 @@ describe('Background', () => {
                 tabId: -1,
                 frameId: 0,
                 url: 'https://img.mixlib.me/image.jpg',
-                requestHeaders: [],
+                requestHeaders: [{ name: 'X-Extension-Request', value: 'true' }],
             });
             expect(mockTrackRequest).toHaveBeenCalledWith('mangalib');
         });
@@ -267,7 +289,7 @@ describe('Background', () => {
                 tabId: -1,
                 frameId: 0,
                 url: 'https://cdn.imglib.info/image.jpg',
-                requestHeaders: [],
+                requestHeaders: [{ name: 'X-Extension-Request', value: 'true' }],
             });
             expect(mockTrackRequest).toHaveBeenCalledWith('mangalib');
         });
@@ -277,7 +299,7 @@ describe('Background', () => {
                 tabId: -1,
                 frameId: 0,
                 url: 'https://cdn.imgslib.link/image.jpg',
-                requestHeaders: [],
+                requestHeaders: [{ name: 'X-Extension-Request', value: 'true' }],
             });
             expect(mockTrackRequest).toHaveBeenCalledWith('mangalib');
         });
@@ -288,9 +310,9 @@ describe('Background', () => {
                 tabId: -1,
                 frameId: 0,
                 url: 'https://other.com/page',
-                requestHeaders: [...headers],
+                requestHeaders: [{ name: 'X-Extension-Request', value: 'true' }, ...headers],
             });
-            expect(result.requestHeaders).toEqual(headers);
+            expect(result.requestHeaders).toEqual([{ name: 'X-Extension-Request', value: 'true' }, ...headers]);
         });
 
         it('Falls back to empty array when requestHeaders is undefined', async () => {
@@ -298,6 +320,7 @@ describe('Background', () => {
                 tabId: -1,
                 frameId: 0,
                 url: 'https://example.com/page',
+                originUrl: 'moz-extension://abc/popup.html',
                 requestHeaders: undefined,
             });
             expect(mockTrackRequest).not.toHaveBeenCalled();
@@ -322,7 +345,10 @@ describe('Background', () => {
                 tabId: -1,
                 frameId: 0,
                 url: 'https://api.mangalib.me/data',
-                requestHeaders: [{ name: 'Referer', value: 'https://mangalib.me/' }],
+                requestHeaders: [
+                    { name: 'X-Extension-Request', value: 'true' },
+                    { name: 'Referer', value: 'https://mangalib.me/' }
+                ],
             });
             expect(warnSpy).toHaveBeenCalledWith(expect.stringContaining('No headers found for service mangalib'));
             warnSpy.mockRestore();
@@ -386,6 +412,7 @@ describe('Background', () => {
                 frameId: 0,
                 url: 'https://api.cdnlibs.org/api/manga/slug',
                 requestHeaders: [
+                    { name: 'X-Extension-Request', value: 'true' },
                     { name: 'X-DL-Service', value: 'ranobelib' },
                 ],
             });
@@ -398,6 +425,7 @@ describe('Background', () => {
                 frameId: 0,
                 url: 'https://api.cdnlibs.org/api/manga/slug',
                 requestHeaders: [
+                    { name: 'X-Extension-Request', value: 'true' },
                     { name: 'X-DL-Service', value: 'mangalib' },
                     { name: 'Site-Id', value: '3' },
                 ],
@@ -411,6 +439,7 @@ describe('Background', () => {
                 frameId: 0,
                 url: 'https://api.cdnlibs.org/api/manga/slug',
                 requestHeaders: [
+                    { name: 'X-Extension-Request', value: 'true' },
                     { name: 'Site-Id', value: '1' },
                 ],
             });
@@ -423,6 +452,7 @@ describe('Background', () => {
                 frameId: 0,
                 url: 'https://api.cdnlibs.org/api/manga/slug',
                 requestHeaders: [
+                    { name: 'X-Extension-Request', value: 'true' },
                     { name: 'X-DL-Service', value: undefined },
                     { name: 'Site-Id', value: '3' },
                 ],
@@ -436,6 +466,7 @@ describe('Background', () => {
                 frameId: 0,
                 url: 'https://api.cdnlibs.org/api/manga/slug',
                 requestHeaders: [
+                    { name: 'X-Extension-Request', value: 'true' },
                     { name: 'X-DL-Service', value: 'unknown-service' },
                     { name: 'Site-Id', value: '1' },
                 ],
@@ -449,6 +480,7 @@ describe('Background', () => {
                 frameId: 0,
                 url: 'https://api.cdnlibs.org/api/manga/slug',
                 requestHeaders: [
+                    { name: 'X-Extension-Request', value: 'true' },
                     { name: 'Site-Id', value: '2' },
                     { name: 'Referer', value: 'https://ranobelib.me/title' },
                 ],
@@ -462,6 +494,7 @@ describe('Background', () => {
                 frameId: 0,
                 url: 'https://api.cdnlibs.org/api/manga/slug',
                 requestHeaders: [
+                    { name: 'X-Extension-Request', value: 'true' },
                     { name: 'Site-Id', value: undefined },
                     { name: 'Referer', value: 'https://mangalib.me/title' },
                 ],
@@ -479,7 +512,17 @@ describe('Background', () => {
         it('Registers webRequest listener without blocking', () => {
             expect(mockAddListenerBeforeSendHeaders).toHaveBeenCalledWith(
                 expect.any(Function),
-                { urls: ['<all_urls>'] },
+                {
+                    urls: [
+                        'https://api.cdnlibs.org/*',
+                        'https://*.mixlib.me/*',
+                        'https://*.imglib.info/*',
+                        'https://*.imgslib.link/*',
+                        'https://*.ranobelib.me/*',
+                        'https://*.mangalib.me/*',
+                        'https://*.mangalib.org/*'
+                    ]
+                },
                 ['requestHeaders'],
             );
         });

@@ -1,8 +1,16 @@
-import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 
 let RanobeLibService;
 
 beforeEach(async () => {
+    global.getExtensionApi = () => ({
+        get runtime() {
+            if (global.browser && global.browser.runtime) return global.browser.runtime;
+            if (global.chrome && global.chrome.runtime) return global.chrome.runtime;
+            return undefined;
+        }
+    });
+
     global.ranolibConfig = {
         name: 'RanobeLib',
         baseUrl: 'https://ranobelib.me',
@@ -16,6 +24,13 @@ beforeEach(async () => {
     delete require.cache[path];
     await import('../../../services/ranobelib/RanobeLibService.js');
     RanobeLibService = global.RanobeLibService;
+});
+
+afterEach(() => {
+    delete global.getExtensionApi;
+    delete global.browser;
+    delete global.chrome;
+    delete global.fetch;
 });
 
 describe('RanobeLibService', () => {

@@ -67,7 +67,7 @@
             if (coverBase64) {
                 yield '  <section>\n';
                 yield '    <title><p>Обложка</p></title>\n';
-                yield '    <p><image l:href="#cover.jpg"/></p>\n';
+                yield '    <image l:href="#cover.jpg"/>\n';
                 yield '  </section>\n';
             }
             
@@ -86,7 +86,7 @@
                                     yield `    <empty-line/>\n`;
                             }
                         } else if (block.type === 'image' && block._fb2ImageId) {
-                            yield `    <p><image l:href="#${block._fb2ImageId}"/></p>\n`;
+                            yield `    <image l:href="#${block._fb2ImageId}"/>\n`;
                         } else console.warn(`[FB2Exporter] Unsupported block type: ${block.type}`);
                     }
                 }

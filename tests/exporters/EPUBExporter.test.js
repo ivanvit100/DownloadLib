@@ -61,6 +61,19 @@ describe('EPUBExporter', () => {
         expect(html).toContain('<img src="images/img1.jpg"');
     });
 
+    it('Creates image-only XHTML without title heading and with image-page wrappers', () => {
+        const chapter = {
+            title: 'Only Images',
+            content: [
+                { type: 'image', _epubImagePath: 'images/img1.jpg' },
+                { type: 'image', _epubImagePath: 'images/img2.jpg' }
+            ]
+        };
+        const html = exporter.createChapterXHTML(chapter, false);
+        expect(html).not.toContain('<h2>Only Images</h2>');
+        expect(html).toContain('class="image-page"');
+    });
+
     it('Uses defaults for missing manga fields', () => {
         const opf = exporter.createOPF({}, '', '');
         expect(opf).toContain('<dc:title>Без названия</dc:title>');

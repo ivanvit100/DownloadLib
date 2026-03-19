@@ -102,17 +102,23 @@
 
         createChapterXHTML(chapter, includeCover) {
             const title = this.escapeHtml(chapter.title);
+            const blocks = Array.isArray(chapter.content) ? chapter.content : [];
+            const hasTextBlocks = blocks.some(block =>
+                block && block.type === 'text' && typeof block.text === 'string' && block.text.trim()
+            );
+            const hasImageBlocks = blocks.some(block => block && block.type === 'image' && block._epubImagePath);
+            const isImageOnlyChapter = !hasTextBlocks && hasImageBlocks;
             
             let body = '';
             
             if (includeCover) {
-                body += '<div style="text-align: center; margin: 20px 0;">\n';
-                body += '<img src="images/cover.jpg" alt="Cover" style="max-width: 100%; height: auto;"/>\n';
+                body += '<div class="cover-page">\n';
+                body += '<img src="images/cover.jpg" alt="Cover"/>\n';
                 body += '</div>\n';
             }
 
-            if (chapter.content && Array.isArray(chapter.content)) {
-                for (const block of chapter.content) {
+            if (blocks.length) {
+                for (const block of blocks) {
                     if (block.type === 'text' && block.text) {
                         const lines = block.text.split('\n');
                         for (const line of lines) {
@@ -122,8 +128,9 @@
                                 '<p>&#160;</p>\n';
                         }
                     } else if (block.type === 'image' && block._epubImagePath) {
-                        body += '<div style="text-align: center; margin: 10px 0;">\n';
-                        body += `<img src="${block._epubImagePath}" alt="Image" style="max-width: 100%; height: auto;"/>\n`;
+                        const wrapperClass = isImageOnlyChapter ? 'image-page' : 'image-block';
+                        body += `<div class="${wrapperClass}">\n`;
+                        body += `<img src="${block._epubImagePath}" alt="Image"/>\n`;
                         body += '</div>\n';
                     }
                 }
@@ -135,9 +142,19 @@
 <head>
     <meta charset="utf-8"/>
     <title>${title}</title>
+    <style type="text/css">
+        html, body { margin: 0; padding: 0; }
+        body { font-family: serif; }
+        h2 { margin: 1em 0.5em; }
+        p { margin: 0.4em 0.6em; }
+        .cover-page, .image-block, .image-page { text-align: center; margin: 0; padding: 0; }
+        .cover-page img, .image-block img, .image-page img { display: block; width: 100%; height: auto; margin: 0 auto; }
+        .image-page { page-break-after: always; break-after: page; }
+        .image-page:last-of-type { page-break-after: auto; break-after: auto; }
+    </style>
 </head>
 <body>
-    <h2>${title}</h2>
+    ${isImageOnlyChapter ? '' : `<h2>${title}</h2>`}
     ${body}
 </body>
 </html>`;

@@ -21,6 +21,8 @@ globalThis.ExporterFactory = {
     create: vi.fn(() => ({ export: mockExportFn })),
 };
 
+delete globalThis.getExtensionApi;
+
 globalThis.browser = {
     downloads: {
         download: vi.fn().mockResolvedValue(42),

@@ -1,8 +1,16 @@
-import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 
 let MangaLibService;
 
 beforeEach(async () => {
+    global.getExtensionApi = () => ({
+        get runtime() {
+            if (global.browser && global.browser.runtime) return global.browser.runtime;
+            if (global.chrome && global.chrome.runtime) return global.chrome.runtime;
+            return undefined;
+        }
+    });
+
     global.mangalibConfig = {
         name: 'MangaLib',
         baseUrl: 'https://mangalib.me',
@@ -17,6 +25,13 @@ beforeEach(async () => {
     delete require.cache[path];
     await import('../../../services/mangalib/MangaLibService.js');
     MangaLibService = global.MangaLibService;
+});
+
+afterEach(() => {
+    delete global.getExtensionApi;
+    delete global.browser;
+    delete global.chrome;
+    delete global.fetch;
 });
 
 describe('MangaLibService', () => {

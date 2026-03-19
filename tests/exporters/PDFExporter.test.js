@@ -858,6 +858,98 @@ describe('PDFExporter', () => {
         document.createElement = origCreateElement;
     });
 
+    it('Does not add an extra blank page before first image-only page', async () => {
+        const origCreateElement = mockCanvas();
+        const addPage = vi.fn();
+        window.html2pdf = () => ({
+            set: () => ({
+                from: () => ({
+                    toPdf: () => ({
+                        get: () => Promise.resolve({
+                            internal: {
+                                pageSize: {
+                                    getWidth: () => 100,
+                                    getHeight: () => 100
+                                }
+                            },
+                            addPage,
+                            addImage: vi.fn(),
+                            output: () => 'blob'
+                        })
+                    })
+                })
+            })
+        });
+        window.Image = class {
+            constructor() {
+                this.src = '';
+                this.width = 100;
+                this.height = 100;
+                setTimeout(() => {
+                    if (this.onload) this.onload();
+                }, 1);
+            }
+        };
+
+        const manga = { name: 'Test' };
+        const chapters = [
+            {
+                title: 'Chapter 1',
+                content: [
+                    { type: 'image', data: { base64: 'img1', contentType: 'image/jpeg' } },
+                    { type: 'image', data: { base64: 'img2', contentType: 'image/jpeg' } }
+                ]
+            }
+        ];
+
+        await exporter.export(manga, chapters, undefined);
+        expect(addPage).toHaveBeenCalledTimes(1);
+        document.createElement = origCreateElement;
+    });
+
+    it('Adds a new page after cover before first chapter page', async () => {
+        const origCreateElement = mockCanvas();
+        const addPage = vi.fn();
+        window.html2pdf = () => ({
+            set: () => ({
+                from: () => ({
+                    toPdf: () => ({
+                        get: () => Promise.resolve({
+                            internal: {
+                                pageSize: {
+                                    getWidth: () => 100,
+                                    getHeight: () => 100
+                                }
+                            },
+                            addPage,
+                            addImage: vi.fn(),
+                            output: () => 'blob'
+                        })
+                    })
+                })
+            })
+        });
+        window.Image = class {
+            constructor() {
+                this.src = '';
+                this.width = 100;
+                this.height = 100;
+                setTimeout(() => {
+                    if (this.onload) this.onload();
+                }, 1);
+            }
+        };
+
+        const manga = { name: 'Test' };
+        const chapters = [
+            { title: 'Chapter 1', content: [{ type: 'text', text: 'text page' }] }
+        ];
+
+        await exporter.export(manga, chapters, 'data:image/jpeg;base64,coverdata');
+        expect(addPage).toHaveBeenCalledTimes(1);
+        document.createElement = origCreateElement;
+    });
+
     it('Uses fallback filename manga if manga name and rus_name are missing in export', async () => {
         const origCreateElement = mockCanvas();
         window.html2pdf = () => ({
