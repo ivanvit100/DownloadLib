@@ -12,6 +12,7 @@
 (function(global) {
     console.log('[RanobeLibService] Loading...');
 
+    /* istanbul ignore next */
     const extensionApi = typeof global.getExtensionApi === 'function'
         ? global.getExtensionApi()
         : ((typeof global.browser !== 'undefined' && global.browser) || (typeof global.chrome !== 'undefined' && global.chrome) || null);

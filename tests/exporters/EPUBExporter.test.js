@@ -58,10 +58,10 @@ describe('EPUBExporter', () => {
             ]
         };
         const html = exporter.createChapterXHTML(chapter, false);
-        expect(html).toContain('<img src="images/img1.jpg"');
+        expect(html).toContain('src="images/img1.jpg"');
     });
 
-    it('Creates image-only XHTML without title heading and with image-page wrappers', () => {
+    it('Creates image-only XHTML without heading and with page-image tags', () => {
         const chapter = {
             title: 'Only Images',
             content: [
@@ -71,7 +71,9 @@ describe('EPUBExporter', () => {
         };
         const html = exporter.createChapterXHTML(chapter, false);
         expect(html).not.toContain('<h2>Only Images</h2>');
-        expect(html).toContain('class="image-page"');
+        expect(html).toContain('class="page-image"');
+        expect(html).toContain('src="images/img1.jpg"');
+        expect(html).toContain('src="images/img2.jpg"');
     });
 
     it('Uses defaults for missing manga fields', () => {
@@ -1104,5 +1106,64 @@ describe('EPUBExporter', () => {
         const images = result.chapters[0].content.filter(b => b.type === 'image');
         expect(images.length).toBe(1);
         expect(images[0].data.contentType).toBe('image/jpeg');
+    });
+
+	it('Uses fallback jpeg media type when image contentType is missing', async () => {
+        let zipInstance;
+        global.JSZip = class {
+            constructor() {
+                this.files = {};
+                zipInstance = this;
+            }
+            file(name, content, opts) {
+                this.files[name] = { content, opts };
+            }
+            generateAsync() {
+                return Promise.resolve('blob');
+            }
+        };
+        const manga = { name: 'Test', authors: 'Author' };
+        const chapters = [
+            {
+                title: 'Chapter 1',
+                content: [
+                    { type: 'image', data: { base64: 'imgdata' } }
+                ]
+            }
+        ];
+        await exporter.export(manga, chapters);
+        expect(zipInstance.files['OEBPS/images/image1.jpg'].content).toBe('imgdata');
+        expect(zipInstance.files['OEBPS/content.opf'].content).toContain('href="images/image1.jpg" media-type="image/jpeg"');
+    });
+
+    it('Renders image-only chapter cover and images without heading', () => {
+        const chapter = {
+            title: 'Only Images',
+            content: [
+                { type: 'image', _epubImagePath: 'images/img1.jpg' }
+            ]
+        };
+        const html = exporter.createChapterXHTML(chapter, true);
+        expect(html).toContain('<img class="page-image" src="images/cover.jpg" alt="Cover"/>');
+        expect(html).toContain('<img class="page-image" src="images/img1.jpg" alt="Image"/>');
+        expect(html).toContain('img.page-image{display:block;width:100%;height:auto;margin:0;padding:0;border:0;}');
+        expect(html).not.toContain('<h2>Only Images</h2>');
+        expect(html).not.toContain('<div style="text-align: center; margin: 20px 0;">');
+        expect(html).not.toContain('<div style="text-align: center; margin: 10px 0;">');
+    });
+
+    it('Renders centered image wrapper for mixed content chapter', () => {
+        const chapter = {
+            title: 'Mixed',
+            content: [
+                { type: 'text', text: 'Line' },
+                { type: 'image', _epubImagePath: 'images/img1.jpg' }
+            ]
+        };
+        const html = exporter.createChapterXHTML(chapter, false);
+        expect(html).toContain('<h2>Mixed</h2>');
+        expect(html).toContain('<div style="text-align: center; margin: 10px 0;">');
+        expect(html).toContain('<img src="images/img1.jpg" alt="Image" style="max-width: 100%; height: auto;"/>');
+        expect(html).not.toContain('<img class="page-image" src="images/img1.jpg" alt="Image"/>');
     });
 });

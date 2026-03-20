@@ -55,11 +55,12 @@
                         if (block.type === 'image' && block.data && block.data.base64) {
                             imageCounter++;
                             const imageId = `image${imageCounter}`;
-                            const ext = block.data.contentType === 'image/png' ? 'png' : 'jpg';
+                            const contentType = block.data.contentType || 'image/jpeg';
+                            const ext = contentType === 'image/png' ? 'png' : 'jpg';
                             const filename = `images/${imageId}.${ext}`;
                             
                             zip.file(`OEBPS/${filename}`, block.data.base64, { base64: true });
-                            manifest += `<item id="${imageId}" href="${filename}" media-type="${block.data.contentType}"/>\n`;
+                            manifest += `<item id="${imageId}" href="${filename}" media-type="${contentType}"/>\n`;
                             
                             block._epubImagePath = filename;
                         } else console.warn(`[EPUBExporter] Chapter ${i + 1} has unsupported image block or missing data`);
@@ -103,18 +104,20 @@
         createChapterXHTML(chapter, includeCover) {
             const title = this.escapeHtml(chapter.title);
             const blocks = Array.isArray(chapter.content) ? chapter.content : [];
-            const hasTextBlocks = blocks.some(block =>
-                block && block.type === 'text' && typeof block.text === 'string' && block.text.trim()
-            );
+            const hasTextBlocks = blocks.some(block => block && block.type === 'text' && block.text && String(block.text).trim());
             const hasImageBlocks = blocks.some(block => block && block.type === 'image' && block._epubImagePath);
             const isImageOnlyChapter = !hasTextBlocks && hasImageBlocks;
             
             let body = '';
             
             if (includeCover) {
-                body += '<div class="cover-page">\n';
-                body += '<img src="images/cover.jpg" alt="Cover"/>\n';
-                body += '</div>\n';
+                if (isImageOnlyChapter)
+                    body += '<img class="page-image" src="images/cover.jpg" alt="Cover"/>\n';
+                else {
+                    body += '<div style="text-align: center; margin: 20px 0;">\n';
+                    body += '<img src="images/cover.jpg" alt="Cover" style="max-width: 100%; height: auto;"/>\n';
+                    body += '</div>\n';
+                }
             }
 
             if (blocks.length) {
@@ -128,10 +131,13 @@
                                 '<p>&#160;</p>\n';
                         }
                     } else if (block.type === 'image' && block._epubImagePath) {
-                        const wrapperClass = isImageOnlyChapter ? 'image-page' : 'image-block';
-                        body += `<div class="${wrapperClass}">\n`;
-                        body += `<img src="${block._epubImagePath}" alt="Image"/>\n`;
-                        body += '</div>\n';
+                        if (isImageOnlyChapter)
+                            body += `<img class="page-image" src="${block._epubImagePath}" alt="Image"/>\n`;
+                        else {
+                            body += '<div style="text-align: center; margin: 10px 0;">\n';
+                            body += `<img src="${block._epubImagePath}" alt="Image" style="max-width: 100%; height: auto;"/>\n`;
+                            body += '</div>\n';
+                        }
                     }
                 }
             }
@@ -142,16 +148,7 @@
 <head>
     <meta charset="utf-8"/>
     <title>${title}</title>
-    <style type="text/css">
-        html, body { margin: 0; padding: 0; }
-        body { font-family: serif; }
-        h2 { margin: 1em 0.5em; }
-        p { margin: 0.4em 0.6em; }
-        .cover-page, .image-block, .image-page { text-align: center; margin: 0; padding: 0; }
-        .cover-page img, .image-block img, .image-page img { display: block; width: 100%; height: auto; margin: 0 auto; }
-        .image-page { page-break-after: always; break-after: page; }
-        .image-page:last-of-type { page-break-after: auto; break-after: auto; }
-    </style>
+    ${isImageOnlyChapter ? '<style type="text/css">html,body{margin:0;padding:0;} body{line-height:0;font-size:0;} img.page-image{display:block;width:100%;height:auto;margin:0;padding:0;border:0;}</style>' : ''}
 </head>
 <body>
     ${isImageOnlyChapter ? '' : `<h2>${title}</h2>`}

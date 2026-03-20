@@ -1016,5 +1016,49 @@ describe('PDFExporter', () => {
         document.createElement = origCreateElement;
     });
 
-
+    it('Uses fallback jpeg content type when image contentType is missing', async () => {
+        let capturedDataUrl = null;
+        window.html2pdf = () => ({
+            set: () => ({
+                from: () => ({
+                    toPdf: () => ({
+                        get: () => Promise.resolve({
+                            internal: {
+                                pageSize: {
+                                    getWidth: () => 100,
+                                    getHeight: () => 100
+                                }
+                            },
+                            addPage: vi.fn(),
+                            addImage: (dataUrl) => {
+                                capturedDataUrl = dataUrl;
+                            },
+                            output: () => 'blob'
+                        })
+                    })
+                })
+            })
+        });
+        window.Image = class {
+            constructor() {
+                this.src = '';
+                this.width = 100;
+                this.height = 100;
+                setTimeout(() => {
+                    if (this.onload) this.onload();
+                }, 1);
+            }
+        };
+        const manga = { name: 'Test' };
+        const chapters = [
+            {
+                title: 'Chapter 1',
+                content: [
+                    { type: 'image', data: { base64: 'imgdata' } }
+                ]
+            }
+        ];
+        await exporter.export(manga, chapters, undefined);
+        expect(capturedDataUrl).toBe('data:image/jpeg;base64,imgdata');
+    });
 });

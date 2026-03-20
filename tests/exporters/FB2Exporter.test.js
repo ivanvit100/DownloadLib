@@ -45,10 +45,8 @@ describe('FB2Exporter', () => {
         const result = Array.from(exporter.createFB2Stream(manga, chapters, coverBase64)).join('');
         expect(result).toContain('<binary id="cover.jpg" content-type="image/jpeg">coverdata</binary>');
         expect(result).toContain('<binary id="image1" content-type="image/png">imgdata</binary>');
-        expect(result).toContain('<image l:href="#cover.jpg"/>');
-        expect(result).toContain('<image l:href="#image1"/>');
-        expect(result).not.toContain('<p><image l:href="#cover.jpg"/></p>');
-        expect(result).not.toContain('<p><image l:href="#image1"/></p>');
+        expect(result).toContain('<p><image l:href="#cover.jpg"/></p>');
+        expect(result).toContain('<p><image l:href="#image1"/></p>');
     });
 
     it('Return blob, filename and mimeType', async () => {

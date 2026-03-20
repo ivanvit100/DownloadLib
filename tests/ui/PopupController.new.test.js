@@ -855,4 +855,64 @@ describe('PopupController second test file', () => {
 
         expect(logSpy).toHaveBeenCalledWith('Chapter range selectors updated without invalid range');
     });
+
+    it('Uses extension api provider when available', async () => {
+        vi.resetModules();
+        setupDOM();
+        global.DownloadManager = class {
+            constructor() {
+                this.eventBus = { on: vi.fn() };
+            }
+        };
+        const extensionApi = {
+            runtime: {
+                sendMessage: vi.fn(async () => ({ ok: true, downloads: [] })),
+                getURL: vi.fn(() => 'popup.html')
+            },
+            windows: {
+                getCurrent: vi.fn(async () => ({ type: 'popup' })),
+                create: vi.fn(async () => ({ id: 1 })),
+                update: vi.fn(async () => {})
+            },
+            tabs: {
+                query: vi.fn(async () => ([{ url: 'https://ranobelib.me/manga/slug' }]))
+            }
+        };
+        global.getExtensionApi = vi.fn(() => extensionApi);
+        global.browser = {
+            runtime: {
+                sendMessage: vi.fn(async () => ({ ok: true, downloads: [] })),
+                getURL: vi.fn(() => 'popup.html')
+            },
+            windows: {
+                getCurrent: vi.fn(async () => ({ type: 'popup' })),
+                create: vi.fn(async () => ({ id: 2 })),
+                update: vi.fn(async () => {})
+            },
+            tabs: {
+                query: vi.fn(async () => ([{ url: 'https://ranobelib.me/manga/slug' }]))
+            }
+        };
+        global.chrome = {
+            runtime: {
+                sendMessage: vi.fn(async () => ({ ok: true, downloads: [] })),
+                getURL: vi.fn(() => 'popup.html')
+            },
+            windows: {
+                getCurrent: vi.fn(async () => ({ type: 'popup' })),
+                create: vi.fn(async () => ({ id: 3 })),
+                update: vi.fn(async () => {})
+            },
+            tabs: {
+                query: vi.fn(async () => ([{ url: 'https://ranobelib.me/manga/slug' }]))
+            }
+        };
+        await import('../../ui/PopupController.js?nocache=' + Math.random());
+        const PopupControllerClass = global.PopupController;
+        const localController = new PopupControllerClass();
+        await localController.updateActiveDownloadsInfo();
+        expect(global.getExtensionApi).toHaveBeenCalledTimes(1);
+        expect(extensionApi.runtime.sendMessage).toHaveBeenCalled();
+        expect(global.browser.runtime.sendMessage).not.toHaveBeenCalled();
+    });
 });

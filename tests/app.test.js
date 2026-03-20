@@ -129,4 +129,48 @@ describe('App initialization', () => {
         else delete global.chrome;
         global.window = originalWindow;
     });
+
+    it('Uses provided extension api resolver when available', async () => {
+        vi.resetModules();
+        document.body.innerHTML = '<div id="error" class="hidden"></div>';
+        window.EventBus = class {};
+        window.RateLimiter = class {};
+        window.ServiceRegistry = class {};
+        window.DownloadManager = class {};
+        window.BaseService = class {};
+        window.MangaLibService = class {};
+        window.RanobeLibService = class {};
+        window.BaseExporter = class {};
+        window.FB2Exporter = class {};
+        window.EPUBExporter = class {};
+        window.PDFExporter = class {};
+        window.ExporterFactory = class {};
+        window.PopupController = class {};
+        window.serviceRegistry = { register: vi.fn(), getAllServices: vi.fn(() => []) };
+        globalThis.getExtensionApi = vi.fn(() => ({ runtime: {} }));
+        globalThis.browser = { runtime: { id: 'browser' } };
+        globalThis.chrome = { runtime: { id: 'chrome' } };
+        await import('../app.js');
+        expect(globalThis.getExtensionApi).toHaveBeenCalledTimes(1);
+    });
+
+    it('Uses chrome api fallback when browser is unavailable', async () => {
+        vi.resetModules();
+        const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
+        delete globalThis.getExtensionApi;
+        delete globalThis.browser;
+        let chromeReads = 0;
+        Object.defineProperty(globalThis, 'chrome', {
+            configurable: true,
+            get() {
+                chromeReads += 1;
+                return { runtime: { id: 'chrome' } };
+            }
+        });
+        await import('../app.js');
+        expect(chromeReads).toBeGreaterThan(0);
+        expect(warnSpy).not.toHaveBeenCalledWith('[App] Extension API is not available in this context');
+        warnSpy.mockRestore();
+        delete globalThis.chrome;
+    });
 });
