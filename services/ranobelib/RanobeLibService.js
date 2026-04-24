@@ -140,9 +140,18 @@
                 try {
                     content = JSON.parse(content);
                 } catch (e) {
-                    const stripped = this.stripHtml(content);
-                    if (stripped) return [{ type: 'text', text: stripped }];
-                    return [];
+                    const result = [];
+                    const parts = content.split(/(<img\s[^>]*>)/i);
+                    for (const part of parts) {
+                        const imgMatch = part.match(/^<img\s[^>]*src=["']([^"']+)["'][^>]*>$/i);
+                        if (imgMatch) {
+                            result.push({ type: 'image', src: imgMatch[1] });
+                        } else {
+                            const stripped = this.stripHtml(part);
+                            if (stripped.trim()) result.push({ type: 'text', text: stripped });
+                        }
+                    }
+                    return result;
                 }
             }
 
@@ -240,15 +249,22 @@
                         result.push(block);
                     else console.warn('[RanobeLibService] Skipping empty text block');
                 } else if (block.type === 'image' && block.src) {
-                    const imageUuid = block.src.replace(/\.(jpg|jpeg|png|webp)$/i, '');
                     const originalExt = (block.src.match(/\.(jpg|jpeg|png|webp)$/i) || [])[1] || 'jpg';
-
                     const fallbacks = ['jpg', 'jpeg', 'png', 'webp'].filter(e => e !== originalExt);
                     const extensions = [originalExt, ...fallbacks];
+
+                    const isFullUrl = /^https?:\/\//i.test(block.src);
+                    const baseUrl = isFullUrl
+                        ? block.src.replace(/\.(jpg|jpeg|png|webp)$/i, '')
+                        : (() => {
+                            const imageUuid = block.src.replace(/\.(jpg|jpeg|png|webp)$/i, '');
+                            return `https://ranobelib.me/uploads/ranobe/${mangaId}/chapters/${chapterId}/${imageUuid}`;
+                        })();
+
                     let loaded = false;
 
                     for (const ext of extensions) {
-                        const url = `https://ranobelib.me/uploads/ranobe/${mangaId}/chapters/${chapterId}/${imageUuid}.${ext}`;
+                        const url = `${baseUrl}.${ext}`;
 
                         try {
                             if (!extensionApi || !extensionApi.runtime || !extensionApi.runtime.sendMessage) {
@@ -269,12 +285,9 @@
                                 continue;
                             }
 
-                            const base64Data = response.base64;
-                            const contentType = response.contentType || 'image/png';
-
                             result.push({
                                 type: 'image',
-                                data: { base64: base64Data, contentType }
+                                data: { base64: response.base64, contentType: response.contentType || 'image/png' }
                             });
 
                             loaded = true;
@@ -284,7 +297,7 @@
                         }
                     }
 
-                    if (!loaded) console.error('[RanobeLibService] Failed to load image:', imageUuid);
+                    if (!loaded) console.error('[RanobeLibService] Failed to load image:', block.src);
                 } else console.warn('[RanobeLibService] Unknown block type:', block);
             }
 
