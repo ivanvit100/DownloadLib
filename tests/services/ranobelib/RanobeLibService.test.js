@@ -255,7 +255,7 @@ describe('RanobeLibService', () => {
         const errorSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
         const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
         const result = await svc.processChapterContent(extracted, {}, { chapterMeta: { id: 2, manga_id: 1 } });
-        expect(errorSpy).toHaveBeenCalledWith('[RanobeLibService] Failed to load image:', 'img123');
+        expect(errorSpy).toHaveBeenCalledWith('[RanobeLibService] Failed to load image:', 'img123.jpg');
         expect(result).toEqual([]);
         errorSpy.mockRestore();
         warnSpy.mockRestore();
