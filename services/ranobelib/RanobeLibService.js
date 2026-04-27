@@ -253,13 +253,17 @@
                     const fallbacks = ['jpg', 'jpeg', 'png', 'webp'].filter(e => e !== originalExt);
                     const extensions = [originalExt, ...fallbacks];
 
+                    const srcWithoutExt = block.src.replace(/\.(jpg|jpeg|png|webp)$/i, '');
                     const isFullUrl = /^https?:\/\//i.test(block.src);
+                    const isAbsolutePath = /^(\/\/|\/)/.test(block.src);
                     const baseUrl = isFullUrl
-                        ? block.src.replace(/\.(jpg|jpeg|png|webp)$/i, '')
-                        : (() => {
-                            const imageUuid = block.src.replace(/\.(jpg|jpeg|png|webp)$/i, '');
-                            return `https://ranobelib.me/uploads/ranobe/${mangaId}/chapters/${chapterId}/${imageUuid}`;
-                        })();
+                        ? srcWithoutExt
+                        : isAbsolutePath
+                            ? new URL(srcWithoutExt, 'https://ranobelib.me').toString()
+                            : (() => {
+                                const imageUuid = srcWithoutExt;
+                                return `https://ranobelib.me/uploads/ranobe/${mangaId}/chapters/${chapterId}/${imageUuid}`;
+                            })();
 
                     let loaded = false;
 
