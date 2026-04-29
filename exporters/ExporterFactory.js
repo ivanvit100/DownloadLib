@@ -4,7 +4,7 @@
  * @module exporters/ExporterFactory
  * @license MIT
  * @author ivanvit
- * @version 1.0.0
+ * @version 1.0.5
  */
 
 'use strict';
@@ -17,7 +17,8 @@
             const exporters = {
                 'fb2': global.FB2Exporter,
                 'epub': global.EPUBExporter,
-                'pdf': global.PDFExporter
+                'pdf': global.PDFExporter,
+                'azw3': global.AZW3Exporter
             };
 
             const ExporterClass = exporters[format.toLowerCase()];

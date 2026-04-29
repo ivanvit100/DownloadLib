@@ -1,7 +1,7 @@
 {
     "manifest_version": 3,
     "name": "DownloadLib",
-    "version": "1.0.4",
+    "version": "1.0.5",
     "description": "Скачивает мангу с порталов MangaLib в удобном для чтения формате.",
     "author": "https://ivanvit.ru",
     "homepage_url": "https://github.com/ivanvit100/DownloadLib",
@@ -22,6 +22,7 @@
             "exporters/FB2Exporter.js",
             "exporters/PDFExporter.js",
             "exporters/EPUBExporter.js",
+            "exporters/AZW3Exporter.js",
             "lib/jszip.min.js",
             "lib/html2pdf.min.js"
         ]

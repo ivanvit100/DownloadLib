@@ -4,7 +4,7 @@
  * @module ui/PopupController
  * @license MIT
  * @author ivanvit
- * @version 1.0.1
+ * @version 1.0.5
  */
 
 'use strict';
@@ -99,9 +99,14 @@
                 optionPdf.value = 'pdf';
                 optionPdf.textContent = 'PDF';
 
+                const optionAzw3 = document.createElement('option');
+                optionAzw3.value = 'azw3';
+                optionAzw3.textContent = 'AZW3';
+                
                 formatSelector.appendChild(optionFb2);
                 formatSelector.appendChild(optionEpub);
                 formatSelector.appendChild(optionPdf);
+                formatSelector.appendChild(optionAzw3);
 
                 const label = document.createElement('label');
                 label.textContent = 'Формат: ';

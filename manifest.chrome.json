@@ -1,7 +1,7 @@
 {
     "manifest_version": 3,
     "name": "DownloadLib",
-    "version": "1.0.4",
+    "version": "1.0.5",
     "description": "Скачивает мангу с порталов MangaLib в удобном для чтения формате.",
     "author": "https://ivanvit.ru",
     "homepage_url": "https://github.com/ivanvit100/DownloadLib",
@@ -68,5 +68,10 @@
             "js": ["background/RemoveAds.js"],
             "run_at": "document_idle"
         }
-    ]
+    ],
+
+    "web_accessible_resources": [{
+        "resources": ["lib/kf8.wasm"],
+        "matches": ["<all_urls>"]
+    }]
 }

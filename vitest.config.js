@@ -8,7 +8,7 @@ export default defineConfig({
         coverage: {
             provider: 'istanbul',
             reporter: ['text', 'html'],
-            exclude: ['**/node_modules/**', '**/lib/**', '**/background/service-worker.js', '**/**/**/config.js'],
+            exclude: ['**/node_modules/**', '**/lib/**', '**/background/service-worker.js', '**/**/**/config.js', '/assembly/**', '**/tests/**'],
             all: true,
             include: ['*.js', 'core/**/*.js', 'background/**/*.js', 'exporters/**/*.js', 'services/**/*.js', 'ui/**/*.js'],
         },
