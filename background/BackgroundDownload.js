@@ -4,7 +4,7 @@
  * @module background/BackgroundDownload
  * @license MIT
  * @author ivanvit
- * @version 1.0.4
+ * @version 1.0.5
  */
 
 'use strict';
@@ -101,7 +101,8 @@ class BackgroundDownload {
                             {
                                 chapterMeta: rawContent,
                                 chapterObj: chapter,
-                                mangaSlug: download.slug
+                                mangaSlug: download.slug,
+                                splitLongImages: download.format !== 'simple'
                             }
                           )
                         : extractedContent;

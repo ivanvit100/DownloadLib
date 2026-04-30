@@ -18,7 +18,8 @@
                 'fb2': global.FB2Exporter,
                 'epub': global.EPUBExporter,
                 'pdf': global.PDFExporter,
-                'azw3': global.AZW3Exporter
+                'azw3': global.AZW3Exporter,
+                'simple': global.SimpleExporter
             };
 
             const ExporterClass = exporters[format.toLowerCase()];
@@ -29,7 +30,7 @@
         }
 
         static getSupportedFormats() {
-            return ['fb2', 'epub', 'pdf'];
+            return ['fb2', 'epub', 'pdf', 'azw3', 'simple'];
         }
     }
 

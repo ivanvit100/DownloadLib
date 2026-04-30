@@ -23,6 +23,7 @@
             "exporters/PDFExporter.js",
             "exporters/EPUBExporter.js",
             "exporters/AZW3Exporter.js",
+            "exporters/SimpleExporter.js",
             "lib/jszip.min.js",
             "lib/html2pdf.min.js"
         ]

@@ -102,11 +102,16 @@
                 const optionAzw3 = document.createElement('option');
                 optionAzw3.value = 'azw3';
                 optionAzw3.textContent = 'AZW3';
+
+                const optionSimple = document.createElement('option');
+                optionSimple.value = 'simple';
+                optionSimple.textContent = 'TXT/JPEG';
                 
                 formatSelector.appendChild(optionFb2);
                 formatSelector.appendChild(optionEpub);
                 formatSelector.appendChild(optionPdf);
                 formatSelector.appendChild(optionAzw3);
+                formatSelector.appendChild(optionSimple);
 
                 const label = document.createElement('label');
                 label.textContent = 'Формат: ';

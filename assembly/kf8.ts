@@ -65,7 +65,7 @@ class Writer {
 
   u8(v: u32): void {
     this.ensure(1);
-    store<u8>(this.ptr + this.pos, v as u8);
+    store<u8>(this.ptr + this.pos, (v & 0xFF) as u8);
     this.pos++;
   }
 
@@ -187,14 +187,29 @@ function buildEXTH_mobi6(kf8StartRec: u32): Writer {
   w.be32(0);   // total length – patch later
   w.be32(4);   // 4 entries
 
+  // FIX: явные касты u32 чтобы избежать неопределённого поведения при сложении типов
+  // EXTH entry format: [type u32][total_len u32][data...]
+  // total_len = 8 (type+len fields) + len(data)
+
   // 100: author
-  w.be32(100); w.be32(8 + g_author_len as u32); w.raw(g_author_ptr, g_author_len);
+  w.be32(100);
+  w.be32(8 + (g_author_len as u32));
+  w.raw(g_author_ptr, g_author_len);
+
   // 503: updated title
-  w.be32(503); w.be32(8 + g_title_len as u32);  w.raw(g_title_ptr,  g_title_len);
+  w.be32(503);
+  w.be32(8 + (g_title_len as u32));
+  w.raw(g_title_ptr, g_title_len);
+
   // 524: language = "ru"
-  w.be32(524); w.be32(10); w.u8(114); w.u8(117); // 'r','u'
-  // 121: KF8 boundary (absolute record index of KF8 header)
-  w.be32(121); w.be32(12); w.be32(kf8StartRec);
+  w.be32(524);
+  w.be32(10);        // 8 + 2 bytes data
+  w.u8(114); w.u8(117); // 'r','u'
+
+  // 121: KF8 boundary record index (absolute PalmDB record number)
+  w.be32(121);
+  w.be32(12);        // 8 + 4 bytes data
+  w.be32(kf8StartRec);
 
   w.patch32(lenOff, w.pos as u32);
   w.pad4();
@@ -209,11 +224,19 @@ function buildEXTH_kf8(): Writer {
   w.be32(3);  // 3 entries
 
   // 100: author
-  w.be32(100); w.be32(8 + g_author_len as u32); w.raw(g_author_ptr, g_author_len);
+  w.be32(100);
+  w.be32(8 + (g_author_len as u32));
+  w.raw(g_author_ptr, g_author_len);
+
   // 503: updated title
-  w.be32(503); w.be32(8 + g_title_len as u32);  w.raw(g_title_ptr,  g_title_len);
+  w.be32(503);
+  w.be32(8 + (g_title_len as u32));
+  w.raw(g_title_ptr, g_title_len);
+
   // 524: language = "ru"
-  w.be32(524); w.be32(10); w.u8(114); w.u8(117);
+  w.be32(524);
+  w.be32(10);
+  w.u8(114); w.u8(117);
 
   w.patch32(lenOff, w.pos as u32);
   w.pad4();
@@ -222,17 +245,52 @@ function buildEXTH_kf8(): Writer {
 
 // ── MOBI6 header record (Record 0) ───────────────────────────────────────────
 // Layout: PalmDOC(16) + MOBI-hdr(232) + EXTH + full_title, padded to 4 bytes.
+//
+// MOBI header field offsets (from MOBI magic, verified against KindleUnpack):
+//   0x00: 'MOBI' magic
+//   0x04: header length = 232
+//   0x08: type = 2 (Mobipocket Book)
+//   0x0c: encoding = 65001 (UTF-8)
+//   0x10: unique ID
+//   0x14: file version = 6
+//   0x18–0x3f: 10 × 0xFFFFFFFF (unused index fields)
+//   0x40: first non-book record
+//   0x44: fullName offset (from record 0 start)
+//   0x48: fullName length
+//   0x4c: locale
+//   0x50: input language
+//   0x54: output language
+//   0x58: min version
+//   0x5c: first image index
+//   0x60–0x6f: huff fields (0)
+//   0x70: EXTH flags (0x40 = EXTH present)
+//   0x74–0x7f: reserved
+//   0x80: DRM offset (0xFFFFFFFF = no DRM)
+//   0x84–0x8f: DRM count/size/flags
+//   0x90–0x97: reserved
+//   0x98: first content record (be16)
+//   0x9a: last content record (be16)
+//   0x9c: unknown (1)
+//   0xa0: FLIS record index  ← FLIS first, then FCIS!
+//   0xa4: FLIS count
+//   0xa8: FCIS record index
+//   0xac: FCIS count
+//   0xb0–0xb7: reserved
+//   0xb8: extra record data
+//   0xbc: INDX record (0xFFFFFFFF = none)
+//   0xc0–0xe7: padding to MOBI_LEN=232
 
 function buildMobi6Record0(
   kf8StartRec  : u32,   // absolute record index of KF8 header
   textLen      : u32,   // MOBI6 content byte length
   textRecCount : u32,   // number of MOBI6 text records
-  fcisRec      : u32,   // absolute index of MOBI6 FCIS
-  flisRec      : u32    // absolute index of MOBI6 FLIS
+  flisRec      : u32,   // absolute index of MOBI6 FLIS  ← порядок: FLIS, FCIS
+  fcisRec      : u32    // absolute index of MOBI6 FCIS
 ): Writer {
   const exth = buildEXTH_mobi6(kf8StartRec);
   const MOBI_LEN: u32 = 232;
-  const fullNameOff = 16 + MOBI_LEN + exth.pos as u32; // relative to record 0 start
+  // FIX: явный каст usize→u32 для exth.pos
+  const fullNameOff: u32 = 16 + MOBI_LEN + (exth.pos as u32);
 
   const w = new Writer(512 + exth.pos + g_title_len);
 
@@ -244,50 +302,47 @@ function buildMobi6Record0(
   w.be16(4096);          // max record size
   w.be32(0);             // encryption = 0
 
-  // ── MOBI header (232 bytes, starts at offset 16) ───────────────────────
+  // ── MOBI header (232 bytes от моей позиции = offset 16 записи 0) ──────
+  // offset 0x00 от MOBI-magic:
   w.u8(77); w.u8(79); w.u8(66); w.u8(73); // 'MOBI'
-  w.be32(MOBI_LEN);      // header length = 232
-  w.be32(2);             // type: 2 = Mobipocket Book
-  w.be32(65001);         // encoding: UTF-8
-  w.be32(0xABCD1234);    // unique ID (deterministic placeholder)
-  w.be32(6);             // file version = 6
-  // 10 × 0xFFFFFFFF : ortho, inflect, index_names, index_keys, extra_idx 0–5
+  w.be32(MOBI_LEN);      // 0x04: header length = 232
+  w.be32(2);             // 0x08: type: 2 = Mobipocket Book
+  w.be32(65001);         // 0x0c: encoding: UTF-8
+  w.be32(0xABCD1234);    // 0x10: unique ID
+  w.be32(6);             // 0x14: file version = 6
+  // 0x18–0x3f: 10 × 0xFFFFFFFF
   for (let i = 0; i < 10; i++) w.be32(0xFFFFFFFF);
-  w.be32(textRecCount + 1); // first non-book record
-  w.be32(fullNameOff);      // full name offset
-  w.be32(g_title_len as u32); // full name length
-  w.be32(0x0419);            // locale: Russian
-  w.be32(0);                 // input language
-  w.be32(0);                 // output language
-  w.be32(6);                 // min version
-  w.be32(0xFFFFFFFF);        // first image index (none in MOBI6 part)
-  w.zeros(16);               // huff fields (0)
-  w.be32(0x40);              // EXTH flags: bit 6 = EXTH present
-  w.zeros(12);               // reserved
-  w.be32(0xFFFFFFFF);        // DRM offset = no DRM
-  w.zeros(12);               // DRM count/size/flags
-  w.zeros(8);                // reserved
-  w.be16(1);                 // first content record
-  w.be16(textRecCount);      // last  content record
-  w.be32(1);                 // unknown (always 1)
-  w.be32(fcisRec);           // FCIS absolute record
-  w.be32(1);                 // FCIS count
-  w.be32(flisRec);           // FLIS absolute record
-  w.be32(1);                 // FLIS count
-  w.zeros(8);                // reserved
-  w.be32(0);                 // extra record data
-  w.be32(0xFFFFFFFF);        // INDX = none
-  w.zeros(40);               // padding to 232 bytes from MOBI start
-  //   Written so far from MOBI start: 4+4+4+4+4+4 + 40 + 4+4+4+4+4+4+16+4+12+4+12+8 + 2+2+4+4+4+4+4+8+4+4+28
-  //   Let's count: 4(MOBI)+4(hdrlen)+4(type)+4(enc)+4(uid)+4(ver)=24
-  //                10×4=40 → 64
-  //                4+4+4+4+4+4+16+4+12+4+12+8 = 80 → 144
-  //                2+2+4+4+4+4+4+8+4+4 = 40 → 184
-  //                28 → 212   ← still need 20 more to reach 232
-  // Actually let me just pad to exactly offset 16+232=248 from record start.
-  // Current pos should be: 16 (palmdoc) + [bytes written in MOBI section].
-  // Let me patch: the writer pos after zeros(28) should be 16+232=248. If not, pad.
-  // (Will verify in test; use a known-good pad at the end.)
+  // offset 0x40:
+  w.be32(textRecCount + 1); // 0x40: first non-book record
+  w.be32(fullNameOff);      // 0x44: full name offset (from record 0 start)
+  w.be32(g_title_len as u32); // 0x48: full name length
+  w.be32(0x0419);            // 0x4c: locale: Russian
+  w.be32(0);                 // 0x50: input language
+  w.be32(0);                 // 0x54: output language
+  w.be32(6);                 // 0x58: min version
+  w.be32(0xFFFFFFFF);        // 0x5c: first image index (none in MOBI6)
+  // offset 0x60:
+  w.zeros(16);               // 0x60–0x6f: huff fields (0)
+  w.be32(0x40);              // 0x70: EXTH flags: bit 6 = EXTH present
+  w.zeros(12);               // 0x74–0x7f: reserved
+  w.be32(0xFFFFFFFF);        // 0x80: DRM offset = no DRM
+  w.zeros(12);               // 0x84–0x8f: DRM count/size/flags
+  w.zeros(8);                // 0x90–0x97: reserved
+  // offset 0x98:
+  w.be16(1);                 // 0x98: first content record
+  w.be16(textRecCount);      // 0x9a: last content record
+  w.be32(1);                 // 0x9c: unknown (always 1)
+  // offset 0xa0: FIX — FLIS первый, FCIS второй (по спецификации KindleUnpack)
+  w.be32(flisRec);           // 0xa0: FLIS record index
+  w.be32(1);                 // 0xa4: FLIS count
+  w.be32(fcisRec);           // 0xa8: FCIS record index
+  w.be32(1);                 // 0xac: FCIS count
+  w.zeros(8);                // 0xb0–0xb7: reserved
+  w.be32(0);                 // 0xb8: extra record data
+  w.be32(0xFFFFFFFF);        // 0xbc: INDX = none
+  // offset 0xc0: padding до MOBI_LEN=232 (0xe8 от начала MOBI)
+  // Осталось: 232 - 0xc0 + 0 = 232 - 192 = 40 bytes
+  w.zeros(40);               // 0xc0–0xe7: padding to reach MOBI_LEN=232
 
   // EXTH block
   w.raw(exth.ptr, exth.pos);
@@ -301,19 +356,38 @@ function buildMobi6Record0(
 
 // ── KF8 / MOBI8 header record (Record 4) ─────────────────────────────────────
 // PalmDOC(16) + MOBI8-hdr(264) + EXTH + full_title, padded to 4 bytes.
-// All record numbers are RELATIVE to record 4 (this record = 0).
+// Все record numbers ОТНОСИТЕЛЬНЫ к record 4 (эта запись = 0).
+//
+// KF8 MOBI header дополнительные поля (от MOBI-magic, по KindleUnpack):
+//   0xa0: FLIS record index  ← FLIS первый!
+//   0xa4: FLIS count
+//   0xa8: FCIS record index
+//   0xac: FCIS count
+//   0xb0–0xb7: reserved
+//   0xb8: extra record data
+//   0xbc: SKEL INDX (0xFFFFFFFF = none)
+//   0xc0–0xdf: 8 × unknown u32 fields
+//   0xe0: NCX INDX (0xFFFFFFFF = none)    ← NCX до extra_data_flags!
+//   0xe4: extra_data_flags
+//   0xe8: FDST record (relative index)
+//   0xec: FDST count
+//   0xf0: FRAG INDX (0xFFFFFFFF = none)
+//   0xf4: GUIDE INDX (0xFFFFFFFF = none)
+//   0xf8–0x107: reserved (16 bytes)
+//   total from MOBI magic = 264 = MOBI_LEN ✓
 
 function buildKf8Record0(
   textRecCount: u32,   // T
   imgCount    : u32,   // I
   fdstRel     : u32,   // T+I+1
-  flisRel     : u32,   // T+I+2
-  fcisRel     : u32    // T+I+3
+  flisRel     : u32,   // T+I+2  ← FLIS
+  fcisRel     : u32    // T+I+3  ← FCIS
 ): Writer {
   const exth = buildEXTH_kf8();
   const MOBI_LEN: u32 = 264;
   const firstImgRel: u32 = imgCount > 0 ? textRecCount + 1 : 0xFFFFFFFF;
-  const fullNameOff = 16 + MOBI_LEN + exth.pos as u32;
+  // FIX: явный каст usize→u32 для exth.pos
+  const fullNameOff: u32 = 16 + MOBI_LEN + (exth.pos as u32);
 
   const w = new Writer(600 + exth.pos + g_title_len);
 
@@ -325,49 +399,56 @@ function buildKf8Record0(
   w.be16(4096);
   w.be32(0);
 
-  // ── MOBI8 header (264 bytes, starts at record offset 16) ──────────────
-  const mobi_start = w.pos;
+  // ── MOBI8 header (264 bytes от offset 16) ─────────────────────────────
+  // offset 0x00:
   w.u8(77); w.u8(79); w.u8(66); w.u8(73);  // 'MOBI'
-  w.be32(MOBI_LEN);       // header length = 264
-  w.be32(0x101);          // type: KF8
-  w.be32(65001);          // encoding: UTF-8
-  w.be32(0xDEAD8888);     // unique ID
-  w.be32(8);              // file version = 8
-  for (let i = 0; i < 10; i++) w.be32(0xFFFFFFFF); // unused index fields
-  w.be32(textRecCount + 1); // first non-book index (= first image or FDST)
-  w.be32(fullNameOff);
-  w.be32(g_title_len as u32);
-  w.be32(0x0419);           // locale: Russian
-  w.be32(0);                // input language
-  w.be32(0);                // output language
-  w.be32(8);                // min version = 8
-  w.be32(firstImgRel);      // first image record (relative)
-  w.zeros(16);              // huff fields
-  w.be32(0x40);             // EXTH flags
-  w.zeros(12);              // reserved
-  w.be32(0xFFFFFFFF);       // DRM offset = no DRM
-  w.zeros(12);              // DRM count/size/flags
-  w.zeros(8);               // reserved
-  w.be16(1);                // first content record
-  w.be16(textRecCount);     // last content record
-  w.be32(1);
-  w.be32(fcisRel);          // FCIS relative record
-  w.be32(1);
-  w.be32(flisRel);          // FLIS relative record
-  w.be32(1);
-  w.zeros(8);
-  w.be32(0);
-  w.be32(0xFFFFFFFF);       // SKEL INDX = none (offset 188 from mobi_start)
-  w.zeros(32);              // 8 unknown fields             → mobi offset 224
-  w.be32(0);                // extra_data_flags = 0         → mobi offset 224
-  w.be32(0xFFFFFFFF);       // NCX INDX = none              → mobi offset 228
-  // ── KF8 extended fields: FDST at mobi offset 232 (KindleUnpack 0xE8) ─────
-  w.be32(fdstRel);          // FDST record (relative index) → mobi offset 232 ✓
-  w.be32(1);                // FDST count = 1 flow          → mobi offset 236
-  w.be32(0xFFFFFFFF);       // FRAG INDX = none             → mobi offset 240
-  w.be32(0xFFFFFFFF);       // GUIDE INDX = none            → mobi offset 244
-  w.zeros(16);              // reserved (4 × uint32)        → mobi offset 264
-  // from mobi_start: 192+32+4+4+4+4+4+4+16 = 264 = MOBI_LEN ✓
+  w.be32(MOBI_LEN);       // 0x04: header length = 264
+  w.be32(0x101);          // 0x08: type: KF8
+  w.be32(65001);          // 0x0c: encoding: UTF-8
+  w.be32(0xDEAD8888);     // 0x10: unique ID
+  w.be32(8);              // 0x14: file version = 8
+  // 0x18–0x3f:
+  for (let i = 0; i < 10; i++) w.be32(0xFFFFFFFF);
+  // 0x40:
+  w.be32(textRecCount + 1); // 0x40: first non-book record
+  w.be32(fullNameOff);      // 0x44
+  w.be32(g_title_len as u32); // 0x48
+  w.be32(0x0419);           // 0x4c: locale: Russian
+  w.be32(0);                // 0x50: input language
+  w.be32(0);                // 0x54: output language
+  w.be32(8);                // 0x58: min version = 8
+  w.be32(firstImgRel);      // 0x5c: first image record (relative)
+  // 0x60:
+  w.zeros(16);              // 0x60–0x6f: huff fields
+  w.be32(0x40);             // 0x70: EXTH flags
+  w.zeros(12);              // 0x74–0x7f: reserved
+  w.be32(0xFFFFFFFF);       // 0x80: DRM offset = no DRM
+  w.zeros(12);              // 0x84–0x8f: DRM count/size/flags
+  w.zeros(8);               // 0x90–0x97: reserved
+  // 0x98:
+  w.be16(1);                // 0x98: first content record
+  w.be16(textRecCount);     // 0x9a: last content record
+  w.be32(1);                // 0x9c: unknown
+  // 0xa0: FIX — FLIS первый, FCIS второй
+  w.be32(flisRel);          // 0xa0: FLIS relative record
+  w.be32(1);                // 0xa4: FLIS count
+  w.be32(fcisRel);          // 0xa8: FCIS relative record
+  w.be32(1);                // 0xac: FCIS count
+  w.zeros(8);               // 0xb0–0xb7: reserved
+  w.be32(0);                // 0xb8: extra record data
+  w.be32(0xFFFFFFFF);       // 0xbc: SKEL INDX = none
+  // 0xc0:
+  w.zeros(32);              // 0xc0–0xdf: 8 × unknown u32 fields
+  // FIX: NCX до extra_data_flags (по KindleUnpack offset map)
+  w.be32(0xFFFFFFFF);       // 0xe0: NCX INDX = none
+  w.be32(0);                // 0xe4: extra_data_flags = 0
+  // KF8 extended fields (KindleUnpack 0xe8):
+  w.be32(fdstRel);          // 0xe8: FDST record (relative index)
+  w.be32(1);                // 0xec: FDST count = 1 flow
+  w.be32(0xFFFFFFFF);       // 0xf0: FRAG INDX = none
+  w.be32(0xFFFFFFFF);       // 0xf4: GUIDE INDX = none
+  w.zeros(16);              // 0xf8–0x107: reserved
+  // от 0x00 до 0x107 включительно = 264 байта = MOBI_LEN ✓
 
   // EXTH
   w.raw(exth.ptr, exth.pos);
@@ -379,8 +460,6 @@ function buildKf8Record0(
 }
 
 // ── FDST record ───────────────────────────────────────────────────────────────
-// Flow Document Structure Table: maps flow index → byte range in content records.
-// One flow = entire HTML.
 
 function buildFDST(): Writer {
   const w = new Writer(20);
@@ -388,7 +467,7 @@ function buildFDST(): Writer {
   w.be32(12);                               // offset to section data
   w.be32(1);                                // 1 flow section
   w.be32(0);                                // flow 0 start = 0
-  w.be32(g_html_len as u32);               // flow 0 end   = html length
+  w.be32(g_html_len as u32);               // flow 0 end = html length
   return w;
 }
 
@@ -417,23 +496,20 @@ function buildFCIS(textLen: u32): Writer {
 }
 
 // ── PalmDB container ──────────────────────────────────────────────────────────
-// Assembles all records into a single PalmDB binary.
-// Result is stored in g_result_ptr / g_result_len.
 
 function buildPalmDB(): void {
   const N = g_rec_count;
   const HEADER_SIZE: usize  = 78;
   const ENTRY_SIZE : usize  = 8;
 
-  // PalmOS epoch offset: seconds from 1904-01-01 to 1970-01-01 = 2082844800
-  const now: u32 = 0; // deterministic; Kindle doesn't require accurate time
+  const now: u32 = 0; // детерминированно; Kindle не требует точного времени
 
-  // Compute record offsets
+  // Вычисляем смещения записей
   const data_start: usize = HEADER_SIZE + (N as usize) * ENTRY_SIZE + 2;
-  let offsets_ptr = __alloc((N as usize) * 4);
+  const offsets_ptr = __alloc((N as usize) * 4);
   let cursor: usize = data_start;
   for (let i = 0; i < N; i++) {
-    store<u32>(offsets_ptr + (i as usize) * 4, cursor as u32); // native LE; we'll BE-write below
+    store<u32>(offsets_ptr + (i as usize) * 4, cursor as u32);
     cursor += g_rec_lens[i];
   }
 
@@ -441,10 +517,9 @@ function buildPalmDB(): void {
   buf.pos = 0;
 
   // ── PalmDB fixed header (78 bytes) ────────────────────────────────────
-  // Name: title (max 31 chars + NUL)
   const name_len = g_title_len < 31 ? g_title_len : 31;
   buf.raw(g_title_ptr, name_len);
-  buf.zeros(32 - name_len); // pad to 32 bytes (incl. NUL)
+  buf.zeros(32 - name_len); // pad до 32 байт (incl. NUL)
 
   buf.be16(0);           // attributes
   buf.be16(0);           // version
@@ -462,9 +537,9 @@ function buildPalmDB(): void {
 
   // ── Record list (8 bytes × N) ─────────────────────────────────────────
   for (let i = 0; i < N; i++) {
-    const off = load<u32>(offsets_ptr + (i as usize) * 4); // native LE value
-    buf.be32(off as u32);          // offset (big-endian)
-    buf.u8(0);                     // attributes
+    const off = load<u32>(offsets_ptr + (i as usize) * 4);
+    buf.be32(off);                             // offset (big-endian)
+    buf.u8(0);                                 // attributes
     buf.u8(((i >> 16) & 0xFF) as u32);
     buf.u8(((i >>  8) & 0xFF) as u32);
     buf.u8((i         & 0xFF) as u32);
@@ -494,25 +569,25 @@ function _build(): void {
   // ── Absolute record indices ────────────────────────────────────────────
   const ABS_MOBI6_R0   : u32 = 0;
   const ABS_MOBI6_CNT  : u32 = 1;
-  const ABS_MOBI6_FLIS : u32 = 2;
-  const ABS_MOBI6_FCIS : u32 = 3;
+  const ABS_MOBI6_FLIS : u32 = 2;  // запись 2 = FLIS
+  const ABS_MOBI6_FCIS : u32 = 3;  // запись 3 = FCIS
   const ABS_KF8_R0     : u32 = 4;
   // KF8 text: 5 … 5+T-1  →  relative 1 … T
   // KF8 img : 5+T … 5+T+I-1  →  relative T+1 … T+I
   // FDST    : 5+T+I      →  relative T+I+1
-  // FLIS    : 5+T+I+1    →  relative T+I+2
-  // FCIS    : 5+T+I+2    →  relative T+I+3
+  // FLIS    : 5+T+I+1    →  relative T+I+2  ← FLIS
+  // FCIS    : 5+T+I+2    →  relative T+I+3  ← FCIS
   // EOF     : 5+T+I+3    →  relative T+I+4
 
   const kf8_fdst_rel: u32 = (T + I + 1) as u32;
-  const kf8_flis_rel: u32 = (T + I + 2) as u32;
-  const kf8_fcis_rel: u32 = (T + I + 3) as u32;
+  const kf8_flis_rel: u32 = (T + I + 2) as u32;  // FLIS
+  const kf8_fcis_rel: u32 = (T + I + 3) as u32;  // FCIS
 
   // ── MOBI6 records ─────────────────────────────────────────────────────
 
-  // MOBI6 has 1 text record (the fallback HTML)
   const fb_len = FALLBACK.length as u32;
-  const m6_r0 = buildMobi6Record0(ABS_KF8_R0, fb_len, 1, ABS_MOBI6_FCIS, ABS_MOBI6_FLIS);
+  // FIX: передаём FLIS первым, FCIS вторым (порядок параметров изменён)
+  const m6_r0 = buildMobi6Record0(ABS_KF8_R0, fb_len, 1, ABS_MOBI6_FLIS, ABS_MOBI6_FCIS);
   g_rec_ptrs[g_rec_count] = m6_r0.ptr;
   g_rec_lens[g_rec_count] = m6_r0.pos;
   g_rec_count++;
@@ -524,19 +599,20 @@ function _build(): void {
   g_rec_lens[g_rec_count] = m6_cnt.pos;
   g_rec_count++;
 
-  // MOBI6 FLIS (record 2)
+  // MOBI6 FLIS (record 2 = ABS_MOBI6_FLIS)
   const m6_flis = buildFLIS();
   g_rec_ptrs[g_rec_count] = m6_flis.ptr;
   g_rec_lens[g_rec_count] = m6_flis.pos;
   g_rec_count++;
 
-  // MOBI6 FCIS (record 3)
+  // MOBI6 FCIS (record 3 = ABS_MOBI6_FCIS)
   const m6_fcis = buildFCIS(fb_len);
   g_rec_ptrs[g_rec_count] = m6_fcis.ptr;
   g_rec_lens[g_rec_count] = m6_fcis.pos;
   g_rec_count++;
 
   // ── KF8 header record (record 4) ──────────────────────────────────────
+  // FIX: передаём kf8_flis_rel первым, kf8_fcis_rel вторым
   const kf8_r0 = buildKf8Record0(T as u32, I as u32, kf8_fdst_rel, kf8_flis_rel, kf8_fcis_rel);
   g_rec_ptrs[g_rec_count] = kf8_r0.ptr;
   g_rec_lens[g_rec_count] = kf8_r0.pos;
@@ -547,7 +623,6 @@ function _build(): void {
     const off  = (i as usize) * CHUNK;
     const remaining = g_html_len - off;
     const len  = remaining < CHUNK ? remaining : CHUNK;
-    // Point directly into the HTML buffer (no copy needed)
     g_rec_ptrs[g_rec_count] = g_html_ptr + off;
     g_rec_lens[g_rec_count] = len;
     g_rec_count++;
@@ -566,13 +641,13 @@ function _build(): void {
   g_rec_lens[g_rec_count] = fdst.pos;
   g_rec_count++;
 
-  // ── KF8 FLIS ──────────────────────────────────────────────────────────
+  // ── KF8 FLIS (relative T+I+2) ─────────────────────────────────────────
   const kf8_flis = buildFLIS();
   g_rec_ptrs[g_rec_count] = kf8_flis.ptr;
   g_rec_lens[g_rec_count] = kf8_flis.pos;
   g_rec_count++;
 
-  // ── KF8 FCIS ──────────────────────────────────────────────────────────
+  // ── KF8 FCIS (relative T+I+3) ─────────────────────────────────────────
   const kf8_fcis = buildFCIS(g_html_len as u32);
   g_rec_ptrs[g_rec_count] = kf8_fcis.ptr;
   g_rec_lens[g_rec_count] = kf8_fcis.pos;

@@ -16,6 +16,8 @@ try {
         '/exporters/FB2Exporter.js',
         '/exporters/EPUBExporter.js',
         '/exporters/AZW3Exporter.js',
+        '/exporters/PDFExporter.js',
+        '/exporters/SimpleExporter.js',
         '/exporters/ExporterFactory.js',
         '/lib/jszip.min.js',
         '/background/BackgroundDownload.js',

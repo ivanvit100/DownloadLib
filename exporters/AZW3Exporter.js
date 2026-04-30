@@ -76,8 +76,11 @@
             .replace(/&/g,'&amp;').replace(/</g,'&lt;')
             .replace(/>/g,'&gt;').replace(/"/g,'&quot;').replace(/'/g,'&apos;');
 
-        let html = '<?xml version="1.0" encoding="utf-8"?>\n'
-                 + `<html><head><meta charset="utf-8"/><title>${esc(title)}</title></head><body>\n`;
+        let html = '<!DOCTYPE html>\n'
+                + '<html xmlns="http://www.w3.org/1999/xhtml"'
+                + ' xmlns:mbp="https://kindlegen.s3.amazonaws.com/AmazonKindlePublishingGuidelines.pdf">\n'
+                + '<head><meta charset="utf-8"/>'
+                + `<title>${esc(title)}</title></head>\n<body>\n`;
 
         if (coverBase64) {
             const b64 = coverBase64.includes(',') ? coverBase64.split(',')[1] : coverBase64;
@@ -86,7 +89,8 @@
         }
 
         for (const chapter of chapters) {
-            html += `<mbp:pagebreak/>\n<h2>${esc(chapter.title)}</h2>\n`;
+            html += '<mbp:pagebreak/>\n';
+            html += `<h2>${esc(chapter.title)}</h2>\n`;
             if (!Array.isArray(chapter.content)) continue;
 
             for (const block of chapter.content) {

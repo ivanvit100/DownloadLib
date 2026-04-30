@@ -4,7 +4,7 @@
  * @module core/DownloadManager
  * @license MIT
  * @author ivanvit
- * @version 1.0.2
+ * @version 1.0.5
  */
 
 'use strict';
@@ -376,7 +376,8 @@
                             {
                                 chapterMeta: rawContent,
                                 chapterObj: chapter,
-                                mangaSlug: downloadState.slug
+                                mangaSlug: downloadState.slug,
+                                splitLongImages: downloadState.format !== 'simple'
                             }
                           )
                         : extractedContent;
@@ -514,7 +515,8 @@
                             {
                                 chapterMeta: rawContent,
                                 chapterObj: chapter,
-                                mangaSlug: downloadState.slug
+                                mangaSlug: downloadState.slug,
+                                splitLongImages: downloadState.format !== 'simple'
                             }
                           )
                         : extractedContent;
