@@ -40,6 +40,6 @@ describe('ExporterFactory', () => {
     });
 
     it('Returns supported formats', () => {
-        expect(ExporterFactory.getSupportedFormats()).toEqual(['fb2', 'epub', 'pdf']);
+        expect(ExporterFactory.getSupportedFormats()).toEqual(['fb2', 'epub', 'pdf', 'mobi', 'simple']);
     });
 });

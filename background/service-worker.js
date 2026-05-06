@@ -15,7 +15,7 @@ try {
         '/exporters/BaseExporter.js',
         '/exporters/FB2Exporter.js',
         '/exporters/EPUBExporter.js',
-        '/exporters/AZW3Exporter.js',
+        '/exporters/MobiExporter.js',
         '/exporters/PDFExporter.js',
         '/exporters/SimpleExporter.js',
         '/exporters/ExporterFactory.js',

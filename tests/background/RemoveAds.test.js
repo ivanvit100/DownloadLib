@@ -403,4 +403,82 @@ describe('RemoveAds', () => {
         expect(document.querySelector('.mo_b')).toBeNull();
         expect(document.querySelector('div.section[data-home-block="slider"]')).toBeNull();
     });
+
+    it('Keeps .mo_b with .text-content on ranobelib', async () => {
+        vi.resetModules();
+
+        const originalLocation = Object.getOwnPropertyDescriptor(window, 'location');
+        Object.defineProperty(window, 'location', {
+            value: { hostname: 'ranobelib.me' },
+            configurable: true
+        });
+
+        document.body.innerHTML = `
+            <div class="mo_b"><div class="text-content">content</div></div>
+        `;
+
+        global.MutationObserver = class {
+            constructor() {}
+            observe() {}
+            disconnect() {}
+        };
+
+        await import('../../background/RemoveAds.js');
+
+        expect(document.querySelector('.mo_b')).not.toBeNull();
+
+        if (originalLocation) Object.defineProperty(window, 'location', originalLocation);
+    });
+
+    it('Removes .mo_b without .text-content on ranobelib', async () => {
+        vi.resetModules();
+
+        const originalLocation = Object.getOwnPropertyDescriptor(window, 'location');
+        Object.defineProperty(window, 'location', {
+            value: { hostname: 'ranobelib.me' },
+            configurable: true
+        });
+
+        document.body.innerHTML = `
+            <div class="mo_b"><div class="other">ad</div></div>
+        `;
+
+        global.MutationObserver = class {
+            constructor() {}
+            observe() {}
+            disconnect() {}
+        };
+
+        await import('../../background/RemoveAds.js');
+
+        expect(document.querySelector('.mo_b')).toBeNull();
+
+        if (originalLocation) Object.defineProperty(window, 'location', originalLocation);
+    });
+
+    it('Removes .mo_b with .text-content on non-ranobelib', async () => {
+        vi.resetModules();
+
+        const originalLocation = Object.getOwnPropertyDescriptor(window, 'location');
+        Object.defineProperty(window, 'location', {
+            value: { hostname: 'example.com' },
+            configurable: true
+        });
+
+        document.body.innerHTML = `
+            <div class="mo_b"><div class="text-content">content</div></div>
+        `;
+
+        global.MutationObserver = class {
+            constructor() {}
+            observe() {}
+            disconnect() {}
+        };
+
+        await import('../../background/RemoveAds.js');
+
+        expect(document.querySelector('.mo_b')).toBeNull();
+
+        if (originalLocation) Object.defineProperty(window, 'location', originalLocation);
+    });
 });

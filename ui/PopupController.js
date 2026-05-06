@@ -99,9 +99,9 @@
                 optionPdf.value = 'pdf';
                 optionPdf.textContent = 'PDF';
 
-                const optionAzw3 = document.createElement('option');
-                optionAzw3.value = 'azw3';
-                optionAzw3.textContent = 'AZW3';
+                const optionMobi = document.createElement('option');
+                optionMobi.value = 'mobi';
+                optionMobi.textContent = 'MOBI';
 
                 const optionSimple = document.createElement('option');
                 optionSimple.value = 'simple';
@@ -110,7 +110,7 @@
                 formatSelector.appendChild(optionFb2);
                 formatSelector.appendChild(optionEpub);
                 formatSelector.appendChild(optionPdf);
-                formatSelector.appendChild(optionAzw3);
+                formatSelector.appendChild(optionMobi);
                 formatSelector.appendChild(optionSimple);
 
                 const label = document.createElement('label');

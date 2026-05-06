@@ -11,6 +11,7 @@
     const SLIDER_SELECTOR = 'div.section[data-home-block="slider"]';
     const MO_B_SELECTOR = '.mo_b';
     const POPUP_ROOT_SELECTOR = '.popup_root, .popup-root';
+    const isRanobeLib = /(^|\.)ranobelib\.me$/i.test(location.hostname);
     const AD_POPUP_MARKERS_SELECTOR = [
         '.aek_ael',
         '.aek_aem',
@@ -27,10 +28,16 @@
         );
     }
 
+    function hasTextContentBlock(node) {
+        if (!node || node.nodeType !== 1) return false;
+        return !!node.querySelector('.text-content');
+    }
+
     function removeMoBIfAdLike(node) {
         if (!node || node.nodeType !== 1) return;
         if (!node.matches || !node.matches(MO_B_SELECTOR)) return;
         if (hasInteractiveFields(node)) return;
+        if (isRanobeLib && hasTextContentBlock(node)) return;
         node.remove();
     }
 

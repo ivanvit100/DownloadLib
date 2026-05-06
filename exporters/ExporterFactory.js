@@ -18,7 +18,7 @@
                 'fb2': global.FB2Exporter,
                 'epub': global.EPUBExporter,
                 'pdf': global.PDFExporter,
-                'azw3': global.AZW3Exporter,
+                'mobi': global.MOBIExporter,
                 'simple': global.SimpleExporter
             };
 
@@ -30,7 +30,7 @@
         }
 
         static getSupportedFormats() {
-            return ['fb2', 'epub', 'pdf', 'azw3', 'simple'];
+            return ['fb2', 'epub', 'pdf', 'mobi', 'simple'];
         }
     }
 
