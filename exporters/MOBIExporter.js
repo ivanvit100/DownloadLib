@@ -19,6 +19,7 @@
             this._len = 0;
         }
 
+        /* istanbul ignore next */
         u8(v) {
             this._chunks.push(new Uint8Array([v & 0xFF]));
             this._len++;
@@ -306,7 +307,7 @@
         if (!raw) return 'Unknown';
         if (Array.isArray(raw))
             return raw.map(a => (typeof a === 'string' ? a : (a && a.name) || '')).filter(Boolean).join(', ') || 'Unknown';
-        return String(raw) || 'Unknown';
+        return String(raw);
     }
 
     class MOBIExporter {

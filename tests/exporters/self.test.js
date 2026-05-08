@@ -1,4 +1,4 @@
-import { describe, it, expect, beforeEach } from 'vitest';
+import { describe, it, expect } from 'vitest';
 
 describe('Exporters self branch', () => {
     it('Attaches BaseExporter to self', async () => {
@@ -59,6 +59,38 @@ describe('Exporters self branch', () => {
         await import('../../exporters/PDFExporter.js');
         expect(global.self.PDFExporter).toBeDefined();
         const exporter = new global.self.PDFExporter();
+        expect(typeof exporter.export).toBe('function');
+        if (originalWindow !== undefined) global.window = originalWindow;
+        if (originalSelf !== undefined) global.self = originalSelf;
+        else delete global.self;
+    });
+
+    it('Attaches SimpleExporter to self', async () => {
+        const originalWindow = global.window;
+        const originalSelf = global.self;
+        delete global.window;
+        global.self = global;
+        const path = require.resolve('../../exporters/SimpleExporter.js');
+        delete require.cache[path];
+        await import('../../exporters/SimpleExporter.js');
+        expect(global.self.SimpleExporter).toBeDefined();
+        const exporter = new global.self.SimpleExporter();
+        expect(typeof exporter.export).toBe('function');
+        if (originalWindow !== undefined) global.window = originalWindow;
+        if (originalSelf !== undefined) global.self = originalSelf;
+        else delete global.self;
+    });
+
+    it('Attaches MOBIExporter to self', async () => {
+        const originalWindow = global.window;
+        const originalSelf = global.self;
+        delete global.window;
+        global.self = global;
+        const path = require.resolve('../../exporters/MOBIExporter.js');
+        delete require.cache[path];
+        await import('../../exporters/MOBIExporter.js');
+        expect(global.self.MOBIExporter).toBeDefined();
+        const exporter = new global.self.MOBIExporter();
         expect(typeof exporter.export).toBe('function');
         if (originalWindow !== undefined) global.window = originalWindow;
         if (originalSelf !== undefined) global.self = originalSelf;

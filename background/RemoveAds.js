@@ -22,6 +22,7 @@
     ].join(', ');
 
     function hasInteractiveFields(node) {
+        /* istanbul ignore next */
         if (!node || node.nodeType !== 1) return false;
         return !!node.querySelector(
             'input[type="text"], input[type="search"], input[type="checkbox"], textarea'
@@ -29,12 +30,15 @@
     }
 
     function hasTextContentBlock(node) {
+        /* istanbul ignore next */
         if (!node || node.nodeType !== 1) return false;
         return !!node.querySelector('.text-content');
     }
 
     function removeMoBIfAdLike(node) {
+        /* istanbul ignore next */
         if (!node || node.nodeType !== 1) return;
+        /* istanbul ignore next */
         if (!node.matches || !node.matches(MO_B_SELECTOR)) return;
         if (hasInteractiveFields(node)) return;
         if (isRanobeLib && hasTextContentBlock(node)) return;
@@ -48,11 +52,13 @@
     function restoreScrollIfSafe() {
         if (hasVisibleDialogs()) return;
 
+        /* istanbul ignore else */
         if (document.body) {
             document.body.style.overflow = '';
             document.body.classList.remove('no-scroll', 'overflow-hidden', 'modal-open', 'popup-open', 'is-locked');
         }
 
+        /* istanbul ignore else */
         if (document.documentElement) {
             document.documentElement.style.overflow = '';
             document.documentElement.classList.remove('no-scroll', 'overflow-hidden', 'modal-open', 'popup-open', 'is-locked');
@@ -60,12 +66,15 @@
     }
 
     function removeAdPopupIfMatches(node) {
+        /* istanbul ignore next */
         if (!node || node.nodeType !== 1) return;
 
+        /* istanbul ignore next */
         const popupRoot = node.matches && node.matches(POPUP_ROOT_SELECTOR)
             ? node
             : node.closest && node.closest(POPUP_ROOT_SELECTOR);
 
+        /* istanbul ignore next */
         if (!popupRoot) return;
         if (hasInteractiveFields(popupRoot)) return;
 

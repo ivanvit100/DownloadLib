@@ -1,7 +1,6 @@
 import { describe, it, beforeEach, afterEach, expect, vi } from 'vitest';
 
 describe('RemoveAds', () => {
-    let cleanup;
     let observerDisconnectSpy;
 
     beforeEach(async () => {
@@ -20,7 +19,7 @@ describe('RemoveAds', () => {
             observe() {}
             disconnect() { observerDisconnectSpy(); }
         };
-        cleanup = await import('../../background/RemoveAds.js');
+        await import('../../background/RemoveAds.js');
     });
 
     afterEach(() => {
@@ -55,7 +54,7 @@ describe('RemoveAds', () => {
 
         let timerCallback;
         const originalSetTimeout = global.setTimeout;
-        global.setTimeout = vi.fn((cb, ms) => { timerCallback = cb; return 123; });
+        global.setTimeout = vi.fn(cb => { timerCallback = cb; return 123; });
 
         let observerCallback;
         global.MutationObserver = class {
@@ -104,7 +103,7 @@ describe('RemoveAds', () => {
 
         let callCount = 0;
         const originalSetTimeout = global.setTimeout;
-        global.setTimeout = vi.fn((cb, ms) => { callCount++; return callCount; });
+        global.setTimeout = vi.fn(() => { callCount++; return callCount; });
 
         let observerCallback;
         global.MutationObserver = class {
@@ -198,7 +197,7 @@ describe('RemoveAds', () => {
 
         let timerCallback;
         const originalSetTimeout = global.setTimeout;
-        global.setTimeout = vi.fn((cb, ms) => { timerCallback = cb; return 123; });
+        global.setTimeout = vi.fn(cb => { timerCallback = cb; return 123; });
 
         let observerCallback;
         global.MutationObserver = class {
@@ -225,7 +224,7 @@ describe('RemoveAds', () => {
 
         let timerCallback;
         const originalSetTimeout = global.setTimeout;
-        global.setTimeout = vi.fn((cb, ms) => { timerCallback = cb; return 123; });
+        global.setTimeout = vi.fn(cb => { timerCallback = cb; return 123; });
 
         let observerCallback;
         global.MutationObserver = class {
@@ -263,7 +262,7 @@ describe('RemoveAds', () => {
 
         let timerCallback;
         const originalSetTimeout = global.setTimeout;
-        global.setTimeout = vi.fn((cb, ms) => { timerCallback = cb; return 123; });
+        global.setTimeout = vi.fn(cb => { timerCallback = cb; return 123; });
 
         let observerCallback;
         global.MutationObserver = class {
@@ -308,7 +307,7 @@ describe('RemoveAds', () => {
 
         let timerCallback;
         const originalSetTimeout = global.setTimeout;
-        global.setTimeout = vi.fn((cb, ms) => { timerCallback = cb; return 123; });
+        global.setTimeout = vi.fn(cb => { timerCallback = cb; return 123; });
 
         let observerCallback;
         global.MutationObserver = class {
@@ -340,7 +339,7 @@ describe('RemoveAds', () => {
 
         let timerCallback;
         const originalSetTimeout = global.setTimeout;
-        global.setTimeout = vi.fn((cb, ms) => { timerCallback = cb; return 123; });
+        global.setTimeout = vi.fn(cb => { timerCallback = cb; return 123; });
 
         let observerCallback;
         global.MutationObserver = class {
@@ -370,9 +369,6 @@ describe('RemoveAds', () => {
         Object.defineProperty(document, 'readyState', { value: 'loading', configurable: true });
 
         const addEventListenerSpy = vi.spyOn(document, 'addEventListener');
-        const cleanUpSpy = vi.fn();
-        const originalDefine = Object.defineProperty;
-        let cleanUpRef;
 
         global.MutationObserver = class {
             constructor() {}
@@ -380,10 +376,7 @@ describe('RemoveAds', () => {
             disconnect() {}
         };
 
-        const mod = await import('../../background/RemoveAds.js');
-        for (const key of Object.getOwnPropertyNames(mod)) {
-            if (typeof mod[key] === 'function' && mod[key].name === 'cleanUp') cleanUpRef = mod[key];
-        }
+        await import('../../background/RemoveAds.js');
 
         expect(addEventListenerSpy).toHaveBeenCalledWith('DOMContentLoaded', expect.any(Function));
 
@@ -454,6 +447,161 @@ describe('RemoveAds', () => {
         expect(document.querySelector('.mo_b')).toBeNull();
 
         if (originalLocation) Object.defineProperty(window, 'location', originalLocation);
+    });
+
+    it('Does not restore scroll when visible dialog remains', async () => {
+        vi.resetModules();
+
+        let timerCallback;
+        const originalSetTimeout = global.setTimeout;
+        global.setTimeout = vi.fn(cb => { timerCallback = cb; return 123; });
+
+        let observerCallback;
+        global.MutationObserver = class {
+            constructor(cb) { observerCallback = cb; }
+            observe() {}
+            disconnect() {}
+        };
+
+        await import('../../background/RemoveAds.js');
+
+        const visibleDialog = document.createElement('div');
+        visibleDialog.className = 'popup';
+        document.body.appendChild(visibleDialog);
+
+        document.body.style.overflow = 'hidden';
+
+        const node = document.createElement('div');
+        node.className = 'popup-root';
+        node.innerHTML = '<div class="aek_ael"><a href="https://flocktory.com">ad</a></div>';
+        document.body.appendChild(node);
+
+        observerCallback([{ addedNodes: [node] }]);
+        timerCallback();
+
+        expect(document.body.contains(node)).toBe(false);
+        expect(document.body.style.overflow).toBe('hidden');
+
+        global.setTimeout = originalSetTimeout;
+    });
+
+    it('Does not remove popup-root with ad markers that has interactive fields', async () => {
+        vi.resetModules();
+
+        let timerCallback;
+        const originalSetTimeout = global.setTimeout;
+        global.setTimeout = vi.fn(cb => { timerCallback = cb; return 123; });
+
+        let observerCallback;
+        global.MutationObserver = class {
+            constructor(cb) { observerCallback = cb; }
+            observe() {}
+            disconnect() {}
+        };
+
+        await import('../../background/RemoveAds.js');
+
+        const node = document.createElement('div');
+        node.className = 'popup-root';
+        node.innerHTML = `
+            <div class="aek_ael">ad</div>
+            <input type="text" placeholder="search"/>
+        `;
+        document.body.appendChild(node);
+
+        observerCallback([{ addedNodes: [node] }]);
+        timerCallback();
+
+        expect(document.body.contains(node)).toBe(true);
+        global.setTimeout = originalSetTimeout;
+    });
+
+    it('Clicks popup-close button before removing ad popup', async () => {
+        vi.resetModules();
+
+        let timerCallback;
+        const originalSetTimeout = global.setTimeout;
+        global.setTimeout = vi.fn(cb => { timerCallback = cb; return 123; });
+
+        let observerCallback;
+        global.MutationObserver = class {
+            constructor(cb) { observerCallback = cb; }
+            observe() {}
+            disconnect() {}
+        };
+
+        await import('../../background/RemoveAds.js');
+
+        const node = document.createElement('div');
+        node.className = 'popup-root';
+        const adMarker = document.createElement('div');
+        adMarker.className = 'aek_ael';
+        const closeBtn = document.createElement('button');
+        closeBtn.className = 'popup-close';
+        const clickSpy = vi.fn();
+        closeBtn.click = clickSpy;
+        node.appendChild(adMarker);
+        node.appendChild(closeBtn);
+        document.body.appendChild(node);
+
+        observerCallback([{ addedNodes: [node] }]);
+        timerCallback();
+
+        expect(clickSpy).toHaveBeenCalledOnce();
+        expect(document.body.contains(node)).toBe(false);
+        global.setTimeout = originalSetTimeout;
+    });
+
+    it('Observer does not trigger cleanup for unrelated nodes', async () => {
+        vi.resetModules();
+
+        const setTimeoutSpy = vi.fn();
+        const originalSetTimeout = global.setTimeout;
+        global.setTimeout = setTimeoutSpy;
+
+        let observerCallback;
+        global.MutationObserver = class {
+            constructor(cb) { observerCallback = cb; }
+            observe() {}
+            disconnect() {}
+        };
+
+        await import('../../background/RemoveAds.js');
+        setTimeoutSpy.mockClear();
+
+        const plain = document.createElement('div');
+        plain.innerHTML = '<span>just text</span>';
+        observerCallback([{ addedNodes: [plain] }]);
+
+        expect(setTimeoutSpy).not.toHaveBeenCalled();
+        global.setTimeout = originalSetTimeout;
+    });
+
+    it('Observer triggers cleanup for node containing ad marker selector', async () => {
+        vi.resetModules();
+
+        let timerCallback;
+        const originalSetTimeout = global.setTimeout;
+        global.setTimeout = vi.fn(cb => { timerCallback = cb; return 123; });
+
+        let observerCallback;
+        global.MutationObserver = class {
+            constructor(cb) { observerCallback = cb; }
+            observe() {}
+            disconnect() {}
+        };
+
+        await import('../../background/RemoveAds.js');
+
+        const wrapper = document.createElement('div');
+        const inner = document.createElement('div');
+        inner.className = 'aek_ael';
+        wrapper.appendChild(inner);
+
+        observerCallback([{ addedNodes: [wrapper] }]);
+
+        expect(typeof timerCallback).toBe('function');
+        global.setTimeout = originalSetTimeout;
     });
 
     it('Removes .mo_b with .text-content on non-ranobelib', async () => {

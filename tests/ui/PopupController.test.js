@@ -986,14 +986,14 @@ describe('PopupController', () => {
         expect(document.getElementById('description').innerHTML).toContain('slug2');
     });
 
-    it('Uses meta.description or fallback text when summary is missing', async () => {
+    it('Extracts text from ProseMirror summary or shows fallback', async () => {
         const controller = new PopupController();
         global.serviceRegistry.getServiceByUrl = vi.fn(() => ({
             name: 'ranobelib',
             fetchMangaMetadata: vi.fn(async () => ({
                 data: {
                     name: 'MetaName',
-                    description: 'MetaDescription',
+                    summary: { type: 'doc', content: [{ type: 'paragraph', content: [{ type: 'text', text: 'Rich summary text' }] }, { type: 'paragraph' }] },
                     cover: 'cover.png',
                     authors: ['Author'],
                     ageRestriction: { label: '18+' },
@@ -1008,7 +1008,7 @@ describe('PopupController', () => {
         });
         global.browser.tabs.query = vi.fn(async () => ([{ url: 'https://ranobelib.me/manga/slug1' }]));
         await controller.loadMetadata();
-        expect(document.getElementById('description').innerHTML).toContain('MetaDescription');
+        expect(document.getElementById('description').innerHTML).toContain('Rich summary text');
 
         global.serviceRegistry.getServiceByUrl = vi.fn(() => ({
             name: 'ranobelib',

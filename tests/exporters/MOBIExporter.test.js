@@ -131,4 +131,97 @@ describe('MOBIExporter', () => {
         const text = await decodeBlobToText(result.blob);
         expect(text).toContain('<h2>Long</h2>');
     });
+
+    it('Resolves plain string author', async () => {
+        const exporter = new MOBIExporter();
+        const manga = { name: 'Test', authors: 'Single Author' };
+        const result = await exporter.export(manga, []);
+        const text = await decodeBlobToText(result.blob);
+        expect(text).toContain('Single Author');
+    });
+
+    it('Resolves author array with all empty names to Unknown', async () => {
+        const exporter = new MOBIExporter();
+        const manga = { name: 'Test', authors: [{ name: '' }, {}] };
+        const result = await exporter.export(manga, []);
+        const text = await decodeBlobToText(result.blob);
+        expect(text).toContain('Unknown');
+    });
+
+    it('Skips image block without data field', async () => {
+        const exporter = new MOBIExporter();
+        const manga = { name: 'Test' };
+        const chapters = [
+            { title: 'Ch', content: [{ type: 'image' }, { type: 'text', text: 'after' }] }
+        ];
+        const result = await exporter.export(manga, chapters);
+        const text = await decodeBlobToText(result.blob);
+        expect(text).toContain('<p>after</p>');
+        expect(text).not.toContain('recindex');
+    });
+
+    it('Skips image block with data but no base64', async () => {
+        const exporter = new MOBIExporter();
+        const manga = { name: 'Test' };
+        const chapters = [
+            { title: 'Ch', content: [{ type: 'image', data: { contentType: 'image/png' } }] }
+        ];
+        const result = await exporter.export(manga, chapters);
+        const text = await decodeBlobToText(result.blob);
+        expect(text).not.toContain('recindex');
+    });
+
+    it('Defaults image contentType to image/jpeg when missing', async () => {
+        const exporter = new MOBIExporter();
+        const manga = { name: 'Test' };
+        const chapters = [
+            { title: 'Ch', content: [{ type: 'image', data: { base64: 'AQID' } }] }
+        ];
+        const result = await exporter.export(manga, chapters);
+        const text = await decodeBlobToText(result.blob);
+        expect(text).toContain('recindex="0001"');
+    });
+
+    it('Handles cover base64 without data: prefix', async () => {
+        const exporter = new MOBIExporter();
+        const manga = { name: 'Test' };
+        const result = await exporter.export(manga, [], 'AAEC');
+        const text = await decodeBlobToText(result.blob);
+        expect(text).toContain('recindex="0001"');
+    });
+
+    it('Skips text block with falsy text value', async () => {
+        const exporter = new MOBIExporter();
+        const manga = { name: 'Test' };
+        const chapters = [
+            { title: 'Ch', content: [{ type: 'text' }, { type: 'text', text: 'real' }] }
+        ];
+        const result = await exporter.export(manga, chapters);
+        const text = await decodeBlobToText(result.blob);
+        expect(text).toContain('<p>real</p>');
+    });
+
+    it('Ignores unknown block types', async () => {
+        const exporter = new MOBIExporter();
+        const manga = { name: 'Test' };
+        const chapters = [
+            { title: 'Ch', content: [{ type: 'audio', src: 'file.mp3' }, { type: 'text', text: 'ok' }] }
+        ];
+        const result = await exporter.export(manga, chapters);
+        const text = await decodeBlobToText(result.blob);
+        expect(text).toContain('<p>ok</p>');
+    });
+
+    it('Handles chapter with null/undefined title via escapeHtml', async () => {
+        const exporter = new MOBIExporter();
+        const manga = { name: 'Test' };
+        const chapters = [
+            { title: null, content: [{ type: 'text', text: 'body' }] },
+            { title: undefined, content: [] }
+        ];
+        const result = await exporter.export(manga, chapters);
+        const text = await decodeBlobToText(result.blob);
+        expect(text).toContain('<h2></h2>');
+        expect(text).toContain('<p>body</p>');
+    });
 });

@@ -1,4 +1,4 @@
-import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
+import { describe, it, expect, vi, beforeEach } from 'vitest';
 
 const mockFetchChapter = vi.fn();
 const mockExtractText = vi.fn((c) => c);
@@ -707,6 +707,77 @@ describe('BackgroundDownload', () => {
         expect(d.chapterContents[0].content).toEqual({ foo: 'bar' });
 
         globalThis.MangaLibService = origMangaLibService;
+    });
+
+    it('Uses getExtensionApi when defined at module load', async () => {
+        vi.resetModules();
+        const mockApi = { downloads: { download: vi.fn().mockResolvedValue(99) } };
+        globalThis.getExtensionApi = () => mockApi;
+        try {
+            const { BackgroundDownload: BD } = await import('../../background/BackgroundDownload.js');
+            const inst = new BD();
+            vi.spyOn(inst, 'delay').mockResolvedValue();
+            const d = {
+                id: 'x', slug: 's', serviceKey: 'mangalib', format: 'epub',
+                status: '', progress: 0, startTime: Date.now(),
+                controller: inst.createController(),
+                manga: {}, coverBase64: '', chapterContents: [],
+                chapters: [], currentChapterIndex: 0, loadedFile: null,
+            };
+            await inst.continueDownload(d);
+            expect(d.status).toBe('Готово!');
+            expect(mockApi.downloads.download).toHaveBeenCalled();
+        } finally {
+            delete globalThis.getExtensionApi;
+        }
+    });
+
+    it('Falls back to chrome when browser is not defined', async () => {
+        vi.resetModules();
+        const origBrowser = globalThis.browser;
+        delete globalThis.browser;
+        const mockChrome = { downloads: { download: vi.fn().mockResolvedValue(77) } };
+        globalThis.chrome = mockChrome;
+        try {
+            const { BackgroundDownload: BD } = await import('../../background/BackgroundDownload.js');
+            const inst = new BD();
+            vi.spyOn(inst, 'delay').mockResolvedValue();
+            const d = {
+                id: 'x', slug: 's', serviceKey: 'mangalib', format: 'epub',
+                status: '', progress: 0, startTime: Date.now(),
+                controller: inst.createController(),
+                manga: {}, coverBase64: '', chapterContents: [],
+                chapters: [], currentChapterIndex: 0, loadedFile: null,
+            };
+            await inst.continueDownload(d);
+            expect(d.status).toBe('Готово!');
+            expect(mockChrome.downloads.download).toHaveBeenCalled();
+        } finally {
+            globalThis.browser = origBrowser;
+            delete globalThis.chrome;
+        }
+    });
+
+    it('Throws when extensionApi is null (no browser, no chrome)', async () => {
+        vi.resetModules();
+        const origBrowser = globalThis.browser;
+        delete globalThis.browser;
+        try {
+            const { BackgroundDownload: BD } = await import('../../background/BackgroundDownload.js');
+            const inst = new BD();
+            vi.spyOn(inst, 'delay').mockResolvedValue();
+            const d = {
+                id: 'x', slug: 's', serviceKey: 'mangalib', format: 'epub',
+                status: '', progress: 0, startTime: Date.now(),
+                controller: inst.createController(),
+                manga: {}, coverBase64: '', chapterContents: [],
+                chapters: [], currentChapterIndex: 0, loadedFile: null,
+            };
+            await expect(inst.continueDownload(d)).rejects.toThrow('downloads API is not available');
+            expect(d.status).toContain('Ошибка');
+        } finally {
+            globalThis.browser = origBrowser;
+        }
     });
 
     it('Uses fallback title in catch when chapter name is missing', async () => {

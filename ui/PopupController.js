@@ -623,7 +623,8 @@
                 }
 
                 const title = meta.rus_name || meta.name || slug;
-                const fullSummary = meta.summary || meta.description || 'Описание отсутствует.';
+                const summaryText = meta.summary?.content?.flatMap(p => p.content?.map(t => t.text) ?? []).join('');
+                const fullSummary = summaryText || 'Описание отсутствует.';
                 const summary = this.truncateText(fullSummary, 100);
 
                 let cover = null;
