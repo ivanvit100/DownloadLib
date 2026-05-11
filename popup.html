@@ -85,6 +85,30 @@
             #formatSelector {
                 width: 80px;
             }
+            #maxSizeInput, #maxChaptersInput {
+                width: 60px;
+                padding: 4px;
+                margin-left: 8px;
+                text-align: center;
+                background: #252527;
+                color: #fff;
+                border: 1px solid #444;
+                border-radius: 4px;
+                -moz-appearance: textfield;
+            }
+            #maxSizeInput:focus, #maxSizeInput:hover,
+            #maxChaptersInput:focus, #maxChaptersInput:hover {
+                outline: none;
+                border-color: var(--primary-color);
+                box-shadow: 0 0 5px var(--primary-color);
+            }
+            #maxSizeInput::-webkit-inner-spin-button,
+            #maxSizeInput::-webkit-outer-spin-button,
+            #maxChaptersInput::-webkit-inner-spin-button,
+            #maxChaptersInput::-webkit-outer-spin-button {
+                -webkit-appearance: none;
+                margin: 0;
+            }
         </style>
     </head>
     <body>

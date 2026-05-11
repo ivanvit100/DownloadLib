@@ -29,7 +29,8 @@
                 onProgress,
                 controller,
                 loadedFile,
-                chapterRange
+                chapterRange,
+                maxSizeMB = 200
             } = options;
 
             let service;
@@ -122,66 +123,11 @@
 
                 downloadState.chapters = chapters;
 
-                const MAX_CHAPTERS_PER_FILE = serviceKey === 'mangalib' ? 80 : Infinity;
-                
-                if (chapters.length > MAX_CHAPTERS_PER_FILE) {
-                    const totalParts = Math.ceil(chapters.length / MAX_CHAPTERS_PER_FILE);
-                    
-                    for (let partIndex = 0; partIndex < totalParts; partIndex++) {
-                        await downloadState.controller.waitIfPaused();
-                        if (downloadState.controller.shouldStop()) break;
+                await this.downloadWithSizeLimit(downloadState, service, chapters, manga, coverBase64, format, maxSizeMB);
 
-                        const startIdx = partIndex * MAX_CHAPTERS_PER_FILE;
-                        const endIdx = Math.min((partIndex + 1) * MAX_CHAPTERS_PER_FILE, chapters.length);
-                        const chaptersForPart = chapters.slice(startIdx, endIdx);
-                        
-                        this.updateStatus(downloadId, `Часть ${partIndex + 1}/${totalParts}: Загрузка глав ${startIdx + 1}-${endIdx}...`, 10);
-                        
-                        const chapterContents = await this.downloadChapters(
-                            service,
-                            downloadState,
-                            chaptersForPart,
-                            onProgress,
-                            startIdx,
-                            chapters.length
-                        );
-
-                        this.updateStatus(downloadId, `Часть ${partIndex + 1}/${totalParts}: Создание ${format.toUpperCase()}...`, 90);
-                        const exporter = global.ExporterFactory.create(format);
-                        
-                        const partSuffix = totalParts > 1 ? ` (Часть ${partIndex + 1} из ${totalParts})` : '';
-                        const mangaWithSuffix = { ...manga, rus_name: (manga.rus_name || manga.name) + partSuffix };
-                        
-                        const file = await exporter.export(mangaWithSuffix, chapterContents, coverBase64);
-
-                        await this.saveFile(file.blob, file.filename);
-                        
-                        downloadState.chapterContents = [];
-                    }
-
-                    this.updateStatus(downloadId, 'Готово!', 100);
-                    this.eventBus.emit('download:completed', downloadState);
-                    
-                    return { success: true, downloadId };
-                } else {
-                    const chapterContents = await this.downloadChapters(
-                        service,
-                        downloadState,
-                        chapters,
-                        onProgress
-                    );
-
-                    this.updateStatus(downloadId, `Создание ${format.toUpperCase()}...`, 95);
-                    const exporter = global.ExporterFactory.create(format);
-                    const file = await exporter.export(manga, chapterContents, coverBase64);
-
-                    await this.saveFile(file.blob, file.filename);
-
-                    this.updateStatus(downloadId, 'Готово!', 100);
-                    this.eventBus.emit('download:completed', downloadState);
-                    
-                    return { success: true, downloadId };
-                }
+                this.updateStatus(downloadId, 'Готово!', 100);
+                this.eventBus.emit('download:completed', downloadState);
+                return { success: true, downloadId };
 
             } catch (error) {
                 console.error('[DownloadManager] Error:', error);
@@ -190,6 +136,124 @@
                 throw error;
             } finally {
                 setTimeout(() => this.activeDownloads.delete(downloadId), 5000);
+            }
+        }
+
+        estimateChapterSize(chapter) {
+            if (!chapter || !Array.isArray(chapter.content)) return 0;
+            let bytes = 0;
+            for (const block of chapter.content) {
+                if (block.type === 'text' && block.text) {
+                    bytes += block.text.length * 2;
+                } else if (block.type === 'image') {
+                    const b64 = (block.data && block.data.base64) ? block.data.base64 : '';
+                    if (b64) bytes += Math.ceil(b64.length * 3 / 4);
+                }
+            }
+            return bytes;
+        }
+
+        async downloadWithSizeLimit(downloadState, service, chapters, manga, coverBase64, format, maxSizeMB) {
+            const { id: downloadId } = downloadState;
+            const maxSizeBytes = maxSizeMB * 1024 * 1024;
+            let partIndex = 0;
+            let currentBatch = [];
+            let currentSize = 0;
+
+            service._on429 = () => {
+                const dl = this.activeDownloads.get(downloadId);
+                this.updateStatus(downloadId, 'Ожидание разрешения от сервера...', dl ? dl.progress : 0);
+            };
+
+            try {
+                for (let i = 0; i < chapters.length; i++) {
+                    await downloadState.controller.waitIfPaused();
+                    if (downloadState.controller.shouldStop()) break;
+
+                    downloadState.currentChapterIndex = i;
+                    const chapter = chapters[i];
+                    const progress = Math.floor((i / chapters.length) * 80) + 10;
+                    this.updateStatus(downloadId, `Глава ${i + 1}/${chapters.length}: ${chapter.name || chapter.number}`, progress);
+
+                    const chapterResult = await this.downloadSingleChapter(service, downloadState, chapter);
+                    const chapterSize = this.estimateChapterSize(chapterResult);
+
+                    if (currentBatch.length > 0 && currentSize + chapterSize > maxSizeBytes) {
+                        partIndex++;
+                        const exporter = global.ExporterFactory.create(format);
+                        const partSuffix = ` (Часть ${partIndex})`;
+                        const mangaWithSuffix = { ...manga, rus_name: (manga.rus_name || manga.name) + partSuffix };
+                        this.updateStatus(downloadId, `Сохранение части ${partIndex}...`, progress);
+                        const file = await exporter.export(mangaWithSuffix, currentBatch, coverBase64);
+                        await this.saveFile(file.blob, file.filename);
+
+                        currentBatch = [chapterResult];
+                        currentSize = chapterSize;
+                    } else {
+                        currentBatch.push(chapterResult);
+                        currentSize += chapterSize;
+                    }
+
+                    downloadState.chapterContents.push(chapterResult);
+                    await this.delay(500);
+                }
+            } finally {
+                service._on429 = null;
+            }
+
+            if (currentBatch.length > 0) {
+                partIndex++;
+                const exporter = global.ExporterFactory.create(format);
+                const partSuffix = partIndex > 1 ? ` (Часть ${partIndex})` : '';
+                const finalManga = partSuffix ? { ...manga, rus_name: (manga.rus_name || manga.name) + partSuffix } : manga;
+                this.updateStatus(downloadId, `Создание ${format.toUpperCase()}...`, 95);
+                const file = await exporter.export(finalManga, currentBatch, coverBase64);
+                await this.saveFile(file.blob, file.filename);
+            }
+        }
+
+        async downloadSingleChapter(service, downloadState, chapter) {
+            try {
+                const chapterData = await service.fetchChapter(
+                    downloadState.slug,
+                    chapter.number,
+                    chapter.volume || '1'
+                );
+
+                const rawContent = chapterData.data || chapterData;
+                const contentToExtract = rawContent.content || rawContent;
+
+                const extractedContent = service.extractText
+                    ? service.extractText(contentToExtract)
+                    : contentToExtract;
+
+                const processedContent = service.processChapterContent
+                    ? await service.processChapterContent(
+                        extractedContent,
+                        document.getElementById('status'),
+                        {
+                            chapterMeta: rawContent,
+                            chapterObj: chapter,
+                            mangaSlug: downloadState.slug,
+                            splitLongImages: downloadState.format !== 'simple'
+                        }
+                      )
+                    : extractedContent;
+
+                return {
+                    title: chapter.name || `Том ${chapter.volume}, Глава ${chapter.number}`,
+                    content: processedContent,
+                    volume: chapter.volume,
+                    number: chapter.number
+                };
+            } catch (error) {
+                console.error(`[DownloadManager] Failed to download chapter ${chapter.number}:`, error);
+                return {
+                    title: chapter.name || `Том ${chapter.volume}, Глава ${chapter.number}`,
+                    content: [{ type: 'text', text: `[Ошибка загрузки главы: ${error.message}]` }],
+                    volume: chapter.volume,
+                    number: chapter.number
+                };
             }
         }
 

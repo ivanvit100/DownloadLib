@@ -349,7 +349,7 @@ describe('DownloadManager', () => {
     it('Not detect data in metadata', async () => {
         const serviceWithoutData = {
             name: 'mangalib',
-            fetchMangaMetadata: vi.fn(async slug => ({ cover: { default: 'url' } })), // нет data!
+            fetchMangaMetadata: vi.fn(async slug => ({ cover: { default: 'url' } })),
             fetchChaptersList: vi.fn(async slug => ({ data: [] })),
             fetchChapter: vi.fn(async (slug, number, volume) => ({ data: { content: [{ type: 'text', text: 'ok' }] } })),
             extractText: vi.fn(content => content),
@@ -731,19 +731,18 @@ describe('DownloadManager', () => {
         logSpy.mockRestore();
     });
 
-    it('Calculates total parts using Math.ceil when chapters exceed max per file for mangalib', async () => {
+    it('Splits into multiple parts when content exceeds size limit', async () => {
         const dm = new DownloadManager();
         const chapters = [];
-        for (let i = 1; i <= 181; i++) chapters.push({ volume: '1', number: String(i) });
+        for (let i = 1; i <= 5; i++) chapters.push({ volume: '1', number: String(i) });
         serviceMock.fetchChaptersList = vi.fn(async () => ({ data: chapters }));
         serviceMock.fetchChapter = vi.fn(async () => ({ data: { content: [{ type: 'text', text: 'ok' }] } }));
-        const mathCeilSpy = vi.spyOn(Math, 'ceil');
+        const estimateSpy = vi.spyOn(dm, 'estimateChapterSize').mockReturnValue(80 * 1024 * 1024);
         const saveFileSpy = vi.spyOn(dm, 'saveFile').mockResolvedValue();
         const delaySpy = vi.spyOn(dm, 'delay').mockResolvedValue();
-        await dm.startDownload({ serviceKey: 'mangalib', url: 'https://site/manga/slug' });
-        expect(mathCeilSpy).toHaveBeenCalledWith(181 / 80);
-        expect(saveFileSpy).toHaveBeenCalledTimes(3);
-        mathCeilSpy.mockRestore();
+        await dm.startDownload({ serviceKey: 'mangalib', url: 'https://site/manga/slug', maxSizeMB: 100 });
+        expect(saveFileSpy).toHaveBeenCalledTimes(5);
+        estimateSpy.mockRestore();
         saveFileSpy.mockRestore();
         delaySpy.mockRestore();
     }, 30000);
@@ -793,7 +792,7 @@ describe('DownloadManager', () => {
         globalThis.ExporterFactory = { create: vi.fn(() => exporter) };
         globalThis.FileUtils = { downloadBlob: vi.fn(async () => {}) };
 
-        const spy = vi.spyOn(dm, 'downloadChapters');
+        const delaySpy = vi.spyOn(dm, 'delay').mockResolvedValue();
         const options = {
             serviceKey: 'mangalib',
             url: 'https://site/manga/slug',
@@ -801,16 +800,9 @@ describe('DownloadManager', () => {
         };
         await dm.startDownload(options);
         expect(service.fetchChaptersList).toHaveBeenCalled();
-        expect(spy).toHaveBeenCalledWith(
-            service,
-            expect.anything(),
-            [
-                { volume: '1', number: '2' },
-                { volume: '1', number: '3' }
-            ],
-            undefined
-        );
-        spy.mockRestore();
+        const calledNumbers = service.fetchChapter.mock.calls.map(c => c[1]);
+        expect(calledNumbers).toEqual(['2', '3']);
+        delaySpy.mockRestore();
     });
 
     it('Empty part suffix when total parts equals one', async () => {
@@ -902,5 +894,107 @@ describe('DownloadManager', () => {
         expect(waitingCall).toBeDefined();
         expect(waitingCall.id).toBe('ghost-id');
         expect(waitingCall.progress).toBe(0);
+    });
+
+    it('downloadWithSizeLimit triggers _on429 with current progress', async () => {
+        const dm = new DownloadManager();
+        const ctrl = dm.createController();
+        const ds = { id: 'size-id', slug: 'slug', controller: ctrl, chapterContents: [], format: 'fb2' };
+        dm.activeDownloads.set('size-id', { ...ds, progress: 33 });
+
+        const statusUpdates = [];
+        const original = dm.updateStatus.bind(dm);
+        dm.updateStatus = (id, msg, progress) => { statusUpdates.push({ msg, progress }); original(id, msg, progress); };
+
+        let resolveChapter;
+        const service = {
+            fetchChapter: vi.fn(() => new Promise(resolve => { resolveChapter = resolve; })),
+            extractText: vi.fn(c => c),
+            processChapterContent: vi.fn(async c => c)
+        };
+        const saveFileSpy = vi.spyOn(dm, 'saveFile').mockResolvedValue();
+        const delaySpy = vi.spyOn(dm, 'delay').mockResolvedValue();
+
+        const promise = dm.downloadWithSizeLimit(
+            ds, service, [{ volume: '1', number: '1' }], { rus_name: 'M' }, '', 'fb2', 200
+        );
+        await new Promise(r => setTimeout(r, 0));
+        service._on429();
+        resolveChapter({ data: { content: [{ type: 'text', text: 'ok' }] } });
+        await promise;
+
+        const waiting = statusUpdates.find(u => u.msg === 'Ожидание разрешения от сервера...');
+        expect(waiting).toBeDefined();
+        expect(waiting.progress).toBe(10);
+        saveFileSpy.mockRestore();
+        delaySpy.mockRestore();
+    });
+
+    it('downloadWithSizeLimit triggers _on429 with zero progress when not in activeDownloads', async () => {
+        const dm = new DownloadManager();
+        const ctrl = dm.createController();
+        const ds = { id: 'ghost-size-id', slug: 'slug', controller: ctrl, chapterContents: [], format: 'fb2' };
+
+        const statusUpdates = [];
+        const original = dm.updateStatus.bind(dm);
+        dm.updateStatus = (id, msg, progress) => { statusUpdates.push({ msg, progress }); original(id, msg, progress); };
+
+        let resolveChapter;
+        const service = {
+            fetchChapter: vi.fn(() => new Promise(resolve => { resolveChapter = resolve; })),
+            extractText: vi.fn(c => c),
+            processChapterContent: vi.fn(async c => c)
+        };
+        const saveFileSpy = vi.spyOn(dm, 'saveFile').mockResolvedValue();
+        const delaySpy = vi.spyOn(dm, 'delay').mockResolvedValue();
+
+        const promise = dm.downloadWithSizeLimit(
+            ds, service, [{ volume: '1', number: '1' }], { rus_name: 'M' }, '', 'fb2', 200
+        );
+        await new Promise(r => setTimeout(r, 0));
+        service._on429();
+        resolveChapter({ data: { content: [{ type: 'text', text: 'ok' }] } });
+        await promise;
+
+        const waiting = statusUpdates.find(u => u.msg === 'Ожидание разрешения от сервера...');
+        expect(waiting).toBeDefined();
+        expect(waiting.progress).toBe(0);
+        saveFileSpy.mockRestore();
+        delaySpy.mockRestore();
+    });
+
+    it('downloadSingleChapter returns error chapter when fetchChapter throws', async () => {
+        const dm = new DownloadManager();
+        const errorSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
+        const chapter = { volume: '1', number: '7', name: 'Chapter 7' };
+        const service = { fetchChapter: vi.fn(async () => { throw new Error('network error'); }) };
+        const ds = { slug: 'slug', format: 'fb2' };
+
+        const result = await dm.downloadSingleChapter(service, ds, chapter);
+
+        expect(result.title).toBe('Chapter 7');
+        expect(result.content[0].type).toBe('text');
+        expect(result.content[0].text).toContain('Ошибка загрузки главы');
+        expect(result.content[0].text).toContain('network error');
+        errorSpy.mockRestore();
+    });
+
+    it('estimateChapterSize returns 0 for null or non-array content', () => {
+        const dm = new DownloadManager();
+        expect(dm.estimateChapterSize(null)).toBe(0);
+        expect(dm.estimateChapterSize({ content: 'not-array' })).toBe(0);
+    });
+
+    it('estimateChapterSize counts image base64 bytes', () => {
+        const dm = new DownloadManager();
+        const b64 = 'AAAA';
+        const chapter = { content: [{ type: 'image', data: { base64: b64 } }] };
+        expect(dm.estimateChapterSize(chapter)).toBe(Math.ceil(b64.length * 3 / 4));
+    });
+
+    it('estimateChapterSize returns 0 for image block without base64', () => {
+        const dm = new DownloadManager();
+        const chapter = { content: [{ type: 'image', data: {} }] };
+        expect(dm.estimateChapterSize(chapter)).toBe(0);
     });
 });

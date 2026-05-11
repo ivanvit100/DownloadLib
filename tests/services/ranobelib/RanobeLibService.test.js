@@ -198,6 +198,13 @@ describe('RanobeLibService', () => {
         expect(result).toEqual([{ type: 'text', text: 'plain text' }]);
     });
 
+    it('Extract text parses img src from non-JSON HTML string', () => {
+        const svc = new RanobeLibService();
+        const result = svc.extractText('before <img src="http://example.com/img.png"> after');
+        expect(result).toContainEqual({ type: 'image', src: 'http://example.com/img.png' });
+        expect(result).toContainEqual({ type: 'text', text: 'before' });
+    });
+
     it('Extract text returns empty array for invalid', () => {
         const svc = new RanobeLibService();
         expect(svc.extractText(null)).toEqual([]);

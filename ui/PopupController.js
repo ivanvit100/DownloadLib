@@ -303,6 +303,47 @@
                 btn.parentNode.insertBefore(controlsContainer, btn.nextSibling);
             } else console.warn('downloadControls container found in DOM');
 
+            const MAX_SIZE_KEY = 'manga_parser_max_size_mb';
+
+            let splitModeContainer = document.getElementById('splitModeContainer');
+            if (!splitModeContainer) {
+                splitModeContainer = document.createElement('div');
+                splitModeContainer.id = 'splitModeContainer';
+                splitModeContainer.style.textAlign = 'center';
+                splitModeContainer.style.marginTop = '10px';
+                splitModeContainer.style.marginBottom = '5px';
+
+                const maxSizeLabel = document.createElement('label');
+                maxSizeLabel.textContent = 'Макс. размер части (МБ):';
+                maxSizeLabel.style.color = '#bdbdbd';
+                maxSizeLabel.style.fontSize = '14px';
+                maxSizeLabel.htmlFor = 'maxSizeInput';
+
+                const maxSizeInput = document.createElement('input');
+                maxSizeInput.id = 'maxSizeInput';
+                maxSizeInput.type = 'number';
+                maxSizeInput.min = '1';
+                maxSizeInput.max = '9999';
+                maxSizeInput.step = '1';
+                maxSizeInput.value = localStorage.getItem(MAX_SIZE_KEY) || '200';
+                maxSizeInput.addEventListener('input', (e) => {
+                    let val = parseInt(e.target.value);
+                    if (isNaN(val) || val < 1) val = 1;
+                    e.target.value = Math.floor(val);
+                    localStorage.setItem(MAX_SIZE_KEY, e.target.value);
+                });
+
+                splitModeContainer.appendChild(maxSizeLabel);
+                splitModeContainer.appendChild(maxSizeInput);
+
+                const chapterRangeContainer = document.getElementById('chapterRangeContainer');
+                if (chapterRangeContainer) {
+                    chapterRangeContainer.parentNode.insertBefore(splitModeContainer, chapterRangeContainer.nextSibling);
+                } else {
+                    btn.parentNode.insertBefore(splitModeContainer, btn);
+                }
+            } else console.warn('splitModeContainer found in DOM');
+
             let chapterRangeContainer = document.getElementById('chapterRangeContainer');
             if (!chapterRangeContainer) {
                 chapterRangeContainer = document.createElement('div');
@@ -482,11 +523,18 @@
             const rateLimitFromUrl = urlParams.get('rateLimit');
             const chapterFromUrl = urlParams.get('chapterFrom');
             const chapterToUrl = urlParams.get('chapterTo');
+            const maxSizeMBFromUrl = urlParams.get('maxSizeMB');
 
             const formatSelector = document.getElementById('formatSelector');
             if (formatFromUrl && formatSelector) {
                 formatSelector.value = formatFromUrl;
                 localStorage.setItem('manga_parser_selected_format', formatFromUrl);
+            }
+
+            if (maxSizeMBFromUrl) {
+                localStorage.setItem('manga_parser_max_size_mb', maxSizeMBFromUrl);
+                const maxSizeInput = document.getElementById('maxSizeInput');
+                if (maxSizeInput) maxSizeInput.value = maxSizeMBFromUrl;
             }
 
             const rateLimitInput = document.getElementById('rateLimitInput');
@@ -779,8 +827,10 @@
                         const format = formatSelector ? formatSelector.value : 'fb2';
                         const rateLimit = rateLimitInput ? parseInt(rateLimitInput.value) || 100 : 100;
                         
-                        let urlParams = `?download=true&slug=${encodeURIComponent(this.currentSlug)}&service=${encodeURIComponent(this.currentServiceKey)}&format=${encodeURIComponent(format)}&rateLimit=${encodeURIComponent(rateLimit)}`;
-                        
+                        const maxSizeMB = document.getElementById('maxSizeInput')?.value || '200';
+
+                        let urlParams = `?download=true&slug=${encodeURIComponent(this.currentSlug)}&service=${encodeURIComponent(this.currentServiceKey)}&format=${encodeURIComponent(format)}&rateLimit=${encodeURIComponent(rateLimit)}&maxSizeMB=${encodeURIComponent(maxSizeMB)}`;
+
                         if (fromSelect && toSelect && chapterRangeContainer && chapterRangeContainer.style.display !== 'none') {
                             const chapterFrom = fromSelect.value;
                             const chapterTo = toSelect.value;
@@ -939,12 +989,15 @@
                 else console.warn('Controls container not found when showing during download');
                 if (chapterRangeContainer) chapterRangeContainer.style.display = 'none';
                 else console.warn('Chapter range container not found when hiding during download');
-                
+                const splitModeContainer = document.getElementById('splitModeContainer');
+                if (splitModeContainer) splitModeContainer.style.display = 'none';
+
                 const statusText = this.loadedFile ? 'Запуск обновления...' : 'Запуск скачивания...';
                 if (status) status.textContent = statusText;
                 else console.warn('Status element not found when setting initial status for download start');
 
                 const format = formatSelector?.value || 'fb2';
+                const maxSizeMB = parseInt(document.getElementById('maxSizeInput')?.value) || 200;
 
                 const result = await this.downloadManager.startDownload({
                     slug: this.currentSlug,
@@ -952,6 +1005,7 @@
                     format: format,
                     loadedFile: this.loadedFile,
                     chapterRange: chapterRange,
+                    maxSizeMB: maxSizeMB,
                     controller: {
                         isPaused: () => this.isPaused,
                         shouldStop: () => this.shouldStop,
@@ -1036,7 +1090,9 @@
             const chapterRangeContainer = document.getElementById('chapterRangeContainer');
             if (chapterRangeContainer) chapterRangeContainer.style.display = 'none';
             else console.warn('Chapter range container not found when resetting UI');
-            
+            const splitModeContainer = document.getElementById('splitModeContainer');
+            if (splitModeContainer) splitModeContainer.style.display = 'block';
+
             this.currentDownloadId = null;
         }
 

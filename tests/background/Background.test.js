@@ -1210,4 +1210,33 @@ describe('Background', () => {
             );
         });
     });
+
+    describe('With getExtensionApi and getBrowserEnv defined', () => {
+        beforeEach(async () => {
+            setupGlobals('chrome');
+            const apiObj = {
+                webRequest: {
+                    onBeforeSendHeaders: { addListener: vi.fn() },
+                    onBeforeRequest: { addListener: vi.fn() }
+                },
+                runtime: { onMessage: { addListener: vi.fn() }, id: 'ext-id' },
+                declarativeNetRequest: {}
+            };
+            globalThis.getExtensionApi = vi.fn(() => apiObj);
+            globalThis.getBrowserEnv = vi.fn(() => ({
+                isFirefox: false,
+                isChromium: true,
+                supportsDnr: false
+            }));
+            await loadModule();
+        });
+
+        it('Calls getExtensionApi when defined as a function', () => {
+            expect(globalThis.getExtensionApi).toHaveBeenCalled();
+        });
+
+        it('Calls getBrowserEnv when defined as a function', () => {
+            expect(globalThis.getBrowserEnv).toHaveBeenCalled();
+        });
+    });
 });

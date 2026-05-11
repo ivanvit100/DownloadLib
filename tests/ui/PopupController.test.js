@@ -90,6 +90,7 @@ beforeEach(async () => {
         }
     };
     global.chrome = undefined;
+    global.window.close = vi.fn();
     await import('../../ui/PopupController.js');
     PopupController = global.PopupController;
 });
@@ -1959,5 +1960,41 @@ describe('PopupController', () => {
         backgroundBtn.click();
         expect(consoleLogSpy).toHaveBeenCalledWith('[PopupController] Attempting to move download to background with ID:', 42);
         consoleLogSpy.mockRestore();
+    });
+
+    it('maxSizeInput event listener persists value to localStorage', () => {
+        const controller = new PopupController();
+        const maxSizeInput = document.getElementById('maxSizeInput');
+        expect(maxSizeInput).toBeTruthy();
+        maxSizeInput.value = '150';
+        maxSizeInput.dispatchEvent(new Event('input'));
+        expect(global.localStorage.setItem).toHaveBeenCalledWith('manga_parser_max_size_mb', '150');
+    });
+
+    it('splitModeContainer falls back to btn parent when chapterRangeContainer is absent', () => {
+        let chapterRangeCallCount = 0;
+        const original = document.getElementById.bind(document);
+        const spy = vi.spyOn(document, 'getElementById').mockImplementation((id) => {
+            if (id === 'chapterRangeContainer') {
+                chapterRangeCallCount++;
+                if (chapterRangeCallCount >= 2) return null;
+            }
+            return original(id);
+        });
+        const controller = new PopupController();
+        spy.mockRestore();
+        expect(document.getElementById('splitModeContainer')).toBeTruthy();
+    });
+
+    it('loadMetadata applies maxSizeMB from URL params', async () => {
+        const controller = new PopupController();
+        const originalSearch = window.location.search;
+        Object.defineProperty(window, 'location', {
+            value: { search: '?maxSizeMB=150' },
+            writable: true
+        });
+        await controller.loadMetadata();
+        expect(global.localStorage.setItem).toHaveBeenCalledWith('manga_parser_max_size_mb', '150');
+        window.location.search = originalSearch;
     });
 });
