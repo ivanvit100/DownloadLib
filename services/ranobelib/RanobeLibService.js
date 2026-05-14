@@ -241,6 +241,14 @@
             const mangaId = this._mangaIdCache || chapterMeta.manga_id;
             const chapterId = chapterMeta.id;
 
+            const attachmentMap = {};
+            if (Array.isArray(chapterMeta.attachments)) {
+                for (const att of chapterMeta.attachments) {
+                    if (att.name && att.extension)
+                        attachmentMap[att.name] = att.extension;
+                }
+            }
+
             const result = [];
 
             for (const block of extracted) {
@@ -249,13 +257,20 @@
                         result.push(block);
                     else console.warn('[RanobeLibService] Skipping empty text block');
                 } else if (block.type === 'image' && block.src) {
-                    const originalExt = (block.src.match(/\.(jpg|jpeg|png|webp)$/i) || [])[1] || 'jpg';
+                    const isFullUrl = /^https?:\/\//i.test(block.src);
+                    const isAbsolutePath = /^(\/\/|\/)/.test(block.src);
+                    const isPlainUuid = !isFullUrl && !isAbsolutePath && !/\.(jpg|jpeg|png|webp)$/i.test(block.src);
+
+                    let originalExt;
+                    if (isPlainUuid && attachmentMap[block.src])
+                        originalExt = attachmentMap[block.src];
+                    else
+                        originalExt = (block.src.match(/\.(jpg|jpeg|png|webp)$/i) || [])[1] || 'jpg';
+
                     const fallbacks = ['jpg', 'jpeg', 'png', 'webp'].filter(e => e !== originalExt);
                     const extensions = [originalExt, ...fallbacks];
 
                     const srcWithoutExt = block.src.replace(/\.(jpg|jpeg|png|webp)$/i, '');
-                    const isFullUrl = /^https?:\/\//i.test(block.src);
-                    const isAbsolutePath = /^(\/\/|\/)/.test(block.src);
                     const baseUrl = isFullUrl
                         ? srcWithoutExt
                         : isAbsolutePath

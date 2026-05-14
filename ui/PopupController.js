@@ -125,12 +125,17 @@
             } else console.warn('formatSelector found in DOM');
 
             const FORMAT_STORAGE_KEY = 'manga_parser_selected_format';
-            if (formatSelector && localStorage.getItem(FORMAT_STORAGE_KEY)) 
+            if (formatSelector && localStorage.getItem(FORMAT_STORAGE_KEY))
                 formatSelector.value = localStorage.getItem(FORMAT_STORAGE_KEY);
             else console.log('No saved format in localStorage');
-            
+
+            if (browserAPI && browserAPI.storage && browserAPI.storage.local)
+                browserAPI.storage.local.set({ [FORMAT_STORAGE_KEY]: formatSelector.value });
+
             formatSelector.addEventListener('change', () => {
                 localStorage.setItem(FORMAT_STORAGE_KEY, formatSelector.value);
+                if (browserAPI && browserAPI.storage && browserAPI.storage.local)
+                    browserAPI.storage.local.set({ [FORMAT_STORAGE_KEY]: formatSelector.value });
             });
 
             let rateLimitInput = document.getElementById('rateLimitInput');

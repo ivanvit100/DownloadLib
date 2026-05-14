@@ -1171,7 +1171,7 @@ describe('Background', () => {
             await loadModule();
         });
 
-        it('Uses omit credentials for fetchImage in chrome', async () => {
+        it('Uses include credentials for fetchImage in chrome', async () => {
             const blob = new Blob(['img'], { type: 'image/jpeg' });
             globalThis.fetch = vi.fn().mockResolvedValue({
                 ok: true,
@@ -1184,7 +1184,7 @@ describe('Background', () => {
             await vi.waitFor(() => expect(sendResponse).toHaveBeenCalled());
             expect(globalThis.fetch).toHaveBeenCalledWith(
                 'https://img.com/a.jpg',
-                expect.objectContaining({ credentials: 'omit' }),
+                expect.objectContaining({ credentials: 'include' }),
             );
         });
 

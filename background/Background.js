@@ -93,18 +93,26 @@ function isFromExtension(details) {
     return originHeader?.value === 'true';
 }
 
+const FIREFOX_WEBREQUEST_URLS = [
+    'https://api.cdnlibs.org/*',
+    'https://*.mixlib.me/*',
+    'https://*.imglib.info/*',
+    'https://*.imgslib.link/*',
+    'https://ranobelib.me/*',
+    'https://*.ranobelib.me/*',
+    'https://*.mangalib.me/*',
+    'https://*.mangalib.org/*'
+];
+
 if (isFirefox && browserAPI && browserAPI.webRequest) {
     console.log('[Background] Firefox: Setting up webRequest with blocking mode');
-    
+
     browserAPI.webRequest.onBeforeSendHeaders.addListener(
         async (details) => {
             const fromExtension = isFromExtension(details);
             const serviceName = detectServiceByReferer(details);
 
             if (!fromExtension) return {};
-
-            if (details.url.includes('ranobelib.me') && isImageRequest(details.url))
-                return {};
 
             if (serviceName) {
                 await rateLimiter.trackRequest(serviceName);
@@ -115,9 +123,9 @@ if (isFirefox && browserAPI && browserAPI.webRequest) {
             if (serviceName && ServiceConfigs[serviceName]) {
                 const config = ServiceConfigs[serviceName];
                 const isImage = isImageRequest(details.url);
-                
+
                 const targetHeaders = isImage && config.imageHeaders ? config.imageHeaders : config.headers;
-                
+
                 if (targetHeaders) {
                     const targetKeys = Object.keys(targetHeaders).map(k => k.toLowerCase());
 
@@ -139,20 +147,26 @@ if (isFirefox && browserAPI && browserAPI.webRequest) {
 
             return { requestHeaders: headers };
         },
-        {
-            urls: [
-                'https://api.cdnlibs.org/*',
-                'https://*.mixlib.me/*',
-                'https://*.imglib.info/*',
-                'https://*.imgslib.link/*',
-                'https://*.ranobelib.me/*',
-                'https://*.mangalib.me/*',
-                'https://*.mangalib.org/*'
-            ]
-        },
+        { urls: FIREFOX_WEBREQUEST_URLS },
         ['blocking', 'requestHeaders']
     );
-    
+
+    browserAPI.webRequest.onHeadersReceived.addListener(
+        (details) => {
+            if (!isFromExtension(details)) return {};
+            if (!isImageRequest(details.url)) return {};
+
+            const headers = details.responseHeaders || [];
+            const hasACAO = headers.some(h => h.name.toLowerCase() === 'access-control-allow-origin');
+            if (!hasACAO)
+                headers.push({ name: 'Access-Control-Allow-Origin', value: '*' });
+
+            return { responseHeaders: headers };
+        },
+        { urls: FIREFOX_WEBREQUEST_URLS },
+        ['blocking', 'responseHeaders']
+    );
+
     console.log('[Background] Firefox: WebRequest blocking interceptor installed');
 }
 
@@ -208,11 +222,11 @@ if (browserAPI && browserAPI.runtime && browserAPI.runtime.onMessage) {
                         method: 'GET',
                         headers: {
                             'Referer': message.referer || defaultReferer,
-                            'Accept': 'image/webp,image/apng,image/*,*/*;q=0.8',
-                            'Accept-Language': 'ru-RU,ru;q=0.8,en-US;q=0.5,en;q=0.3',
+                            'Accept': 'image/avif,image/webp,image/png,image/svg+xml,image/*;q=0.8,*/*;q=0.5',
+                            'Accept-Language': 'ru,en-US;q=0.9,en;q=0.8',
                             ...(isRanobelib ? {} : { 'X-Extension-Request': 'true' })
                         },
-                        credentials: isFirefox ? 'include' : 'omit',
+                        credentials: 'include',
                         cache: 'no-cache',
                         redirect: 'follow',
                         mode: 'cors'
@@ -337,6 +351,35 @@ if (browserAPI && browserAPI.runtime && browserAPI.runtime.onMessage) {
         } else if (message.action === 'stopBackgroundDownload') {
             backgroundDownload.stop(message.downloadId);
             sendResponse({ ok: true });
+            return true;
+        } else if (message.action === 'openDownloadWindow') {
+            (async () => {
+                try {
+                    const tabUrl = sender.tab && sender.tab.url;
+                    if (!tabUrl) { sendResponse({ ok: false, error: 'No tab URL' }); return; }
+
+                    const slugMatch = tabUrl.match(/\/(manga|book)\/([^\/\?#]+)/);
+                    const slug = slugMatch ? slugMatch[2] : null;
+                    const serviceKey = detectServiceByUrl(tabUrl);
+                    if (!slug || !serviceKey) { sendResponse({ ok: false, error: 'Cannot detect slug or service' }); return; }
+
+                    const format = encodeURIComponent(message.format || 'fb2');
+                    const urlParams = `?download=true&slug=${encodeURIComponent(slug)}&service=${encodeURIComponent(serviceKey)}&format=${format}&rateLimit=85&maxSizeMB=200`;
+
+                    const win = await browserAPI.windows.create({
+                        url: browserAPI.runtime.getURL('popup.html') + urlParams,
+                        type: 'popup',
+                        width: 420,
+                        height: 650,
+                        focused: true,
+                        state: 'normal'
+                    });
+                    if (win && win.id) browserAPI.windows.update(win.id, { focused: true });
+                    sendResponse({ ok: true });
+                } catch (e) {
+                    sendResponse({ ok: false, error: String(e) });
+                }
+            })();
             return true;
         } else return false;
     });
