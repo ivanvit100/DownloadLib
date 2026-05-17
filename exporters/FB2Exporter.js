@@ -39,13 +39,16 @@
             yield '  </title-info>\n';
             yield '</description>\n';
             
+            let imageCounter = 0;
+            const imageMap = new Map();
+            
             if (coverBase64) {
                 const coverId = 'cover.jpg';
                 const base64Data = coverBase64.includes(',') ? coverBase64.split(',')[1] : coverBase64;
                 yield `<binary id="${coverId}" content-type="image/jpeg">${base64Data}</binary>\n`;
+                imageMap.set('cover', coverId);
             }
-
-            let imageCounter = 0;
+            
             for (const chapter of chapters) {
                 if (!chapter.content || !Array.isArray(chapter.content)) continue;
                 
@@ -63,6 +66,13 @@
             }
             
             yield '<body>\n';
+            
+            if (coverBase64) {
+                yield '  <section>\n';
+                yield '    <title><p>Обложка</p></title>\n';
+                yield '    <p><image l:href="#cover.jpg"/></p>\n';
+                yield '  </section>\n';
+            }
             
             for (const chapter of chapters) {
                 yield '  <section>\n';
