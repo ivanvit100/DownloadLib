@@ -51,7 +51,8 @@
                 
                 for (const block of chapter.content) {
                     if (block.type === 'image' && block.data && block.data.base64) {
-                        const imageId = `image${++imageCounter}`;
+                        imageCounter++;
+                        const imageId = `image${imageCounter}`;
                         const contentType = block.data.contentType || 'image/jpeg';
                         
                         yield `<binary id="${imageId}" content-type="${contentType}">${block.data.base64}</binary>\n`;
