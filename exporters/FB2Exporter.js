@@ -33,27 +33,25 @@
             yield `    <author><first-name>${this.escapeXml(manga.authors || 'Unknown')}</first-name></author>\n`;
             yield `    <book-title>${this.escapeXml(manga.rus_name || manga.name || 'Unknown')}</book-title>\n`;
             yield '    <coverpage>\n';
-            yield '    <image 1:href="#cover.jpg">\n';
+            yield '    <image l:href="#cover.jpg"/>\n';
             yield '    </coverpage>\n';
             yield `    <lang>ru</lang>\n`;
             yield '  </title-info>\n';
             yield '</description>\n';
-            
-            let imageCounter = 0;
             
             if (coverBase64) {
                 const coverId = 'cover.jpg';
                 const base64Data = coverBase64.includes(',') ? coverBase64.split(',')[1] : coverBase64;
                 yield `<binary id="${coverId}" content-type="image/jpeg">${base64Data}</binary>\n`;
             }
-            
+
+            let imageCounter = 0;
             for (const chapter of chapters) {
                 if (!chapter.content || !Array.isArray(chapter.content)) continue;
                 
                 for (const block of chapter.content) {
                     if (block.type === 'image' && block.data && block.data.base64) {
-                        imageCounter++;
-                        const imageId = `image${imageCounter}`;
+                        const imageId = `image${++imageCounter}`;
                         const contentType = block.data.contentType || 'image/jpeg';
                         
                         yield `<binary id="${imageId}" content-type="${contentType}">${block.data.base64}</binary>\n`;
@@ -64,13 +62,6 @@
             }
             
             yield '<body>\n';
-            
-            if (coverBase64) {
-                yield '  <section>\n';
-                yield '    <title><p>Обложка</p></title>\n';
-                yield '    <p><image 2:href="#cover.jpg"/></p>\n';
-                yield '  </section>\n';
-            }
             
             for (const chapter of chapters) {
                 yield '  <section>\n';
