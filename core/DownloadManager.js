@@ -205,7 +205,25 @@
                 partIndex++;
                 const exporter = global.ExporterFactory.create(format);
                 const partSuffix = partIndex > 1 ? ` (Часть ${partIndex})` : '';
-                const finalManga = partSuffix ? { ...manga, rus_name: (manga.rus_name || manga.name) + partSuffix } : manga;
+                const mangaParts = partSuffix ? { ...manga, rus_name: (manga.rus_name || manga.name) + partSuffix } : manga;
+                /*
+                * manga authors has stucture
+                * Array [
+                *   Object {
+                *       ...,
+                *       name: 'full author name',
+                *       ...
+                *   },
+                *   ...
+                * ]
+                */
+                /*
+                 * prepare manga authors
+                */
+                const mangaAuthors = (Array.isArray(manga.authors))? (manga.authors).map(author => author.name || "")
+                                                                        : [manga.authors];
+
+                const finalManga = { ...mangaParts, authors: mangaAuthors };
                 this.updateStatus(downloadId, `Создание ${format.toUpperCase()}...`, 95);
                 const file = await exporter.export(finalManga, currentBatch, coverBase64);
                 await this.saveFile(file.blob, file.filename);
