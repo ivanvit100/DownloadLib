@@ -26,7 +26,7 @@
             if (!ExporterClass) {
                 throw new Error(`Unsupported format: ${format}`);
             }
-            return new ExporterClass();
+            return new global.ExporterAdapter(new ExporterClass());
         }
 
         static getSupportedFormats() {

@@ -17,6 +17,7 @@
             "services/ranobelib/config.js",
             "background/Background.js",
             "background/BackgroundDownload.js",
+            "exporters/ExporterAdapter.js",
             "exporters/ExporterFactory.js",
             "exporters/BaseExporter.js",
             "exporters/FB2Exporter.js",
