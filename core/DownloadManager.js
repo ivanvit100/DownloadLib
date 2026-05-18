@@ -220,8 +220,18 @@
                 /*
                  * prepare manga authors
                 */
-                const mangaAuthors = (Array.isArray(manga.authors))? (manga.authors).map(author => author.name || "")
-                                                                        : [manga.authors];
+                let mangaAuthors = (Array.isArray(manga.authors))?
+                    (manga.authors).map(author => {
+                        if(typeof author === 'object') {
+                            return author.name || "";
+                        }
+                        else {
+                            return author;
+                        }
+
+                        return "";
+                    })
+                : [""];
 
                 const finalManga = { ...mangaParts, authors: mangaAuthors };
                 this.updateStatus(downloadId, `Создание ${format.toUpperCase()}...`, 95);
