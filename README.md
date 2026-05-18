@@ -108,6 +108,14 @@
 
 ---
 
+## Благодарности
+
+| [<img src="https://github.com/BlackRavenoo.png" width="40"/>](https://github.com/BlackRavenoo) | [<img src="https://github.com/Dordovel.png" width="40"/>](https://github.com/Dordovel) |
+|:---:|:---:|
+| [BlackRavenoo](https://github.com/BlackRavenoo) | [Dordovel](https://github.com/Dordovel) |
+
+---
+
 ## Обратная связь
 
 - [GitHub проекта](https://github.com/ivanvit100/DownloadLib/)

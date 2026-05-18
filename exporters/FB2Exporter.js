@@ -32,9 +32,11 @@
             yield `    <genre>prose</genre>\n`;
             yield `    <author><first-name>${this.escapeXml(manga.authors || 'Unknown')}</first-name></author>\n`;
             yield `    <book-title>${this.escapeXml(manga.rus_name || manga.name || 'Unknown')}</book-title>\n`;
-            yield '    <coverpage>\n';
-            yield '    <image l:href="#cover.jpg"/>\n';
-            yield '    </coverpage>\n';
+            if (coverBase64) {
+                yield '    <coverpage>\n';
+                yield '    <image l:href="#cover.jpg"/>\n';
+                yield '    </coverpage>\n';
+            }
             yield `    <lang>ru</lang>\n`;
             yield '  </title-info>\n';
             yield '</description>\n';
