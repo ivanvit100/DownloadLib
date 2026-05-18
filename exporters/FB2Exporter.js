@@ -32,20 +32,20 @@
             yield `    <genre>prose</genre>\n`;
             yield `    <author><first-name>${this.escapeXml(manga.authors || 'Unknown')}</first-name></author>\n`;
             yield `    <book-title>${this.escapeXml(manga.rus_name || manga.name || 'Unknown')}</book-title>\n`;
+            yield '    <coverpage>\n';
+            yield '    <image l:href="#cover.jpg"/>\n';
+            yield '    </coverpage>\n';
             yield `    <lang>ru</lang>\n`;
             yield '  </title-info>\n';
             yield '</description>\n';
-            
-            let imageCounter = 0;
-            const imageMap = new Map();
             
             if (coverBase64) {
                 const coverId = 'cover.jpg';
                 const base64Data = coverBase64.includes(',') ? coverBase64.split(',')[1] : coverBase64;
                 yield `<binary id="${coverId}" content-type="image/jpeg">${base64Data}</binary>\n`;
-                imageMap.set('cover', coverId);
             }
             
+            let imageCounter = 0;
             for (const chapter of chapters) {
                 if (!chapter.content || !Array.isArray(chapter.content)) continue;
                 
