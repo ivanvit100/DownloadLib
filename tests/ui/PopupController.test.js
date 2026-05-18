@@ -150,6 +150,42 @@ describe('PopupController', () => {
         expect(controller.loadedFile).toBe(null);
     });
 
+    it('resetUI hides splitModeContainer when present', () => {
+        const splitModeContainer = document.createElement('div');
+        splitModeContainer.id = 'splitModeContainer';
+        splitModeContainer.style.display = 'none';
+        document.body.appendChild(splitModeContainer);
+        const controller = new PopupController();
+        controller.resetUI();
+        expect(splitModeContainer.style.display).toBe('block');
+    });
+
+    it('startDownload hides splitModeContainer when present', async () => {
+        const splitModeContainer = document.createElement('div');
+        splitModeContainer.id = 'splitModeContainer';
+        splitModeContainer.style.display = 'block';
+        document.body.appendChild(splitModeContainer);
+        const controller = new PopupController();
+        controller.currentSlug = 'slug';
+        controller.currentServiceKey = 'ranobelib';
+        await controller.startDownload();
+        expect(splitModeContainer.style.display).toBe('none');
+    });
+
+    it('startDownload uses maxSizeInput value when present', async () => {
+        const maxSizeInput = document.createElement('input');
+        maxSizeInput.id = 'maxSizeInput';
+        maxSizeInput.value = '150';
+        document.body.appendChild(maxSizeInput);
+        const controller = new PopupController();
+        controller.currentSlug = 'slug';
+        controller.currentServiceKey = 'ranobelib';
+        await controller.startDownload();
+        expect(controller.downloadManager.startDownload).toHaveBeenCalledWith(
+            expect.objectContaining({ maxSizeMB: 150 })
+        );
+    });
+
     it('Updates progress and status', () => {
         const controller = new PopupController();
         controller.updateProgress('msg', 42);
@@ -1971,6 +2007,18 @@ describe('PopupController', () => {
         expect(global.localStorage.setItem).toHaveBeenCalledWith('manga_parser_max_size_mb', '150');
     });
 
+    it('maxSizeInput event listener clamps value to 1 when input is NaN or less than 1', () => {
+        const controller = new PopupController();
+        const maxSizeInput = document.getElementById('maxSizeInput');
+        expect(maxSizeInput).toBeTruthy();
+        maxSizeInput.value = 'abc';
+        maxSizeInput.dispatchEvent(new Event('input'));
+        expect(maxSizeInput.value).toBe('1');
+        maxSizeInput.value = '0';
+        maxSizeInput.dispatchEvent(new Event('input'));
+        expect(maxSizeInput.value).toBe('1');
+    });
+
     it('splitModeContainer falls back to btn parent when chapterRangeContainer is absent', () => {
         let chapterRangeCallCount = 0;
         const original = document.getElementById.bind(document);
@@ -1996,5 +2044,79 @@ describe('PopupController', () => {
         await controller.loadMetadata();
         expect(global.localStorage.setItem).toHaveBeenCalledWith('manga_parser_max_size_mb', '150');
         window.location.search = originalSearch;
+    });
+
+    it('Saves formatSelector value to browserAPI.storage.local on init', async () => {
+        vi.resetModules();
+        setupDOM();
+        global.DownloadManager = class { constructor() { this.eventBus = { on: vi.fn() }; } };
+        const setMock = vi.fn();
+        global.browser = {
+            runtime: { sendMessage: vi.fn(async () => ({ ok: true, downloads: [] })), getURL: vi.fn() },
+            windows: { getCurrent: vi.fn(), create: vi.fn(), update: vi.fn() },
+            tabs: { query: vi.fn() },
+            storage: { local: { set: setMock } }
+        };
+        global.chrome = undefined;
+        await import('../../ui/PopupController.js?nocache=' + Math.random());
+        const PopupControllerClass = global.PopupController;
+        new PopupControllerClass();
+        expect(setMock).toHaveBeenCalledWith({ manga_parser_selected_format: expect.any(String) });
+    });
+
+    it('Saves formatSelector value to browserAPI.storage.local on change event', async () => {
+        vi.resetModules();
+        setupDOM();
+        global.DownloadManager = class { constructor() { this.eventBus = { on: vi.fn() }; } };
+        const setMock = vi.fn();
+        global.browser = {
+            runtime: { sendMessage: vi.fn(async () => ({ ok: true, downloads: [] })), getURL: vi.fn() },
+            windows: { getCurrent: vi.fn(), create: vi.fn(), update: vi.fn() },
+            tabs: { query: vi.fn() },
+            storage: { local: { set: setMock } }
+        };
+        global.chrome = undefined;
+        await import('../../ui/PopupController.js?nocache=' + Math.random());
+        const PopupControllerClass = global.PopupController;
+        new PopupControllerClass();
+        const formatSelector = document.getElementById('formatSelector');
+        setMock.mockClear();
+        formatSelector.value = 'epub';
+        formatSelector.dispatchEvent(new Event('change'));
+        expect(setMock).toHaveBeenCalledWith({ manga_parser_selected_format: 'epub' });
+    });
+
+    it('Warns when maxSizeInput not found but maxSizeMB URL param is set', async () => {
+        const controller = new PopupController();
+        const maxSizeInput = document.getElementById('maxSizeInput');
+        if (maxSizeInput) maxSizeInput.parentNode.removeChild(maxSizeInput);
+        Object.defineProperty(window, 'location', { value: { search: '?maxSizeMB=500' }, writable: true });
+        const warnSpy = vi.spyOn(console, 'warn');
+        await controller.loadMetadata();
+        expect(warnSpy).toHaveBeenCalledWith('Max size input element not found');
+        warnSpy.mockRestore();
+        window.location.search = '';
+    });
+
+    it('Warns when splitModeContainer not found during startDownload', async () => {
+        const controller = new PopupController();
+        controller.currentSlug = 'slug';
+        controller.currentServiceKey = 'ranobelib';
+        const sc = document.getElementById('splitModeContainer');
+        if (sc) sc.parentNode.removeChild(sc);
+        const warnSpy = vi.spyOn(console, 'warn');
+        await controller.startDownload();
+        expect(warnSpy).toHaveBeenCalledWith('Split mode container not found when hiding during download');
+        warnSpy.mockRestore();
+    });
+
+    it('Warns when splitModeContainer not found during resetUI', () => {
+        const controller = new PopupController();
+        const sc = document.getElementById('splitModeContainer');
+        if (sc) sc.parentNode.removeChild(sc);
+        const warnSpy = vi.spyOn(console, 'warn');
+        controller.resetUI();
+        expect(warnSpy).toHaveBeenCalledWith('Split mode container not found when resetting UI');
+        warnSpy.mockRestore();
     });
 });

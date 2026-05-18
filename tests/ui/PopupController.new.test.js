@@ -25,6 +25,7 @@ function setupDOM() {
 
 beforeEach(async () => {
     vi.resetModules();
+    delete global.getExtensionApi;
 
     intervals = [];
     if (!originalSetInterval) {
@@ -914,5 +915,45 @@ describe('PopupController second test file', () => {
         expect(global.getExtensionApi).toHaveBeenCalledTimes(1);
         expect(extensionApi.runtime.sendMessage).toHaveBeenCalled();
         expect(global.browser.runtime.sendMessage).not.toHaveBeenCalled();
+    });
+
+    it('Defaults format to fb2 when formatSelector is absent in window creation path', async () => {
+        const controller = new PopupController();
+        controller.currentSlug = 'slug';
+        controller.currentServiceKey = 'ranobelib';
+        const formatSelector = document.getElementById('formatSelector');
+        if (formatSelector && formatSelector.parentNode) formatSelector.parentNode.removeChild(formatSelector);
+        controller.isInSeparateWindow = vi.fn().mockResolvedValue(false);
+        const windowsCreateSpy = vi.spyOn(global.browser.windows, 'create').mockResolvedValue({ id: 123 });
+        const downloadBtn = document.getElementById('downloadBtn');
+        downloadBtn.click();
+        await new Promise(resolve => setTimeout(resolve, 100));
+        const urlArg = windowsCreateSpy.mock.calls[0]?.[0]?.url;
+        expect(urlArg).toContain('format=fb2');
+        windowsCreateSpy.mockRestore();
+    });
+
+    it('Uses 200 as maxSizeMB when maxSizeInput is absent in window creation path, and splitModeContainer is hidden on startDownload and shown on resetUI', async () => {
+        const splitModeContainer = document.createElement('div');
+        splitModeContainer.id = 'splitModeContainer';
+        splitModeContainer.style.display = 'block';
+        document.body.appendChild(splitModeContainer);
+        const controller = new PopupController();
+        controller.currentSlug = 'slug';
+        controller.currentServiceKey = 'ranobelib';
+        const maxSizeInput = document.getElementById('maxSizeInput');
+        if (maxSizeInput && maxSizeInput.parentNode) maxSizeInput.parentNode.removeChild(maxSizeInput);
+        controller.isInSeparateWindow = vi.fn().mockResolvedValue(false);
+        const windowsCreateSpy = vi.spyOn(global.browser.windows, 'create').mockResolvedValue({ id: 123 });
+        const downloadBtn = document.getElementById('downloadBtn');
+        downloadBtn.click();
+        await new Promise(resolve => setTimeout(resolve, 100));
+        const urlArg = windowsCreateSpy.mock.calls[0]?.[0]?.url;
+        expect(urlArg).toContain('maxSizeMB=200');
+        windowsCreateSpy.mockRestore();
+        await controller.startDownload();
+        expect(splitModeContainer.style.display).toBe('none');
+        controller.resetUI();
+        expect(splitModeContainer.style.display).toBe('block');
     });
 });

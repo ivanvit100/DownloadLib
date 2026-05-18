@@ -540,6 +540,7 @@
                 localStorage.setItem('manga_parser_max_size_mb', maxSizeMBFromUrl);
                 const maxSizeInput = document.getElementById('maxSizeInput');
                 if (maxSizeInput) maxSizeInput.value = maxSizeMBFromUrl;
+                else console.warn('Max size input element not found');
             }
 
             const rateLimitInput = document.getElementById('rateLimitInput');
@@ -996,6 +997,7 @@
                 else console.warn('Chapter range container not found when hiding during download');
                 const splitModeContainer = document.getElementById('splitModeContainer');
                 if (splitModeContainer) splitModeContainer.style.display = 'none';
+                else console.warn('Split mode container not found when hiding during download');
 
                 const statusText = this.loadedFile ? 'Запуск обновления...' : 'Запуск скачивания...';
                 if (status) status.textContent = statusText;
@@ -1097,6 +1099,7 @@
             else console.warn('Chapter range container not found when resetting UI');
             const splitModeContainer = document.getElementById('splitModeContainer');
             if (splitModeContainer) splitModeContainer.style.display = 'block';
+            else console.warn('Split mode container not found when resetting UI');
 
             this.currentDownloadId = null;
         }

@@ -11,9 +11,11 @@ let mockStop;
 let mockAddListenerBeforeSendHeaders;
 let mockAddListenerOnMessage;
 let mockAddListenerOnBeforeRequest;
+let mockAddListenerOnHeadersReceived;
 let capturedBeforeSendHeadersCb;
 let capturedMessageCb;
 let capturedOnBeforeRequestCb;
+let capturedHeadersReceivedCb;
 let isFirefoxMode;
 let isChromeMode;
 
@@ -60,15 +62,18 @@ function setupGlobals(mode) {
     capturedBeforeSendHeadersCb = null;
     capturedMessageCb = null;
     capturedOnBeforeRequestCb = null;
+    capturedHeadersReceivedCb = null;
 
     mockAddListenerBeforeSendHeaders = vi.fn((cb) => { capturedBeforeSendHeadersCb = cb; });
     mockAddListenerOnMessage = vi.fn((cb) => { capturedMessageCb = cb; });
     mockAddListenerOnBeforeRequest = vi.fn((cb) => { capturedOnBeforeRequestCb = cb; });
+    mockAddListenerOnHeadersReceived = vi.fn((cb) => { capturedHeadersReceivedCb = cb; });
 
     const apiObj = {
         webRequest: {
             onBeforeSendHeaders: { addListener: mockAddListenerBeforeSendHeaders },
             onBeforeRequest: { addListener: mockAddListenerOnBeforeRequest },
+            onHeadersReceived: { addListener: mockAddListenerOnHeadersReceived },
         },
         runtime: {
             onMessage: { addListener: mockAddListenerOnMessage },
@@ -129,6 +134,7 @@ describe('Background', () => {
                         'https://*.mixlib.me/*',
                         'https://*.imglib.info/*',
                         'https://*.imgslib.link/*',
+                        'https://ranobelib.me/*',
                         'https://*.ranobelib.me/*',
                         'https://*.mangalib.me/*',
                         'https://*.mangalib.org/*'
@@ -500,6 +506,61 @@ describe('Background', () => {
                 ],
             });
             expect(mockTrackRequest).toHaveBeenCalledWith('mangalib');
+        });
+
+        it('Registers onHeadersReceived listener', () => {
+            expect(mockAddListenerOnHeadersReceived).toHaveBeenCalledWith(
+                expect.any(Function),
+                { urls: expect.any(Array) },
+                ['blocking', 'responseHeaders'],
+            );
+        });
+
+        it('onHeadersReceived returns empty object for non-extension request', () => {
+            const result = capturedHeadersReceivedCb({
+                url: 'https://img.mixlib.me/image.jpg',
+                requestHeaders: [],
+                responseHeaders: [],
+            });
+            expect(result).toEqual({});
+        });
+
+        it('onHeadersReceived returns empty object for non-image request from extension', () => {
+            const result = capturedHeadersReceivedCb({
+                url: 'https://api.mangalib.me/data',
+                requestHeaders: [{ name: 'X-Extension-Request', value: 'true' }],
+                responseHeaders: [],
+            });
+            expect(result).toEqual({});
+        });
+
+        it('onHeadersReceived adds CORS header for image request from extension', () => {
+            const result = capturedHeadersReceivedCb({
+                url: 'https://img.mixlib.me/image.jpg',
+                requestHeaders: [{ name: 'X-Extension-Request', value: 'true' }],
+                responseHeaders: [],
+            });
+            expect(result.responseHeaders).toContainEqual({ name: 'Access-Control-Allow-Origin', value: '*' });
+        });
+
+        it('onHeadersReceived does not duplicate CORS header if already present', () => {
+            const result = capturedHeadersReceivedCb({
+                url: 'https://img.mixlib.me/image.jpg',
+                requestHeaders: [{ name: 'X-Extension-Request', value: 'true' }],
+                responseHeaders: [{ name: 'Access-Control-Allow-Origin', value: 'https://mangalib.me' }],
+            });
+            const corsHeaders = result.responseHeaders.filter(
+                h => h.name.toLowerCase() === 'access-control-allow-origin'
+            );
+            expect(corsHeaders).toHaveLength(1);
+        });
+
+        it('onHeadersReceived handles missing responseHeaders', () => {
+            const result = capturedHeadersReceivedCb({
+                url: 'https://img.mixlib.me/image.jpg',
+                requestHeaders: [{ name: 'X-Extension-Request', value: 'true' }],
+            });
+            expect(result.responseHeaders).toContainEqual({ name: 'Access-Control-Allow-Origin', value: '*' });
         });
     });
 
@@ -905,6 +966,91 @@ describe('Background', () => {
             const result = capturedMessageCb({ action: 'unknownAction' }, {}, sendResponse);
             expect(result).toBe(false);
         });
+
+        it('Handles openDownloadWindow with no tab URL', async () => {
+            const sendResponse = vi.fn();
+            capturedMessageCb({ action: 'openDownloadWindow', format: 'epub' }, {}, sendResponse);
+            await vi.waitFor(() => expect(sendResponse).toHaveBeenCalled());
+            expect(sendResponse).toHaveBeenCalledWith({ ok: false, error: 'No tab URL' });
+        });
+
+        it('Handles openDownloadWindow when slug or service cannot be detected', async () => {
+            const sendResponse = vi.fn();
+            capturedMessageCb(
+                { action: 'openDownloadWindow', format: 'epub' },
+                { tab: { url: 'https://mangalib.me/some-page' } },
+                sendResponse,
+            );
+            await vi.waitFor(() => expect(sendResponse).toHaveBeenCalled());
+            expect(sendResponse).toHaveBeenCalledWith({ ok: false, error: 'Cannot detect slug or service' });
+        });
+
+        it('Handles openDownloadWindow success and updates window focus', async () => {
+            const mockCreate = vi.fn().mockResolvedValue({ id: 42 });
+            const mockUpdate = vi.fn().mockResolvedValue({});
+            globalThis.browser.windows = { create: mockCreate, update: mockUpdate };
+            globalThis.browser.runtime.getURL = vi.fn().mockReturnValue('moz-extension://id/popup.html');
+
+            const sendResponse = vi.fn();
+            capturedMessageCb(
+                { action: 'openDownloadWindow', format: 'epub' },
+                { tab: { url: 'https://mangalib.me/manga/my-manga/chapter-1' } },
+                sendResponse,
+            );
+            await vi.waitFor(() => expect(sendResponse).toHaveBeenCalled());
+            expect(sendResponse).toHaveBeenCalledWith({ ok: true });
+            expect(mockUpdate).toHaveBeenCalledWith(42, { focused: true });
+        });
+
+        it('Handles openDownloadWindow without win.id (no update call)', async () => {
+            const mockCreate = vi.fn().mockResolvedValue({});
+            const mockUpdate = vi.fn();
+            globalThis.browser.windows = { create: mockCreate, update: mockUpdate };
+            globalThis.browser.runtime.getURL = vi.fn().mockReturnValue('moz-extension://id/popup.html');
+
+            const sendResponse = vi.fn();
+            capturedMessageCb(
+                { action: 'openDownloadWindow', format: 'fb2' },
+                { tab: { url: 'https://ranobelib.me/book/my-ranobe' } },
+                sendResponse,
+            );
+            await vi.waitFor(() => expect(sendResponse).toHaveBeenCalled());
+            expect(sendResponse).toHaveBeenCalledWith({ ok: true });
+            expect(mockUpdate).not.toHaveBeenCalled();
+        });
+
+        it('Handles openDownloadWindow with default format fb2', async () => {
+            const mockCreate = vi.fn().mockResolvedValue({ id: 1 });
+            globalThis.browser.windows = { create: mockCreate, update: vi.fn() };
+            globalThis.browser.runtime.getURL = vi.fn().mockReturnValue('moz-extension://id/popup.html');
+
+            const sendResponse = vi.fn();
+            capturedMessageCb(
+                { action: 'openDownloadWindow' },
+                { tab: { url: 'https://mangalib.me/manga/slug' } },
+                sendResponse,
+            );
+            await vi.waitFor(() => expect(sendResponse).toHaveBeenCalled());
+            const createCall = mockCreate.mock.calls[0][0];
+            expect(createCall.url).toContain('format=fb2');
+        });
+
+        it('Handles openDownloadWindow exception', async () => {
+            globalThis.browser.windows = {
+                create: vi.fn().mockRejectedValue(new Error('window fail')),
+                update: vi.fn(),
+            };
+            globalThis.browser.runtime.getURL = vi.fn().mockReturnValue('moz-extension://id/popup.html');
+
+            const sendResponse = vi.fn();
+            capturedMessageCb(
+                { action: 'openDownloadWindow', format: 'epub' },
+                { tab: { url: 'https://mangalib.me/manga/my-manga' } },
+                sendResponse,
+            );
+            await vi.waitFor(() => expect(sendResponse).toHaveBeenCalled());
+            expect(sendResponse).toHaveBeenCalledWith({ ok: false, error: expect.stringContaining('window fail') });
+        });
     });
 
     describe('onBeforeRequest ad blocking', () => {
@@ -997,7 +1143,8 @@ describe('Background', () => {
                 url: 'https://ranobelib.me/uploads/image.jpg',
                 requestHeaders: [],
             });
-            expect(result).toEqual({});
+            const custom = result.requestHeaders.find(h => h.name === 'X-Custom');
+            expect(custom.value).toBe('ranobelib');
         });
 
         it('Detects image request with covers path', async () => {

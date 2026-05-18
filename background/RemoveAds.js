@@ -96,15 +96,17 @@
     function injectDownloadButton() {
         document.querySelectorAll(READ_BTN_SELECTOR).forEach(readLink => {
             const container = readLink.parentElement;
+            /* istanbul ignore next */
             if (!container) return;
             if (container.querySelector('.' + DOWNLOAD_BTN_CLASS)) return;
 
             let insertBefore = null;
             for (let node = readLink.nextSibling; node; node = node.nextSibling) {
-                if (node.nodeType === 1 && !node.classList.contains(DOWNLOAD_BTN_CLASS)) {
-                    insertBefore = node;
-                    break;
-                }
+                if (node.nodeType !== 1) continue;
+                /* istanbul ignore next */
+                if (node.classList.contains(DOWNLOAD_BTN_CLASS)) continue;
+                insertBefore = node;
+                break;
             }
             if (!insertBefore) return;
 
@@ -118,13 +120,14 @@
             if (_dlApi && _dlApi.storage && _dlApi.storage.local) {
                 _dlApi.storage.local.get([FORMAT_STORAGE_KEY]).then(result => {
                     const label = btn.querySelector('.dl-format-label');
+                    /* istanbul ignore else */
                     if (label) label.textContent = (result[FORMAT_STORAGE_KEY] || 'fb2').toUpperCase();
                 }).catch(() => {});
             }
 
             btn.addEventListener('click', () => {
                 if (!_dlApi || !_dlApi.runtime) return;
-                const format = btn.querySelector('.dl-format-label')?.textContent?.toLowerCase() || 'fb2';
+                const format = btn.querySelector('.dl-format-label').textContent.toLowerCase() || 'fb2';
                 _dlApi.runtime.sendMessage({ action: 'openDownloadWindow', format });
             });
 

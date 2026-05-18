@@ -884,4 +884,75 @@ describe('RanobeLibService', () => {
         ]);
         expect(result).toEqual([{ type: 'text', text: 'hello world' }]);
     });
+
+    it('Process chapter content skips attachments without name or extension', async () => {
+        const svc = new RanobeLibService();
+        global.browser = {
+            runtime: { sendMessage: vi.fn().mockResolvedValue({ ok: true, base64: 'data' }) }
+        };
+        const result = await svc.processChapterContent(
+            [{ type: 'text', text: 'hello' }],
+            {},
+            {
+                chapterMeta: {
+                    id: 1, manga_id: 2,
+                    attachments: [
+                        { name: 'valid-uuid', extension: 'png' },
+                        { name: null, extension: 'jpg' },
+                        { name: 'key', extension: null }
+                    ]
+                }
+            }
+        );
+        expect(result).toEqual([{ type: 'text', text: 'hello' }]);
+        delete global.browser;
+    });
+
+    it('Process chapter content uses attachmentMap extension for plain UUID image src', async () => {
+        const svc = new RanobeLibService();
+        const sendMessageMock = vi.fn().mockResolvedValue({ ok: true, base64: 'imgdata' });
+        global.browser = { runtime: { sendMessage: sendMessageMock } };
+        const uuid = 'some-plain-uuid';
+        await svc.processChapterContent(
+            [{ type: 'image', src: uuid }],
+            {},
+            {
+                chapterMeta: {
+                    id: 99, manga_id: 42,
+                    attachments: [{ name: uuid, extension: 'webp' }]
+                }
+            }
+        );
+        const calledUrl = sendMessageMock.mock.calls[0][0].url;
+        expect(calledUrl).toMatch(/\.webp$/);
+        delete global.browser;
+    });
+
+    it('Process chapter content builds absolute URL for absolute path image src', async () => {
+        const svc = new RanobeLibService();
+        const sendMessageMock = vi.fn().mockResolvedValue({ ok: true, base64: 'imgdata' });
+        global.browser = { runtime: { sendMessage: sendMessageMock } };
+        await svc.processChapterContent(
+            [{ type: 'image', src: '/uploads/image.jpg' }],
+            {},
+            { chapterMeta: { id: 1, manga_id: 2 } }
+        );
+        const calledUrl = sendMessageMock.mock.calls[0][0].url;
+        expect(calledUrl).toMatch(/^https:\/\/ranobelib\.me\//);
+        delete global.browser;
+    });
+
+    it('Process chapter content builds URL directly for full URL image src', async () => {
+        const svc = new RanobeLibService();
+        const sendMessageMock = vi.fn().mockResolvedValue({ ok: true, base64: 'imgdata' });
+        global.browser = { runtime: { sendMessage: sendMessageMock } };
+        await svc.processChapterContent(
+            [{ type: 'image', src: 'https://cdn.example.com/uploads/image.jpg' }],
+            {},
+            { chapterMeta: { id: 1, manga_id: 2 } }
+        );
+        const calledUrl = sendMessageMock.mock.calls[0][0].url;
+        expect(calledUrl).toMatch(/^https:\/\/cdn\.example\.com\//);
+        delete global.browser;
+    });
 });

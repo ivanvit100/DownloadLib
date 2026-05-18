@@ -997,4 +997,80 @@ describe('DownloadManager', () => {
         const chapter = { content: [{ type: 'image', data: {} }] };
         expect(dm.estimateChapterSize(chapter)).toBe(0);
     });
+
+    it('estimateChapterSize ignores blocks of unknown type', () => {
+        const dm = new DownloadManager();
+        const chapter = { content: [{ type: 'unknown', data: {} }] };
+        expect(dm.estimateChapterSize(chapter)).toBe(0);
+    });
+
+    it('downloadSingleChapter returns fallback title when chapter.name is undefined and fetchChapter throws', async () => {
+        const dm = new DownloadManager();
+        const errorSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
+        const chapter = { volume: '2', number: '5' };
+        const service = { fetchChapter: vi.fn(async () => { throw new Error('fail'); }) };
+        const ds = { slug: 'slug', format: 'fb2' };
+        const result = await dm.downloadSingleChapter(service, ds, chapter);
+        expect(result.title).toBe('Том 2, Глава 5');
+        expect(result.content[0].text).toContain('fail');
+        errorSpy.mockRestore();
+    });
+
+    it('downloadSingleChapter uses default volume "1" when chapter.volume is undefined', async () => {
+        const dm = new DownloadManager();
+        const fetchSpy = vi.fn(async () => ({ data: { content: [{ type: 'text', text: 'ok' }] } }));
+        const service = { fetchChapter: fetchSpy, extractText: vi.fn(c => c), processChapterContent: vi.fn(async c => c) };
+        const ds = { slug: 'myslug', format: 'fb2' };
+        const chapter = { number: '3' };
+        await dm.downloadSingleChapter(service, ds, chapter);
+        expect(fetchSpy).toHaveBeenCalledWith('myslug', '3', '1');
+    });
+
+    it('downloadSingleChapter uses chapterData directly when chapterData.data is absent', async () => {
+        const dm = new DownloadManager();
+        const service = {
+            fetchChapter: vi.fn(async () => ({ content: [{ type: 'text', text: 'direct' }] })),
+            extractText: vi.fn(c => c),
+            processChapterContent: vi.fn(async c => c)
+        };
+        const ds = { slug: 'slug', format: 'fb2' };
+        const result = await dm.downloadSingleChapter(service, ds, { number: '1', volume: '1' });
+        expect(result.content[0].text).toBe('direct');
+    });
+
+    it('downloadSingleChapter uses rawContent directly when rawContent.content is absent', async () => {
+        const dm = new DownloadManager();
+        const service = {
+            fetchChapter: vi.fn(async () => ({ data: { notContent: 'value' } })),
+            extractText: vi.fn(c => c),
+            processChapterContent: vi.fn(async c => c)
+        };
+        const ds = { slug: 'slug', format: 'fb2' };
+        const result = await dm.downloadSingleChapter(service, ds, { number: '1', volume: '1' });
+        expect(result.content.notContent).toBe('value');
+    });
+
+    it('downloadSingleChapter uses contentToExtract directly when extractText is undefined', async () => {
+        const dm = new DownloadManager();
+        const service = {
+            fetchChapter: vi.fn(async () => ({ data: { content: [{ type: 'text', text: 'plain' }] } })),
+            extractText: undefined,
+            processChapterContent: vi.fn(async c => c)
+        };
+        const ds = { slug: 'slug', format: 'fb2' };
+        const result = await dm.downloadSingleChapter(service, ds, { number: '1', volume: '1' });
+        expect(result.content[0].text).toBe('plain');
+    });
+
+    it('downloadSingleChapter uses extractedContent directly when processChapterContent is undefined', async () => {
+        const dm = new DownloadManager();
+        const service = {
+            fetchChapter: vi.fn(async () => ({ data: { content: [{ type: 'text', text: 'plain' }] } })),
+            extractText: vi.fn(c => c),
+            processChapterContent: undefined
+        };
+        const ds = { slug: 'slug', format: 'fb2' };
+        const result = await dm.downloadSingleChapter(service, ds, { number: '1', volume: '1' });
+        expect(result.content[0].text).toBe('plain');
+    });
 });
