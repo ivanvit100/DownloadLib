@@ -18,7 +18,7 @@ try {
         '/exporters/MobiExporter.js',
         '/exporters/PDFExporter.js',
         '/exporters/SimpleExporter.js',
-        '/exporters/ExporterAdapter.js',
+        '/exporters/ExporterMangaPrepareProxy.js',
         '/exporters/ExporterFactory.js',
         '/lib/jszip.min.js',
         '/background/BackgroundDownload.js',

@@ -30,7 +30,7 @@
         'FB2Exporter',
         'EPUBExporter',
         'PDFExporter',
-        'ExporterAdapter',
+        'ExporterMangaPrepareProxy',
         'ExporterFactory',
         'PopupController'
     ];

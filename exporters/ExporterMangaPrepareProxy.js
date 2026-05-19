@@ -10,7 +10,7 @@
 'use strict';
 
 (function(global) {
-    console.log('[ExportAdapter] Loading...');
+    console.log('[ExporterMangaPrepareProxy] Loading...');
 
     class AuthorApiCompatibilityModule {
         static prepare(manga) {
@@ -28,7 +28,7 @@
             /*
              * prepare manga authors
             */
-            return (Array.isArray(manga.authors))?
+            const authors = (Array.isArray(manga.authors))?
                 (manga.authors).map(author => {
                     if(typeof author === 'object') {
                         return author.name || "";
@@ -37,20 +37,30 @@
                     return author;
                 })
             : [""];
+
+            return { ...manga, authors: authors };
         }
     }
 
-    class ExporterAdapter {
+    class ExporterMangaPrepareProxy {
         constructor (exporter) {
             this.exporter = exporter;
+
+            this.pipes = [
+                AuthorApiCompatibilityModule
+            ];
         }
 
         async export(manga, chapters, coverBase64) {
-            const authors = AuthorApiCompatibilityModule.prepare(manga);
-            return this.exporter.export({ ...manga, authors: authors }, chapters, coverBase64);
+            let pipeline = manga;
+            for(const pipe of this.pipes) {
+                pipeline = pipe.prepare(pipeline);
+            }
+
+            return this.exporter.export(pipeline, chapters, coverBase64);
         }
     }
 
-    global.ExporterAdapter = ExporterAdapter;
-    console.log('[ExportAdapter] Loaded');
+    global.ExporterMangaPrepareProxy = ExporterMangaPrepareProxy;
+    console.log('[ExporterMangaPrepareProxy] Loaded');
 })(typeof window !== 'undefined' ? window : self);
