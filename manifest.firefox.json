@@ -17,7 +17,7 @@
             "services/ranobelib/config.js",
             "background/Background.js",
             "background/BackgroundDownload.js",
-            "exporters/ExporterMangaPrepareProxy.js",
+            "exporters/ExportMangaPatcher.js",
             "exporters/ExporterFactory.js",
             "exporters/BaseExporter.js",
             "exporters/FB2Exporter.js",

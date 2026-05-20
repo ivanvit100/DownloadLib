@@ -21,6 +21,10 @@ globalThis.ExporterFactory = {
     create: vi.fn(() => ({ export: mockExportFn })),
 };
 
+globalThis.ExportMangaPatcher = {
+    patch: vi.fn((c) => c),
+};
+
 delete globalThis.getExtensionApi;
 
 globalThis.browser = {

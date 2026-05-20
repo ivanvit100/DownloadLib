@@ -26,7 +26,7 @@
             if (!ExporterClass) {
                 throw new Error(`Unsupported format: ${format}`);
             }
-            return new global.ExporterMangaPrepareProxy(new ExporterClass());
+            return new ExporterClass();
         }
 
         static getSupportedFormats() {
