@@ -184,7 +184,8 @@
                         const partSuffix = ` (Часть ${partIndex})`;
                         const mangaWithSuffix = { ...manga, rus_name: (manga.rus_name || manga.name) + partSuffix };
                         this.updateStatus(downloadId, `Сохранение части ${partIndex}...`, progress);
-                        const file = await exporter.export(mangaWithSuffix, currentBatch, coverBase64);
+                        const patch = global.ExportMangaPatcher.patch(mangaWithSuffix);
+                        const file = await exporter.export(patch, currentBatch, coverBase64);
                         await this.saveFile(file.blob, file.filename);
 
                         currentBatch = [chapterResult];
@@ -206,8 +207,10 @@
                 const exporter = global.ExporterFactory.create(format);
                 const partSuffix = partIndex > 1 ? ` (Часть ${partIndex})` : '';
                 const finalManga = partSuffix ? { ...manga, rus_name: (manga.rus_name || manga.name) + partSuffix } : manga;
+
                 this.updateStatus(downloadId, `Создание ${format.toUpperCase()}...`, 95);
-                const file = await exporter.export(finalManga, currentBatch, coverBase64);
+                const patch = global.ExportMangaPatcher.patch(finalManga);
+                const file = await exporter.export(patch, currentBatch, coverBase64);
                 await this.saveFile(file.blob, file.filename);
             }
         }
@@ -307,8 +310,9 @@
                 );
 
                 this.updateStatus(downloadId, `Создание обновлённого ${format.toUpperCase()}...`, 95);
+                const patch = global.ExportMangaPatcher.patch(existingData.metadata);
                 const file = await exporter.export(
-                    existingData.metadata,
+                    patch,
                     mergedChapters,
                     existingData.cover
                 );

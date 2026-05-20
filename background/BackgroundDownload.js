@@ -134,7 +134,8 @@ class BackgroundDownload {
             download.progress = 95;
             
             const exporter = ExporterFactory.create(download.format);
-            const file = await exporter.export(download.manga, download.chapterContents, download.coverBase64);
+            const patch = ExportMangaPatcher.patch(download.manga);
+            const file = await exporter.export(patch, download.chapterContents, download.coverBase64);
 
             const filename = file.filename;
             const blob = file.blob;
