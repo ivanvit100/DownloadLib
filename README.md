@@ -12,7 +12,13 @@
 ![Code Coverage](https://img.shields.io/badge/Coverage-100%25-brightgreen)
 ![Version](https://img.shields.io/badge/version-1.0.5-blue)
 
-[📦 Скачать](#установка) · [⚠️ Сообщить об ошибке](https://github.com/ivanvit100/DownloadLib/issues) · [🏠 Сайт автора](https://ivanvit.ru)
+[📦 Скачать](#установка) · [⚠️ Сообщить об ошибке](https://github.com/ivanvit100/DownloadLib/issues) · [✏️ Участвовать в разработке](CONTRIBUTING.md)
+
+</div>
+
+<div align="center">
+
+> Хотите помочь проекту или узнать, что планируется в следующих версиях? Смотрите [CONTRIBUTING.md](CONTRIBUTING.md).
 
 </div>
 
