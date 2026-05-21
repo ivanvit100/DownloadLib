@@ -91,6 +91,7 @@ beforeEach(async () => {
     };
     global.chrome = undefined;
     global.window.close = vi.fn();
+    await import('../../core/MangaPatcher.js');
     await import('../../ui/PopupController.js');
     PopupController = global.PopupController;
 });
@@ -1111,7 +1112,7 @@ describe('PopupController', () => {
         global.browser.tabs.query = vi.fn(async () => ([{ url: 'https://ranobelib.me/manga/slug' }]));
         const consoleWarnSpy = vi.spyOn(console, 'warn');
         await controller.loadMetadata();
-        expect(consoleWarnSpy).toHaveBeenCalledWith('No valid cover URL found in meta.cover object');
+        expect(consoleWarnSpy).toHaveBeenCalledWith('No cover information found in metadata');
         consoleWarnSpy.mockRestore();
     });
 

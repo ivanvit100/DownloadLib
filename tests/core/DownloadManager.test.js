@@ -27,7 +27,7 @@ beforeEach(async () => {
 
     globalMock.EventBus = vi.fn(function() { return eventBusMock; });
     globalMock.ExporterFactory = { create: vi.fn(() => exporterMock) };
-    globalMock.ExportMangaPatcher = { patch: vi.fn((c) => c) };
+    globalMock.MangaPatcher = { patch: vi.fn((c) => c) };
     globalMock.serviceRegistry = { getServiceByUrl: vi.fn(() => serviceMock) };
     globalMock.MangaLibService = vi.fn(function() { return serviceMock; });
     globalMock.RanobeLibService = vi.fn(function() { return { ...serviceMock, name: 'ranobelib' }; });
@@ -35,7 +35,7 @@ beforeEach(async () => {
 
     globalThis.EventBus = globalMock.EventBus;
     globalThis.ExporterFactory = globalMock.ExporterFactory;
-    globalThis.ExportMangaPatcher = globalMock.ExportMangaPatcher;
+    globalThis.MangaPatcher = globalMock.MangaPatcher;
     globalThis.serviceRegistry = globalMock.serviceRegistry;
     globalThis.MangaLibService = globalMock.MangaLibService;
     globalThis.RanobeLibService = globalMock.RanobeLibService;

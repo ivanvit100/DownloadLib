@@ -1,7 +1,7 @@
 {
     "manifest_version": 3,
     "name": "DownloadLib",
-    "version": "1.0.5",
+    "version": "1.0.6",
     "description": "Скачивает мангу с порталов MangaLib в удобном для чтения формате.",
     "author": "https://ivanvit.ru",
     "homepage_url": "https://github.com/ivanvit100/DownloadLib",
@@ -10,6 +10,7 @@
         "scripts": [
             "core/BrowserApi.js",
             "core/RateLimiter.js",
+            "core/MangaPatcher.js",
             "services/BaseService.js",
             "services/mangalib/MangaLibService.js",
             "services/mangalib/config.js",
@@ -17,7 +18,6 @@
             "services/ranobelib/config.js",
             "background/Background.js",
             "background/BackgroundDownload.js",
-            "exporters/ExportMangaPatcher.js",
             "exporters/ExporterFactory.js",
             "exporters/BaseExporter.js",
             "exporters/FB2Exporter.js",

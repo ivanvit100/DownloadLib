@@ -77,7 +77,7 @@ describe('EPUBExporter', () => {
     });
 
     it('Uses defaults for missing manga fields', () => {
-        const opf = exporter.createOPF({}, '', '');
+        const opf = exporter.createOPF({ authors: [] }, '', '');
         expect(opf).toContain('<dc:title>Без названия</dc:title>');
         expect(opf).toContain('<dc:creator>Неизвестно</dc:creator>');
     });
@@ -94,7 +94,7 @@ describe('EPUBExporter', () => {
     });
 
     it('Throws if JSZip is not loaded', async () => {
-        const manga = { name: 'Test', authors: 'Author' };
+        const manga = { name: 'Test', authors: ['Author'] };
         const chapters = [];
         const origJSZip = global.JSZip;
         global.JSZip = undefined;
@@ -108,7 +108,7 @@ describe('EPUBExporter', () => {
             file(name, content, opts) { this.files[name] = { content, opts }; }
             generateAsync() { return Promise.resolve('blob'); }
         };
-        const manga = {};
+        const manga = { authors: [] };
         const chapters = [];
         const result = await exporter.export(manga, chapters);
         expect(result.filename).toBe('manga.epub');
@@ -126,7 +126,7 @@ describe('EPUBExporter', () => {
             }
             generateAsync() { return Promise.resolve('blob'); }
         };
-        const manga = { name: 'Test', authors: 'Author' };
+        const manga = { name: 'Test', authors: ['Author'] };
         const chapters = [];
         await exporter.export(manga, chapters, 'coverdata');
         expect(coverAdded).toBe(true);
@@ -142,7 +142,7 @@ describe('EPUBExporter', () => {
             }
             generateAsync() { return Promise.resolve('blob'); }
         };
-        const manga = { name: 'Test', authors: 'Author' };
+        const manga = { name: 'Test', authors: ['Author'] };
         const chapters = [
             { title: 'Chapter 1', content: [
                 { type: 'image', data: { base64: 'imgdata', contentType: 'image/jpeg' } }
@@ -162,7 +162,7 @@ describe('EPUBExporter', () => {
             }
             generateAsync() { return Promise.resolve('blob'); }
         };
-        const manga = { name: 'Test', authors: 'Author' };
+        const manga = { name: 'Test', authors: ['Author'] };
         const chapters = [
             { title: 'Chapter 1', content: [
                 { type: 'image', data: { base64: 'imgdata', contentType: 'image/png' } }
@@ -199,7 +199,7 @@ describe('EPUBExporter', () => {
             generateAsync() { return Promise.resolve('blob'); }
         };
         const exporter = new EPUBExporter();
-        const manga = { name: 'Test', authors: 'Author' };
+        const manga = { name: 'Test', authors: ['Author'] };
         const chapters = [];
         const coverBase64 = 'data:image/jpeg;base64,coverdata';
         await exporter.export(manga, chapters, coverBase64);
@@ -212,7 +212,7 @@ describe('EPUBExporter', () => {
             generateAsync() { return Promise.resolve('blob'); }
         };
         const exporter = new EPUBExporter();
-        const manga = { name: 'Test', authors: 'Author' };
+        const manga = { name: 'Test', authors: ['Author'] };
         const chapters = [
             { title: 'Chapter 1', content: [
                 { type: 'image' }
@@ -231,7 +231,7 @@ describe('EPUBExporter', () => {
             generateAsync() { return Promise.resolve('blob'); }
         };
         const exporter = new EPUBExporter();
-        const manga = { name: 'Test', authors: 'Author' };
+        const manga = { name: 'Test', authors: ['Author'] };
         const chapters = [
             { title: 'Chapter 1' }
         ];
@@ -251,7 +251,7 @@ describe('EPUBExporter', () => {
             generateAsync() { return Promise.resolve('blob'); }
         };
         const exporter = new EPUBExporter();
-        const manga = { name: 'Test', authors: 'Author' };
+        const manga = { name: 'Test', authors: ['Author'] };
         const chapters = [
             { title: 'Chapter 1', content: [{ type: 'text', text: 'Hello' }] },
             { title: 'Chapter 2', content: [{ type: 'text', text: 'World' }] }
@@ -1122,7 +1122,7 @@ describe('EPUBExporter', () => {
                 return Promise.resolve('blob');
             }
         };
-        const manga = { name: 'Test', authors: 'Author' };
+        const manga = { name: 'Test', authors: ['Author'] };
         const chapters = [
             {
                 title: 'Chapter 1',

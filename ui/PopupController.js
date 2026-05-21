@@ -4,7 +4,7 @@
  * @module ui/PopupController
  * @license MIT
  * @author ivanvit
- * @version 1.0.5
+ * @version 1.0.6
  */
 
 'use strict';
@@ -632,6 +632,7 @@
                 console.log('[PopupController] Raw response:', rawResp);
                 
                 const meta = rawResp.data || rawResp;
+                const patched = global.MangaPatcher.patch(meta);
 
                 let chaptersCount = null;
                 let chapters = [];
@@ -676,27 +677,16 @@
                     console.warn('[PopupController] Failed to fetch chapters count:', e);
                 }
 
-                const title = meta.rus_name || meta.name || slug;
-                const summaryText = meta.summary?.content?.flatMap(p => p.content?.map(t => t.text) ?? []).join('');
-                const fullSummary = summaryText || 'Описание отсутствует.';
+                const title = patched.name || slug;
+                const fullSummary = patched.summary || 'Описание отсутствует.';
                 const summary = this.truncateText(fullSummary, 100);
 
                 let cover = null;
-                if (meta.cover) {
-                    if (typeof meta.cover === 'string')
-                        cover = meta.cover;
-                    else if (meta.cover.default)
-                        cover = meta.cover.default;
-                    else if (meta.cover.thumbnail)
-                        cover = meta.cover.thumbnail;
-                    else if (meta.cover.md)
-                        cover = meta.cover.md;
-                    else if (meta.cover.url)
-                        cover = meta.cover.url;
-                    else console.warn('No valid cover URL found in meta.cover object');
-                } else if (meta.image) {
+                if (patched.cover)
+                    cover = patched.cover;
+                else if (meta.image)
                     cover = meta.image;
-                } else console.warn('No cover information found in metadata');
+                else console.warn('No cover information found in metadata');
 
                 if (cover) {
                     coverImg.style.display = 'block';

@@ -21,7 +21,7 @@ globalThis.ExporterFactory = {
     create: vi.fn(() => ({ export: mockExportFn })),
 };
 
-globalThis.ExportMangaPatcher = {
+globalThis.MangaPatcher = {
     patch: vi.fn((c) => c),
 };
 

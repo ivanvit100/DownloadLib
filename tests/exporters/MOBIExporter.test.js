@@ -31,7 +31,7 @@ beforeEach(async () => {
 describe('MOBIExporter', () => {
     it('Exports with defaults and writes MOBI header', async () => {
         const exporter = new MOBIExporter();
-        const result = await exporter.export({}, []);
+        const result = await exporter.export({ authors: [] }, []);
         expect(result.filename).toBe('Книга.mobi');
         expect(result.mimeType).toBe('application/x-mobipocket-ebook');
 
@@ -40,9 +40,9 @@ describe('MOBIExporter', () => {
         expect(text).toContain('<html>');
     });
 
-    it('Uses rus_name and resolves author array', async () => {
+    it('Uses name and authors array', async () => {
         const exporter = new MOBIExporter();
-        const manga = { rus_name: 'Название', authors: [{ name: 'A' }, 'B'] };
+        const manga = { name: 'Название', authors: ['A', 'B'] };
         const chapters = [{ title: 'Глава 1', content: [{ type: 'text', text: 'Текст' }] }];
         const result = await exporter.export(manga, chapters);
 
@@ -54,7 +54,7 @@ describe('MOBIExporter', () => {
 
     it('Escapes HTML in title and text blocks', async () => {
         const exporter = new MOBIExporter();
-        const manga = { name: 'A < B & C' };
+        const manga = { name: 'A < B & C', authors: [] };
         const chapters = [
             { title: 'T < 1', content: [{ type: 'text', text: 'Line <1> & "2"' }] }
         ];
@@ -67,7 +67,7 @@ describe('MOBIExporter', () => {
 
     it('Renders empty lines as non-breaking paragraphs', async () => {
         const exporter = new MOBIExporter();
-        const manga = { name: 'Test' };
+        const manga = { name: 'Test', authors: [] };
         const chapters = [
             { title: 'Chapter', content: [{ type: 'text', text: 'Hello\n\nWorld' }] }
         ];
@@ -80,7 +80,7 @@ describe('MOBIExporter', () => {
 
     it('Adds cover and image records with recindex ordering', async () => {
         const exporter = new MOBIExporter();
-        const manga = { name: 'Test' };
+        const manga = { name: 'Test', authors: [] };
         const chapters = [
             { title: 'Chapter', content: [
                 { type: 'image', data: { base64: 'AQID', contentType: 'image/png' } }
@@ -95,7 +95,7 @@ describe('MOBIExporter', () => {
 
     it('Uses first image as recindex 0001 when no cover', async () => {
         const exporter = new MOBIExporter();
-        const manga = { name: 'Test' };
+        const manga = { name: 'Test', authors: [] };
         const chapters = [
             { title: 'Chapter', content: [
                 { type: 'image', data: { base64: 'AQID', contentType: 'image/png' } }
@@ -108,7 +108,7 @@ describe('MOBIExporter', () => {
 
     it('Skips non-array chapter content without throwing', async () => {
         const exporter = new MOBIExporter();
-        const manga = { name: 'Test' };
+        const manga = { name: 'Test', authors: [] };
         const chapters = [
             { title: 'Bad', content: null },
             { title: 'Good', content: [{ type: 'text', text: 'Ok' }] }
@@ -122,7 +122,7 @@ describe('MOBIExporter', () => {
 
     it('Handles long UTF-8 text without errors', async () => {
         const exporter = new MOBIExporter();
-        const manga = { name: 'Long' };
+        const manga = { name: 'Long', authors: [] };
         const longText = '😀'.repeat(5000);
         const chapters = [
             { title: 'Long', content: [{ type: 'text', text: longText }] }
@@ -134,7 +134,7 @@ describe('MOBIExporter', () => {
 
     it('Resolves plain string author', async () => {
         const exporter = new MOBIExporter();
-        const manga = { name: 'Test', authors: 'Single Author' };
+        const manga = { name: 'Test', authors: ['Single Author'] };
         const result = await exporter.export(manga, []);
         const text = await decodeBlobToText(result.blob);
         expect(text).toContain('Single Author');
@@ -142,7 +142,7 @@ describe('MOBIExporter', () => {
 
     it('Resolves author array with all empty names to Unknown', async () => {
         const exporter = new MOBIExporter();
-        const manga = { name: 'Test', authors: [{ name: '' }, {}] };
+        const manga = { name: 'Test', authors: ['', ''] };
         const result = await exporter.export(manga, []);
         const text = await decodeBlobToText(result.blob);
         expect(text).toContain('Unknown');
@@ -150,7 +150,7 @@ describe('MOBIExporter', () => {
 
     it('Skips image block without data field', async () => {
         const exporter = new MOBIExporter();
-        const manga = { name: 'Test' };
+        const manga = { name: 'Test', authors: [] };
         const chapters = [
             { title: 'Ch', content: [{ type: 'image' }, { type: 'text', text: 'after' }] }
         ];
@@ -162,7 +162,7 @@ describe('MOBIExporter', () => {
 
     it('Skips image block with data but no base64', async () => {
         const exporter = new MOBIExporter();
-        const manga = { name: 'Test' };
+        const manga = { name: 'Test', authors: [] };
         const chapters = [
             { title: 'Ch', content: [{ type: 'image', data: { contentType: 'image/png' } }] }
         ];
@@ -173,7 +173,7 @@ describe('MOBIExporter', () => {
 
     it('Defaults image contentType to image/jpeg when missing', async () => {
         const exporter = new MOBIExporter();
-        const manga = { name: 'Test' };
+        const manga = { name: 'Test', authors: [] };
         const chapters = [
             { title: 'Ch', content: [{ type: 'image', data: { base64: 'AQID' } }] }
         ];
@@ -184,7 +184,7 @@ describe('MOBIExporter', () => {
 
     it('Handles cover base64 without data: prefix', async () => {
         const exporter = new MOBIExporter();
-        const manga = { name: 'Test' };
+        const manga = { name: 'Test', authors: [] };
         const result = await exporter.export(manga, [], 'AAEC');
         const text = await decodeBlobToText(result.blob);
         expect(text).toContain('recindex="0001"');
@@ -192,7 +192,7 @@ describe('MOBIExporter', () => {
 
     it('Skips text block with falsy text value', async () => {
         const exporter = new MOBIExporter();
-        const manga = { name: 'Test' };
+        const manga = { name: 'Test', authors: [] };
         const chapters = [
             { title: 'Ch', content: [{ type: 'text' }, { type: 'text', text: 'real' }] }
         ];
@@ -203,7 +203,7 @@ describe('MOBIExporter', () => {
 
     it('Ignores unknown block types', async () => {
         const exporter = new MOBIExporter();
-        const manga = { name: 'Test' };
+        const manga = { name: 'Test', authors: [] };
         const chapters = [
             { title: 'Ch', content: [{ type: 'audio', src: 'file.mp3' }, { type: 'text', text: 'ok' }] }
         ];
@@ -214,7 +214,7 @@ describe('MOBIExporter', () => {
 
     it('Handles chapter with null/undefined title via escapeHtml', async () => {
         const exporter = new MOBIExporter();
-        const manga = { name: 'Test' };
+        const manga = { name: 'Test', authors: [] };
         const chapters = [
             { title: null, content: [{ type: 'text', text: 'body' }] },
             { title: undefined, content: [] }

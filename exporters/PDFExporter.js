@@ -4,7 +4,7 @@
  * @module exporters/PDFExporter
  * @license MIT
  * @author ivanvit
- * @version 1.0.2
+ * @version 1.0.6
  */
 
 'use strict';
@@ -279,7 +279,7 @@
             }
 
             const blob = pdf.output('blob');
-            const title = manga.rus_name || manga.name || 'manga';
+            const title = manga.name || 'manga';
             const filename = this.sanitizeFilename(`${title}.pdf`);
 
             return {

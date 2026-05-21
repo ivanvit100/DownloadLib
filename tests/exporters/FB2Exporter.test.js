@@ -21,7 +21,7 @@ describe('FB2Exporter', () => {
     });
 
     it('Generate basic FB2 structure', () => {
-        const manga = { name: 'Test', authors: 'Author' };
+        const manga = { name: 'Test', authors: ['Author'] };
         const chapters = [
             { title: 'Chapter 1', content: [{ type: 'text', text: 'Hello\nWorld' }] }
         ];
@@ -35,7 +35,7 @@ describe('FB2Exporter', () => {
     });
 
     it('Include cover and images', () => {
-        const manga = { name: 'Test', authors: 'Author' };
+        const manga = { name: 'Test', authors: ['Author'] };
         const chapters = [
             { title: 'Chapter 1', content: [
                 { type: 'image', data: { base64: 'imgdata', contentType: 'image/png' } }
@@ -50,7 +50,7 @@ describe('FB2Exporter', () => {
     });
 
     it('Return blob, filename and mimeType', async () => {
-        const manga = { name: 'Test', authors: 'Author' };
+        const manga = { name: 'Test', authors: ['Author'] };
         const chapters = [
             { title: 'Chapter 1', content: [{ type: 'text', text: 'Hello' }] }
         ];
@@ -113,7 +113,7 @@ describe('FB2Exporter', () => {
 
     it('Uses Unknown for missing authors', () => {
         const exporter = new FB2Exporter();
-        const manga = { name: 'Test' };
+        const manga = { name: 'Test', authors: [] };
         const chapters = [];
         const result = Array.from(exporter.createFB2Stream(manga, chapters)).join('');
         expect(result).toContain('<first-name>Unknown</first-name>');
@@ -121,7 +121,7 @@ describe('FB2Exporter', () => {
 
     it('Uses Unknown for missing name', () => {
         const exporter = new FB2Exporter();
-        const manga = { authors: 'Author' };
+        const manga = { authors: ['Author'] };
         const chapters = [];
         const result = Array.from(exporter.createFB2Stream(manga, chapters)).join('');
         expect(result).toContain('<book-title>Unknown</book-title>');
@@ -129,7 +129,7 @@ describe('FB2Exporter', () => {
 
     it('Uses coverBase64 as is if no comma present', () => {
         const exporter = new FB2Exporter();
-        const manga = { name: 'Test', authors: 'Author' };
+        const manga = { name: 'Test', authors: ['Author'] };
         const chapters = [];
         const coverBase64 = 'plainbase64data';
         const result = Array.from(exporter.createFB2Stream(manga, chapters, coverBase64)).join('');
@@ -138,7 +138,7 @@ describe('FB2Exporter', () => {
 
     it('Uses "image/jpeg" as default contentType for image blocks', () => {
         const exporter = new FB2Exporter();
-        const manga = { name: 'Test', authors: 'Author' };
+        const manga = { name: 'Test', authors: ['Author'] };
         const chapters = [
             { title: 'Chapter 1', content: [
                 { type: 'image', data: { base64: 'imgdata' } }
@@ -150,7 +150,7 @@ describe('FB2Exporter', () => {
 
     it('Skips blocks for chapters without valid content', () => {
         const exporter = new FB2Exporter();
-        const manga = { name: 'Test', authors: 'Author' };
+        const manga = { name: 'Test', authors: ['Author'] };
         const chapters = [
             { title: 'Chapter 1' },
             { title: 'Chapter 2', content: 'not-an-array' },
@@ -165,7 +165,7 @@ describe('FB2Exporter', () => {
 
     it('Use yields for empty lines in text blocks', () => {
         const exporter = new FB2Exporter();
-        const manga = { name: 'Test', authors: 'Author' };
+        const manga = { name: 'Test', authors: ['Author'] };
         const chapters = [
             { title: 'Chapter 1', content: [
                 { type: 'text', text: 'Hello\n\nWorld\n ' }
@@ -179,7 +179,7 @@ describe('FB2Exporter', () => {
 
     it('Calls console.warn for unsupported block type', () => {
         const exporter = new FB2Exporter();
-        const manga = { name: 'Test', authors: 'Author' };
+        const manga = { name: 'Test', authors: ['Author'] };
         const chapters = [
             { title: 'Chapter 1', content: [
                 { type: 'unsupported', foo: 'bar' }
@@ -193,7 +193,7 @@ describe('FB2Exporter', () => {
 
     it('Uses "manga" as default filename', async () => {
         const exporter = new FB2Exporter();
-        const manga = {};
+        const manga = { authors: [] };
         const chapters = [];
         const result = await exporter.export(manga, chapters);
         expect(result.filename).toBe('manga.fb2');

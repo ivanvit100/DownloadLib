@@ -4,7 +4,7 @@
  * @module core/DownloadManager
  * @license MIT
  * @author ivanvit
- * @version 1.0.5
+ * @version 1.0.6
  */
 
 'use strict';
@@ -184,7 +184,7 @@
                         const partSuffix = ` (Часть ${partIndex})`;
                         const mangaWithSuffix = { ...manga, rus_name: (manga.rus_name || manga.name) + partSuffix };
                         this.updateStatus(downloadId, `Сохранение части ${partIndex}...`, progress);
-                        const patch = global.ExportMangaPatcher.patch(mangaWithSuffix);
+                        const patch = global.MangaPatcher.patch(mangaWithSuffix);
                         const file = await exporter.export(patch, currentBatch, coverBase64);
                         await this.saveFile(file.blob, file.filename);
 
@@ -209,7 +209,7 @@
                 const finalManga = partSuffix ? { ...manga, rus_name: (manga.rus_name || manga.name) + partSuffix } : manga;
 
                 this.updateStatus(downloadId, `Создание ${format.toUpperCase()}...`, 95);
-                const patch = global.ExportMangaPatcher.patch(finalManga);
+                const patch = global.MangaPatcher.patch(finalManga);
                 const file = await exporter.export(patch, currentBatch, coverBase64);
                 await this.saveFile(file.blob, file.filename);
             }
@@ -310,7 +310,7 @@
                 );
 
                 this.updateStatus(downloadId, `Создание обновлённого ${format.toUpperCase()}...`, 95);
-                const patch = global.ExportMangaPatcher.patch(existingData.metadata);
+                const patch = global.MangaPatcher.patch(existingData.metadata);
                 const file = await exporter.export(
                     patch,
                     mergedChapters,

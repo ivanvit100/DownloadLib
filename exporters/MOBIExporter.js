@@ -5,7 +5,7 @@
  * @module exporters/MOBIExporter
  * @license MIT
  * @author ivanvit
- * @version 1.0.5
+ * @version 1.0.6
  */
 
 'use strict';
@@ -303,17 +303,10 @@
         return arr;
     }
 
-    function resolveAuthor(raw) {
-        if (!raw) return 'Unknown';
-        if (Array.isArray(raw))
-            return raw.map(a => (typeof a === 'string' ? a : (a && a.name) || '')).filter(Boolean).join(', ') || 'Unknown';
-        return String(raw);
-    }
-
     class MOBIExporter {
         async export(manga, chapters, coverBase64) {
-            const title  = manga.rus_name || manga.name || 'Книга';
-            const author = resolveAuthor(manga.authors);
+            const title  = manga.name || 'Книга';
+            const author = manga.authors.filter(Boolean).join(', ') || 'Unknown';
 
             const titleBytes  = toUTF8(title);
             const authorBytes = toUTF8(author);

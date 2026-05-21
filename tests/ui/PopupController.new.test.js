@@ -84,6 +84,7 @@ beforeEach(async () => {
     };
     global.chrome = undefined;
 
+    await import('../../core/MangaPatcher.js');
     await import('../../ui/PopupController.js');
     PopupController = global.PopupController;
 });

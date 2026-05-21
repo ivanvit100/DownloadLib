@@ -3,7 +3,7 @@
  * Initializes the application, registers services, and sets up the UI
  * @license MIT
  * @author ivanvit
- * @version 1.0.0
+ * @version 1.0.6
  */
 
 'use strict';
@@ -30,7 +30,7 @@
         'FB2Exporter',
         'EPUBExporter',
         'PDFExporter',
-        'ExportMangaPatcher',
+        'MangaPatcher',
         'ExporterFactory',
         'PopupController'
     ];

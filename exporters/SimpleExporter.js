@@ -4,7 +4,7 @@
  * @module exporters/SimpleExporter
  * @license MIT
  * @author ivanvit
- * @version 1.0.5
+ * @version 1.0.6
  */
 
 'use strict';
@@ -14,7 +14,7 @@
 
     class SimpleExporter {
         async export(manga, chapters, coverBase64) {
-            const name = this.sanitize(manga.rus_name || manga.name || 'book');
+            const name = this.sanitize(manga.name || 'book');
 
             if (this.isRanobeLib(chapters))
                 return this.exportTxt(name, manga, chapters);
@@ -34,8 +34,8 @@
         }
 
         exportTxt(name, manga, chapters) {
-            const title  = manga.rus_name || manga.name || name;
-            const author = this.resolveAuthor(manga.authors);
+            const title  = manga.name || name;
+            const author = manga.authors.filter(Boolean).join(', ');
             const lines  = [];
 
             lines.push(title);
@@ -120,15 +120,6 @@
                 .substring(0, 180) || 'book';
         }
 
-        resolveAuthor(raw) {
-            if (!raw) return '';
-            if (Array.isArray(raw))
-                return raw
-                    .map(a => (typeof a === 'string' ? a : (a && a.name) || ''))
-                    .filter(Boolean)
-                    .join(', ');
-            return String(raw);
-        }
     }
 
     global.SimpleExporter = SimpleExporter;

@@ -57,4 +57,18 @@ describe('Self Attachment', () => {
         if (originalSelf !== undefined) global.self = originalSelf;
         else delete global.self;
     });
+
+    it('Attaches to self in MangaPatcher', async () => {
+        const originalWindow = global.window;
+        const originalSelf = global.self;
+        delete global.window;
+        global.self = global;
+        const path = require.resolve('../../core/MangaPatcher.js');
+        delete require.cache[path];
+        await import('../../core/MangaPatcher.js');
+        expect(global.self.MangaPatcher).toBeDefined();
+        if (originalWindow !== undefined) global.window = originalWindow;
+        if (originalSelf !== undefined) global.self = originalSelf;
+        else delete global.self;
+    });
 });

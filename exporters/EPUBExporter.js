@@ -4,7 +4,7 @@
  * @module exporters/EPUBExporter
  * @license MIT
  * @author ivanvit
- * @version 1.0.0
+ * @version 1.0.6
  */
 
 'use strict';
@@ -83,7 +83,7 @@
             zip.file('OEBPS/toc.ncx', this.createNCX(manga, navPoints));
 
             const zipBlob = await zip.generateAsync({ type: 'blob' });
-            const filename = `${manga.rus_name || manga.name || 'manga'}.epub`;
+            const filename = `${manga.name || 'manga'}.epub`;
 
             return {
                 blob: zipBlob,
@@ -158,8 +158,8 @@
         }
 
         createOPF(manga, manifest, spine) {
-            const title = this.escapeXml(manga.rus_name || manga.name || 'Без названия');
-            const author = this.escapeXml(manga.authors || 'Неизвестно');
+            const title = this.escapeXml(manga.name || 'Без названия');
+            const author = this.escapeXml(manga.authors.filter(Boolean).join(', ') || 'Неизвестно');
 
             return `<?xml version="1.0" encoding="utf-8"?>
 <package xmlns="http://www.idpf.org/2007/opf" unique-identifier="BookId" version="2.0">
@@ -179,7 +179,7 @@
         }
 
         createNCX(manga, navPoints) {
-            const title = this.escapeXml(manga.rus_name || manga.name || 'Без названия');
+            const title = this.escapeXml(manga.name || 'Без названия');
 
             return `<?xml version="1.0" encoding="UTF-8"?>
 <ncx xmlns="http://www.daisy.org/z3986/2005/ncx/" version="2005-1">

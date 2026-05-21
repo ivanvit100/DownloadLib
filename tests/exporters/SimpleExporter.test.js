@@ -58,34 +58,6 @@ describe('SimpleExporter', () => {
         });
     });
 
-    describe('resolveAuthor', () => {
-        it('Returns empty string for falsy input', () => {
-            expect(exporter.resolveAuthor(null)).toBe('');
-            expect(exporter.resolveAuthor(undefined)).toBe('');
-            expect(exporter.resolveAuthor('')).toBe('');
-        });
-
-        it('Joins string array authors with comma', () => {
-            expect(exporter.resolveAuthor(['Alice', 'Bob'])).toBe('Alice, Bob');
-        });
-
-        it('Extracts name property from object authors', () => {
-            expect(exporter.resolveAuthor([{ name: 'Alice' }, { name: 'Bob' }])).toBe('Alice, Bob');
-        });
-
-        it('Filters out empty/falsy entries in array', () => {
-            expect(exporter.resolveAuthor(['Alice', null, { name: '' }, 'Bob'])).toBe('Alice, Bob');
-        });
-
-        it('Returns string for non-array input', () => {
-            expect(exporter.resolveAuthor('Single Author')).toBe('Single Author');
-        });
-
-        it('Handles mixed string and object entries in array', () => {
-            expect(exporter.resolveAuthor(['Alice', { name: 'Bob' }])).toBe('Alice, Bob');
-        });
-    });
-
     describe('isRanobeLib', () => {
         it('Returns true when a chapter has a non-empty text block', () => {
             const chapters = [
@@ -137,7 +109,7 @@ describe('SimpleExporter', () => {
 
     describe('exportTxt', () => {
         it('Returns blob, filename and mimeType', () => {
-            const manga = { rus_name: 'Книга', name: 'Book', authors: 'Author' };
+            const manga = { name: 'Книга', authors: ['Author'] };
             const chapters = [
                 { title: 'Глава 1', content: [{ type: 'text', text: 'Hello\nWorld' }] }
             ];
@@ -148,7 +120,7 @@ describe('SimpleExporter', () => {
         });
 
         it('Includes title and separator in output', async () => {
-            const manga = { rus_name: 'Книга', authors: [] };
+            const manga = { name: 'Книга', authors: [] };
             const chapters = [];
             const result = exporter.exportTxt('Книга', manga, chapters);
             const text = await blobToText(result.blob);
@@ -157,7 +129,7 @@ describe('SimpleExporter', () => {
         });
 
         it('Includes author when present', async () => {
-            const manga = { name: 'Book', authors: 'Author Name' };
+            const manga = { name: 'Book', authors: ['Author Name'] };
             const chapters = [];
             const result = exporter.exportTxt('Book', manga, chapters);
             const text = await blobToText(result.blob);
@@ -165,7 +137,7 @@ describe('SimpleExporter', () => {
         });
 
         it('Omits author line when resolveAuthor returns empty string', async () => {
-            const manga = { name: 'Book', authors: null };
+            const manga = { name: 'Book', authors: [] };
             const chapters = [];
             const result = exporter.exportTxt('Book', manga, chapters);
             const text = await blobToText(result.blob);
@@ -173,7 +145,7 @@ describe('SimpleExporter', () => {
         });
 
         it('Writes chapter heading and text content', async () => {
-            const manga = { name: 'Book', authors: '' };
+            const manga = { name: 'Book', authors: [] };
             const chapters = [
                 { title: 'Intro', content: [{ type: 'text', text: 'Line1\nLine2' }] }
             ];
@@ -185,7 +157,7 @@ describe('SimpleExporter', () => {
         });
 
         it('Skips non-text blocks in content', async () => {
-            const manga = { name: 'Book', authors: '' };
+            const manga = { name: 'Book', authors: [] };
             const chapters = [
                 { title: 'Ch', content: [{ type: 'image', data: {} }, { type: 'text', text: 'Real' }] }
             ];
@@ -195,7 +167,7 @@ describe('SimpleExporter', () => {
         });
 
         it('Skips text blocks with falsy text', async () => {
-            const manga = { name: 'Book', authors: '' };
+            const manga = { name: 'Book', authors: [] };
             const chapters = [
                 { title: 'Ch', content: [{ type: 'text', text: '' }, { type: 'text', text: null }] }
             ];
@@ -205,7 +177,7 @@ describe('SimpleExporter', () => {
         });
 
         it('Handles chapter with no content array', async () => {
-            const manga = { name: 'Book', authors: '' };
+            const manga = { name: 'Book', authors: [] };
             const chapters = [{ title: 'Empty' }];
             const result = exporter.exportTxt('Book', manga, chapters);
             const text = await blobToText(result.blob);
@@ -213,7 +185,7 @@ describe('SimpleExporter', () => {
         });
 
         it('Uses empty string for missing chapter title', async () => {
-            const manga = { name: 'Book', authors: '' };
+            const manga = { name: 'Book', authors: [] };
             const chapters = [{ content: [{ type: 'text', text: 'Text' }] }];
             const result = exporter.exportTxt('Book', manga, chapters);
             const text = await blobToText(result.blob);
@@ -221,7 +193,7 @@ describe('SimpleExporter', () => {
         });
 
         it('Uses name as title fallback when rus_name absent', async () => {
-            const manga = { name: 'FallbackTitle', authors: '' };
+            const manga = { name: 'FallbackTitle', authors: [] };
             const chapters = [];
             const result = exporter.exportTxt('FallbackTitle', manga, chapters);
             const text = await blobToText(result.blob);
@@ -229,7 +201,7 @@ describe('SimpleExporter', () => {
         });
 
         it('Uses passed name when both rus_name and name are absent', async () => {
-            const manga = { authors: '' };
+            const manga = { authors: [] };
             const chapters = [];
             const result = exporter.exportTxt('myname', manga, chapters);
             const text = await blobToText(result.blob);
@@ -381,7 +353,7 @@ describe('SimpleExporter', () => {
     describe('export', () => {
         it('Calls exportTxt when isRanobeLib returns true', async () => {
             const chapters = [{ content: [{ type: 'text', text: 'Hello' }] }];
-            const manga = { rus_name: 'Книга', authors: '' };
+            const manga = { name: 'Книга', authors: [] };
             const result = await exporter.export(manga, chapters, null);
             expect(result.mimeType).toBe('text/plain');
             expect(result.filename).toMatch(/\.txt$/);
@@ -394,7 +366,7 @@ describe('SimpleExporter', () => {
             globalThis.JSZip = class { constructor() { this.file = mockFile; this.generateAsync = mockGenerateAsync; } };
 
             const chapters = [{ content: [{ type: 'image', data: { base64: 'x', contentType: 'image/jpeg' } }] }];
-            const manga = { name: 'MyManga', authors: '' };
+            const manga = { name: 'MyManga', authors: [] };
             const result = await exporter.export(manga, chapters, null);
             expect(result.mimeType).toBe('application/zip');
             expect(result.filename).toMatch(/\.zip$/);
@@ -404,7 +376,7 @@ describe('SimpleExporter', () => {
 
         it('Falls back to "book" when manga has no name', async () => {
             const chapters = [{ content: [{ type: 'text', text: 'Hi' }] }];
-            const manga = { authors: '' };
+            const manga = { authors: [] };
             const result = await exporter.export(manga, chapters, null);
             expect(result.filename).toBe('book.txt');
         });

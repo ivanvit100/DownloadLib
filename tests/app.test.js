@@ -23,7 +23,7 @@ describe('App initialization', () => {
         global.window = mockWindow;
         global.document = mockDocument;
 
-        ['EventBus', 'RateLimiter', 'ServiceRegistry', 'DownloadManager', 'BaseService', 'MangaLibService', 'RanobeLibService', 'BaseExporter', 'FB2Exporter', 'EPUBExporter', 'PDFExporter', 'ExportMangaPatcher', 'ExporterFactory', 'PopupController']
+        ['EventBus', 'RateLimiter', 'ServiceRegistry', 'DownloadManager', 'BaseService', 'MangaLibService', 'RanobeLibService', 'BaseExporter', 'FB2Exporter', 'EPUBExporter', 'PDFExporter', 'MangaPatcher', 'ExporterFactory', 'PopupController']
             .forEach(dep => {
                 mockWindow[dep] = {};
             });

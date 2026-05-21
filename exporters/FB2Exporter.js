@@ -4,7 +4,7 @@
  * @module exporters/FB2Exporter
  * @license MIT
  * @author ivanvit
- * @version 1.0.0
+ * @version 1.0.6
  */
 
 'use strict';
@@ -30,8 +30,8 @@
             yield '<description>\n';
             yield '  <title-info>\n';
             yield `    <genre>prose</genre>\n`;
-            yield `    <author><first-name>${this.escapeXml(manga.authors || 'Unknown')}</first-name></author>\n`;
-            yield `    <book-title>${this.escapeXml(manga.rus_name || manga.name || 'Unknown')}</book-title>\n`;
+            yield `    <author><first-name>${this.escapeXml(manga.authors.filter(Boolean).join(', ') || 'Unknown')}</first-name></author>\n`;
+            yield `    <book-title>${this.escapeXml(manga.name || 'Unknown')}</book-title>\n`;
             if (coverBase64) {
                 yield '    <coverpage>\n';
                 yield '    <image l:href="#cover.jpg"/>\n';
@@ -108,7 +108,7 @@
             const content = chunks.join('');
             const blob = new Blob([content], { type: 'application/xml' });
             
-            const filename = `${manga.rus_name || manga.name || 'manga'}.fb2`;
+            const filename = `${manga.name || 'manga'}.fb2`;
             
             return {
                 blob,

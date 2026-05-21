@@ -4,7 +4,7 @@
  * @module background/BackgroundDownload
  * @license MIT
  * @author ivanvit
- * @version 1.0.5
+ * @version 1.0.6
  */
 
 'use strict';
@@ -134,7 +134,7 @@ class BackgroundDownload {
             download.progress = 95;
             
             const exporter = ExporterFactory.create(download.format);
-            const patch = ExportMangaPatcher.patch(download.manga);
+            const patch = MangaPatcher.patch(download.manga);
             const file = await exporter.export(patch, download.chapterContents, download.coverBase64);
 
             const filename = file.filename;
