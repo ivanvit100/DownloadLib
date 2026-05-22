@@ -157,15 +157,40 @@
 </html>`;
         }
 
+		createAuthorsDescription(author) {
+            return `<dc:creator>${this.escapeXml(author || 'Неизвестно')}</dc:creator>`
+        }
+
+		unknownNameAuthorDescription() {
+            return this.createAuthorsDescription(null);
+        }
+
+        createAuthors(authors) {
+            if(Array.isArray(authors)) {
+                if(authors.length !== 0) {
+                    let descriptions = [];
+                    for (const author of authors) {
+                        descriptions.push(this.createAuthorsDescription(author));
+                    }
+                    return descriptions.join('\n');
+                }
+                else {
+                    return this.unknownNameAuthorDescription();
+                }
+            }
+
+            return this.createAuthorsDescription(authors);
+        }
+
         createOPF(manga, manifest, spine) {
             const title = this.escapeXml(manga.name || 'Без названия');
-            const author = this.escapeXml(manga.authors.filter(Boolean).join(', ') || 'Неизвестно');
+		    const authors = this.createAuthors(manga.authors);
 
             return `<?xml version="1.0" encoding="utf-8"?>
 <package xmlns="http://www.idpf.org/2007/opf" unique-identifier="BookId" version="2.0">
   <metadata xmlns:dc="http://purl.org/dc/elements/1.1/">
     <dc:title>${title}</dc:title>
-    <dc:creator>${author}</dc:creator>
+    ${authors}
     <dc:language>ru</dc:language>
   </metadata>
   <manifest>
