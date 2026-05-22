@@ -119,6 +119,26 @@ describe('FB2Exporter', () => {
         expect(result).toContain('<first-name>Unknown</first-name>');
     });
 
+    it('Uses full name authors', () => {
+        const exporter = new FB2Exporter();
+        const manga = { name: 'Test', authors: ['First Last Middle'] };
+        const chapters = [];
+        const result = Array.from(exporter.createFB2Stream(manga, chapters)).join('');
+        expect(result).toContain('<first-name>First</first-name>');
+        expect(result).toContain('<last-name>Last</last-name>');
+        expect(result).toContain('<middle-name>Middle</middle-name>');
+    });
+
+    it('Uses multiply name authors', () => {
+        const exporter = new FB2Exporter();
+        const manga = { name: 'Test', authors: ['First', 'Middle', 'Last'] };
+        const chapters = [];
+        const result = Array.from(exporter.createFB2Stream(manga, chapters)).join('');
+        expect(result).toContain('<first-name>First</first-name>');
+        expect(result).toContain('<first-name>Middle</first-name>');
+        expect(result).toContain('<first-name>Last</first-name>');
+    });
+
     it('Uses Unknown for missing name', () => {
         const exporter = new FB2Exporter();
         const manga = { authors: ['Author'] };
