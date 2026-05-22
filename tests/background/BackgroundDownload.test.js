@@ -5,19 +5,20 @@ const mockExtractText = vi.fn((c) => c);
 const mockProcessChapterContent = vi.fn((c) => c);
 const mockExportFn = vi.fn();
 
-globalThis.MangaLibService = class {
-    fetchChapter = mockFetchChapter;
-    extractText = mockExtractText;
-    processChapterContent = mockProcessChapterContent;
+const mockService = {
+    fetchChapter: mockFetchChapter,
+    extractText: mockExtractText,
+    processChapterContent: mockProcessChapterContent,
 };
 
-globalThis.RanobeLibService = class {
-    fetchChapter = mockFetchChapter;
-    extractText = mockExtractText;
-    processChapterContent = mockProcessChapterContent;
+globalThis.serviceRegistry = {
+    createService: vi.fn(key => {
+        if (key === 'mangalib' || key === 'ranobelib') return { ...mockService };
+        return null;
+    }),
 };
 
-globalThis.ExporterFactory = {
+globalThis.ExporterRegistry = {
     create: vi.fn(() => ({ export: mockExportFn })),
 };
 
@@ -509,11 +510,11 @@ describe('BackgroundDownload', () => {
         expect(d.status).toBe('Остановлено');
     });
 
-    it('Creates exporter via ExporterFactory', async () => {
+    it('Creates exporter via ExporterRegistry', async () => {
         const d = makeDownload();
         await bg.continueDownload(d);
 
-        expect(globalThis.ExporterFactory.create).toHaveBeenCalledWith('epub');
+        expect(globalThis.ExporterRegistry.create).toHaveBeenCalledWith('epub');
         expect(mockExportFn).toHaveBeenCalledWith(
             { title: 'M' },
             d.chapterContents,
@@ -699,18 +700,16 @@ describe('BackgroundDownload', () => {
             currentChapterIndex: 0,
             loadedFile: null,
         };
+        const bareService = { fetchChapter: mockFetchChapter };
+        const origCreateService = globalThis.serviceRegistry.createService;
+        globalThis.serviceRegistry.createService = vi.fn(() => bareService);
         mockFetchChapter.mockResolvedValue({ data: { foo: 'bar' } });
-
-        const origMangaLibService = globalThis.MangaLibService;
-        globalThis.MangaLibService = class {
-            fetchChapter = mockFetchChapter;
-        };
 
         await bg.continueDownload(d);
 
         expect(d.chapterContents[0].content).toEqual({ foo: 'bar' });
 
-        globalThis.MangaLibService = origMangaLibService;
+        globalThis.serviceRegistry.createService = origCreateService;
     });
 
     it('Uses getExtensionApi when defined at module load', async () => {

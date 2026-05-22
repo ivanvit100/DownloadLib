@@ -87,31 +87,12 @@
                 formatSelector.style.marginLeft = '8px';
                 formatSelector.style.marginRight = '8px';
 
-                const optionFb2 = document.createElement('option');
-                optionFb2.value = 'fb2';
-                optionFb2.textContent = 'FB2';
-
-                const optionEpub = document.createElement('option');
-                optionEpub.value = 'epub';
-                optionEpub.textContent = 'EPUB';
-
-                const optionPdf = document.createElement('option');
-                optionPdf.value = 'pdf';
-                optionPdf.textContent = 'PDF';
-
-                const optionMobi = document.createElement('option');
-                optionMobi.value = 'mobi';
-                optionMobi.textContent = 'MOBI';
-
-                const optionSimple = document.createElement('option');
-                optionSimple.value = 'simple';
-                optionSimple.textContent = 'TXT/JPEG';
-                
-                formatSelector.appendChild(optionFb2);
-                formatSelector.appendChild(optionEpub);
-                formatSelector.appendChild(optionPdf);
-                formatSelector.appendChild(optionMobi);
-                formatSelector.appendChild(optionSimple);
+                global.ExporterRegistry.getFormats().forEach(({ value, label }) => {
+                    const option = document.createElement('option');
+                    option.value = value;
+                    option.textContent = label;
+                    formatSelector.appendChild(option);
+                });
 
                 const label = document.createElement('label');
                 label.textContent = 'Формат: ';
@@ -681,12 +662,8 @@
                 const fullSummary = patched.summary || 'Описание отсутствует.';
                 const summary = this.truncateText(fullSummary, 100);
 
-                let cover = null;
-                if (patched.cover)
-                    cover = patched.cover;
-                else if (meta.image)
-                    cover = meta.image;
-                else console.warn('No cover information found in metadata');
+                const cover = patched.cover || null;
+                if (!cover) console.warn('No cover information found in metadata');
 
                 if (cover) {
                     coverImg.style.display = 'block';
@@ -696,18 +673,10 @@
                     coverImg.style.display = 'none';
                 }
 
-                const authors = (meta.authors && Array.isArray(meta.authors)) 
-                    ? meta.authors.map(a => {
-                        if (!a) return null;
-                        else if (typeof a === 'string') return a;
-                        else return a.name || a.rus_name || a.title || null;
-                    }).filter(Boolean)
-                    : null;
+                const authors = patched.authors.filter(Boolean);
 
-                let rating = null;
-                if (meta.ageRestriction && meta.ageRestriction.label) 
-                    rating = String(meta.ageRestriction.label);
-                else console.warn('No age restriction label found in metadata');
+                const rating = patched.rating || null;
+                if (!rating) console.warn('No age restriction label found in metadata');
 
                 const firstLineParts = [];
                 if (chaptersCount !== null) firstLineParts.push('Глав: ' + chaptersCount);
@@ -723,7 +692,7 @@
 
                 desc.innerHTML = `<strong>${title}</strong><br><small>${summary}</small>`;
                 
-                const release = meta.releaseDate || meta.releaseDateString || meta.release_date || meta.published || meta.year || meta.date || '';
+                const release = patched.releaseDate || '';
                 if (releaseEl) releaseEl.textContent = release ? ('Дата выхода: ' + release) : '';
                 else console.warn('Release date element not found when setting release date:', release);
 

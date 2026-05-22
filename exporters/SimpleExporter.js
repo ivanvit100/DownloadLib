@@ -123,5 +123,6 @@
     }
 
     global.SimpleExporter = SimpleExporter;
+    if (global.ExporterRegistry) global.ExporterRegistry.register('simple', SimpleExporter, { label: 'TXT/JPEG' });
     console.log('[SimpleExporter] Loaded');
 })(typeof window !== 'undefined' ? window : self);

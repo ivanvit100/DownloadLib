@@ -4,7 +4,7 @@
  * @module services/ranobelib/RanobeLibService
  * @license MIT
  * @author ivanvit
- * @version 1.0.4
+ * @version 1.0.6
  */
 
 'use strict';
@@ -325,5 +325,6 @@
     }
 
     global.RanobeLibService = RanobeLibService;
+    if (global.serviceRegistry) global.serviceRegistry.register(RanobeLibService);
     console.log('[RanobeLibService] Loaded');
 })(typeof window !== 'undefined' ? window : self);

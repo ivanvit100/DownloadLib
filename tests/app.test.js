@@ -23,7 +23,7 @@ describe('App initialization', () => {
         global.window = mockWindow;
         global.document = mockDocument;
 
-        ['EventBus', 'RateLimiter', 'ServiceRegistry', 'DownloadManager', 'BaseService', 'MangaLibService', 'RanobeLibService', 'BaseExporter', 'FB2Exporter', 'EPUBExporter', 'PDFExporter', 'MangaPatcher', 'ExporterFactory', 'PopupController']
+        ['EventBus', 'RateLimiter', 'ServiceRegistry', 'DownloadManager', 'MangaPatcher', 'ExporterRegistry', 'PopupController']
             .forEach(dep => {
                 mockWindow[dep] = {};
             });
@@ -50,7 +50,6 @@ describe('App initialization', () => {
         vi.runAllTimers();
         expect(logSpy).toHaveBeenCalledWith('[App] Initializing...');
         expect(logSpy).toHaveBeenCalledWith('[App] All dependencies loaded');
-        expect(window.serviceRegistry.register).toHaveBeenCalledTimes(2);
         expect(window.PopupController).toHaveBeenCalled();
         expect(errorSpy).not.toHaveBeenCalledWith('[App] Missing dependencies:', expect.anything());
     });
@@ -75,33 +74,6 @@ describe('App initialization', () => {
         expect(errorDiv.classList.remove).toHaveBeenCalledWith('hidden');
     });
 
-    it('Call console.error when registering MangaLibService fails', async () => {
-        let callCount = 0;
-        window.serviceRegistry.register = vi.fn(() => {
-            callCount++;
-            if (callCount === 1) throw new Error('fail-mangalib');
-        });
-        await import('../app.js?mangalib-error');
-        vi.runAllTimers();
-        expect(errorSpy).toHaveBeenCalledWith(
-            '[App] Failed to register MangaLibService:',
-            expect.any(Error)
-        );
-    });
-
-    it('Call console.error when registering RanobeLibService fails', async () => {
-        let callCount = 0;
-        window.serviceRegistry.register = vi.fn(() => {
-            callCount++;
-            if (callCount === 2) throw new Error('fail-ranobe');
-        });
-        await import('../app.js?ranobe-error');
-        vi.runAllTimers();
-        expect(errorSpy).toHaveBeenCalledWith(
-            '[App] Failed to register RanobeLibService:',
-            expect.any(Error)
-        );
-    });
 
     it('Check if document ready state is "loading"', async () => {
         document.readyState = 'loading';
@@ -144,7 +116,7 @@ describe('App initialization', () => {
         window.FB2Exporter = class {};
         window.EPUBExporter = class {};
         window.PDFExporter = class {};
-        window.ExporterFactory = class {};
+        window.ExporterRegistry = class {};
         window.PopupController = class {};
         window.serviceRegistry = { register: vi.fn(), getAllServices: vi.fn(() => []) };
         globalThis.getExtensionApi = vi.fn(() => ({ runtime: {} }));

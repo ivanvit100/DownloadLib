@@ -23,7 +23,7 @@
             if (authors.length === 0) return [''];
             return authors.map(author => {
                 if (author !== null && typeof author === 'object')
-                    return author.name || '';
+                    return author.name || author.rus_name || author.title || '';
                 if (typeof author === 'string')
                     return author;
                 return '';
@@ -62,6 +62,8 @@
                 cover = raw;
             else if (raw !== null && typeof raw === 'object')
                 cover = raw.default || raw.thumbnail || raw.md || raw.url || '';
+            if (!cover && manga.image)
+                cover = manga.image;
             return { ...manga, cover };
         }
     }
@@ -69,7 +71,18 @@
     class AgeRatingResolutionModule {
         static patch(manga) {
             const ageRating = typeof manga.caution === 'number' ? manga.caution : 0;
-            return { ...manga, ageRating };
+            const rating = (manga.ageRestriction && manga.ageRestriction.label)
+                ? String(manga.ageRestriction.label)
+                : '';
+            return { ...manga, ageRating, rating };
+        }
+    }
+
+    class ReleaseDateResolutionModule {
+        static patch(manga) {
+            const raw = manga.releaseDate || manga.releaseDateString || manga.release_date
+                || manga.published || manga.year || manga.date || '';
+            return { ...manga, releaseDate: raw ? String(raw) : '' };
         }
     }
 
@@ -80,7 +93,8 @@
                 AuthorsResolutionModule,
                 SummaryResolutionModule,
                 CoverResolutionModule,
-                AgeRatingResolutionModule
+                AgeRatingResolutionModule,
+                ReleaseDateResolutionModule
             ];
 
             for (const pipe of pipes)

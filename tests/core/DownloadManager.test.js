@@ -26,19 +26,18 @@ beforeEach(async () => {
     fileUtilsMock = { downloadBlob: vi.fn(async () => {}) };
 
     globalMock.EventBus = vi.fn(function() { return eventBusMock; });
-    globalMock.ExporterFactory = { create: vi.fn(() => exporterMock) };
+    globalMock.ExporterRegistry = { create: vi.fn(() => exporterMock) };
     globalMock.MangaPatcher = { patch: vi.fn((c) => c) };
-    globalMock.serviceRegistry = { getServiceByUrl: vi.fn(() => serviceMock) };
-    globalMock.MangaLibService = vi.fn(function() { return serviceMock; });
-    globalMock.RanobeLibService = vi.fn(function() { return { ...serviceMock, name: 'ranobelib' }; });
+    globalMock.serviceRegistry = {
+        getServiceByUrl: vi.fn(() => serviceMock),
+        createService: vi.fn(key => key === 'ranobelib' ? { ...serviceMock, name: 'ranobelib' } : serviceMock)
+    };
     globalMock.FileUtils = fileUtilsMock;
 
     globalThis.EventBus = globalMock.EventBus;
-    globalThis.ExporterFactory = globalMock.ExporterFactory;
+    globalThis.ExporterRegistry = globalMock.ExporterRegistry;
     globalThis.MangaPatcher = globalMock.MangaPatcher;
     globalThis.serviceRegistry = globalMock.serviceRegistry;
-    globalThis.MangaLibService = globalMock.MangaLibService;
-    globalThis.RanobeLibService = globalMock.RanobeLibService;
     globalThis.FileUtils = globalMock.FileUtils;
 
     globalThis.document = {
@@ -335,17 +334,17 @@ describe('DownloadManager', () => {
         await expect(dm.updateExistingFile(ds, service, loadedFile)).rejects.toThrow();
     });
 
-    it('Calls RanobeLib service', async () => {
+    it('Calls RanobeLib service via serviceRegistry.createService', async () => {
         const ranobeMock = { name: 'ranobelib', fetchMangaMetadata: vi.fn(async () => ({ data: {} })), fetchChaptersList: vi.fn(async () => ({ data: [] })), fetchChapter: vi.fn(async () => ({ data: { content: [] } })), extractText: vi.fn(), processChapterContent: vi.fn() };
-        const RanobeLibServiceSpy = vi.fn(function() { return ranobeMock; });
-        globalThis.RanobeLibService = RanobeLibServiceSpy;
-        
+        const createServiceSpy = vi.fn(key => key === 'ranobelib' ? ranobeMock : null);
+        globalThis.serviceRegistry = { getServiceByUrl: vi.fn(() => null), createService: createServiceSpy };
+
         await import('../../core/DownloadManager.js');
         const DownloadManager = globalThis.DownloadManager;
         const dm = new DownloadManager();
         await dm.startDownload({ serviceKey: 'ranobelib', url: 'https://site/book/slug' });
 
-        expect(RanobeLibServiceSpy).toHaveBeenCalledTimes(1);
+        expect(createServiceSpy).toHaveBeenCalledWith('ranobelib');
     });
 
     it('Not detect data in metadata', async () => {
@@ -358,8 +357,7 @@ describe('DownloadManager', () => {
             processChapterContent: vi.fn(async (content) => content)
         };
 
-        globalThis.MangaLibService = vi.fn(function() { return serviceWithoutData; });
-        globalThis.serviceRegistry = { getServiceByUrl: vi.fn(() => serviceWithoutData) };
+        globalThis.serviceRegistry = { getServiceByUrl: vi.fn(() => serviceWithoutData), createService: vi.fn(() => serviceWithoutData) };
 
         await import('../../core/DownloadManager.js');
         const DownloadManager = globalThis.DownloadManager;
@@ -372,32 +370,22 @@ describe('DownloadManager', () => {
     });
 
     it('Cover url selection logic', async () => {
-        const covers = [
-            { input: { default: 'url_default' }, expected: 'url_default' },
-            { input: { thumbnail: 'url_thumb' }, expected: 'url_thumb' },
-            { input: { md: 'url_md' }, expected: 'url_md' },
-            { input: 'url_direct', expected: 'url_direct' }
-        ];
-
-        globalThis.fetch = vi.fn(async url => ({
+        globalThis.fetch = vi.fn(async () => ({
             ok: true,
             blob: async () => ({}),
         }));
         globalThis.FileReader = vi.fn(function() {
             this.readAsDataURL = function () { this.result = 'data:img'; this.onloadend && this.onloadend(); };
         });
-        
-        for (const { input, expected } of covers) {
-            serviceMock.fetchMangaMetadata = vi.fn(async () => ({ data: { cover: input } }));
-            await import('../../core/DownloadManager.js');
-            const DownloadManager = globalThis.DownloadManager;
-            const dm = new DownloadManager();
-            const res = await dm.startDownload({ serviceKey: 'mangalib', url: 'https://site/manga/slug' });
-            const state = dm.getDownloadState(res.downloadId);
-            expect(globalThis.fetch).toHaveBeenCalledWith(expected, expect.any(Object));
-            expect(state.coverBase64).toBe('data:img');
-            globalThis.fetch.mockClear();
-        }
+
+        serviceMock.fetchMangaMetadata = vi.fn(async () => ({ data: { cover: 'url_default' } }));
+        await import('../../core/DownloadManager.js');
+        const DownloadManager = globalThis.DownloadManager;
+        const dm = new DownloadManager();
+        const res = await dm.startDownload({ serviceKey: 'mangalib', url: 'https://site/manga/slug' });
+        const state = dm.getDownloadState(res.downloadId);
+        expect(globalThis.fetch).toHaveBeenCalledWith('url_default', expect.any(Object));
+        expect(state.coverBase64).toBe('data:img');
     });
 
     it('Sets Referer to ranobelib.me for ranobelib service', async () => {
@@ -409,16 +397,19 @@ describe('DownloadManager', () => {
             this.readAsDataURL = function () { this.result = 'data:img'; this.onloadend && this.onloadend(); };
         });
 
-        const ranobeMock = { 
-            name: 'ranobelib', 
-            fetchMangaMetadata: vi.fn(async () => ({ data: { cover: { default: 'ranobe-cover' } } })), 
-            fetchChaptersList: vi.fn(async () => ({ data: [] })), 
-            fetchChapter: vi.fn(async () => ({ data: { content: [] } })), 
-            extractText: vi.fn(), 
-            processChapterContent: vi.fn() 
+        const ranobeMock = {
+            name: 'ranobelib',
+            config: { imageHeaders: { 'Referer': 'https://ranobelib.me/', 'Accept': 'image/*' } },
+            fetchMangaMetadata: vi.fn(async () => ({ data: { cover: 'ranobe-cover' } })),
+            fetchChaptersList: vi.fn(async () => ({ data: [] })),
+            fetchChapter: vi.fn(async () => ({ data: { content: [] } })),
+            extractText: vi.fn(),
+            processChapterContent: vi.fn()
         };
-        const RanobeLibServiceSpy = vi.fn(function() { return ranobeMock; });
-        globalThis.RanobeLibService = RanobeLibServiceSpy;
+        globalThis.serviceRegistry = {
+            getServiceByUrl: vi.fn(() => ranobeMock),
+            createService: vi.fn(() => ranobeMock)
+        };
 
         await import('../../core/DownloadManager.js');
         const DownloadManager = globalThis.DownloadManager;
@@ -441,17 +432,13 @@ describe('DownloadManager', () => {
         const ds = { id: 'id', slug: 'slug', controller: ctrl };
         const errorSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
 
-        serviceMock.fetchMangaMetadata = vi.fn(async () => ({ data: { cover: { default: 'bad-url' } } }));
+        serviceMock.fetchMangaMetadata = vi.fn(async () => ({ data: { cover: 'bad-url' } }));
         globalThis.fetch = vi.fn(async () => ({ ok: false, status: 404, blob: async () => ({}) }));
         globalThis.FileReader = vi.fn(function() {
             this.readAsDataURL = function () { this.result = 'data:img'; this.onloadend && this.onloadend(); };
         });
         await dm.startDownload({ serviceKey: 'mangalib', url: 'https://site/manga/slug' });
         expect(errorSpy).toHaveBeenCalledWith('[DownloadManager] Failed to fetch cover image:', 404);
-
-        serviceMock.fetchMangaMetadata = vi.fn(async () => ({ data: { cover: { default: { not: 'a string' } } } }));
-        await dm.startDownload({ serviceKey: 'mangalib', url: 'https://site/manga/slug' });
-        expect(errorSpy).toHaveBeenCalledWith('[DownloadManager] Unknown cover format:', { not: 'a string' });
 
         errorSpy.mockRestore();
     });
@@ -497,7 +484,7 @@ describe('DownloadManager', () => {
             parseFB2: vi.fn(() => ({ chapters: [], metadata: {}, cover: 'c' })),
             export: vi.fn(async () => ({ blob: {}, filename: 'file.fb2' }))
         };
-        globalMock.ExporterFactory.create = vi.fn(() => exporter);
+        globalMock.ExporterRegistry.create = vi.fn(() => exporter);
         const parseFileSpy = vi.spyOn(dm, 'parseFile').mockResolvedValue({ chapters: [], metadata: {}, cover: 'c' });
         await dm.updateExistingFile(ds, serviceMock, loadedFile);
         expect(parseFileSpy).toHaveBeenCalledWith(loadedFile, 'fb2');
@@ -786,12 +773,11 @@ describe('DownloadManager', () => {
             extractText: vi.fn(content => content),
             processChapterContent: vi.fn(async (content) => content)
         };
-        globalThis.MangaLibService = vi.fn(function() { return service; });
-        globalThis.serviceRegistry = { getServiceByUrl: vi.fn(() => service) };
+        globalThis.serviceRegistry = { getServiceByUrl: vi.fn(() => service), createService: vi.fn(() => service) };
         const exporter = {
             export: vi.fn(async (manga, chapterContents, coverBase64) => ({ blob: {}, filename: 'file.fb2' }))
         };
-        globalThis.ExporterFactory = { create: vi.fn(() => exporter) };
+        globalThis.ExporterRegistry = { create: vi.fn(() => exporter) };
         globalThis.FileUtils = { downloadBlob: vi.fn(async () => {}) };
 
         const delaySpy = vi.spyOn(dm, 'delay').mockResolvedValue();

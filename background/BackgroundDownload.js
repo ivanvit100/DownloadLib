@@ -56,13 +56,8 @@ class BackgroundDownload {
 
     async continueDownload(download) {
         try {
-            let service;
-            if (download.serviceKey === 'ranobelib')
-                service = new RanobeLibService();
-            else if (download.serviceKey === 'mangalib')
-                service = new MangaLibService();
-            else
-                throw new Error(`Unknown service: ${download.serviceKey}`);
+            const service = serviceRegistry.createService(download.serviceKey);
+            if (!service) throw new Error(`Unknown service: ${download.serviceKey}`);
 
             const total = download.chapters.length;
             
@@ -133,7 +128,7 @@ class BackgroundDownload {
             download.status = `Создание ${download.format.toUpperCase()}...`;
             download.progress = 95;
             
-            const exporter = ExporterFactory.create(download.format);
+            const exporter = ExporterRegistry.create(download.format);
             const patch = MangaPatcher.patch(download.manga);
             const file = await exporter.export(patch, download.chapterContents, download.coverBase64);
 

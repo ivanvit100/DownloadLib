@@ -97,16 +97,16 @@ describe('Exporters self branch', () => {
         else delete global.self;
     });
 
-    it('Attaches ExporterFactory to self', async () => {
+    it('Attaches ExporterRegistry to self', async () => {
         const originalWindow = global.window;
         const originalSelf = global.self;
         delete global.window;
         global.self = global;
-        const path = require.resolve('../../exporters/ExporterFactory.js');
+        const path = require.resolve('../../exporters/ExporterRegistry.js');
         delete require.cache[path];
-        await import('../../exporters/ExporterFactory.js');
-        expect(global.self.ExporterFactory).toBeDefined();
-        const factory = global.self.ExporterFactory;
+        await import('../../exporters/ExporterRegistry.js');
+        expect(global.self.ExporterRegistry).toBeDefined();
+        const factory = global.self.ExporterRegistry;
         expect(typeof factory.create).toBe('function');
         if (originalWindow !== undefined) global.window = originalWindow;
         if (originalSelf !== undefined) global.self = originalSelf;

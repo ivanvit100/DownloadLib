@@ -362,5 +362,6 @@
     }
 
     global.EPUBExporter = EPUBExporter;
+    if (global.ExporterRegistry) global.ExporterRegistry.register('epub', EPUBExporter, { label: 'EPUB' });
     console.log('[EPUBExporter] Loaded');
 })(typeof window !== 'undefined' ? window : self);

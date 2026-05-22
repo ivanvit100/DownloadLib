@@ -179,5 +179,6 @@
     }
 
     global.FB2Exporter = FB2Exporter;
+    if (global.ExporterRegistry) global.ExporterRegistry.register('fb2', FB2Exporter, { label: 'FB2' });
     console.log('[FB2Exporter] Loaded');
 })(typeof window !== 'undefined' ? window : self);

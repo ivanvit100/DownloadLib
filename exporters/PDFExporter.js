@@ -291,5 +291,6 @@
     }
 
     global.PDFExporter = PDFExporter;
+    if (global.ExporterRegistry) global.ExporterRegistry.register('pdf', PDFExporter, { label: 'PDF' });
     console.log('[PDFExporter] Loaded');
 })(typeof window !== 'undefined' ? window : self);

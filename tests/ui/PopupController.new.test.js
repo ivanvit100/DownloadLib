@@ -83,6 +83,15 @@ beforeEach(async () => {
         }
     };
     global.chrome = undefined;
+    global.ExporterRegistry = {
+        getFormats: vi.fn(() => [
+            { value: 'fb2', label: 'FB2' },
+            { value: 'epub', label: 'EPUB' },
+            { value: 'pdf', label: 'PDF' },
+            { value: 'mobi', label: 'MOBI' },
+            { value: 'simple', label: 'TXT/JPEG' },
+        ]),
+    };
 
     await import('../../core/MangaPatcher.js');
     await import('../../ui/PopupController.js');

@@ -48,9 +48,9 @@ describe('Self Attachment', () => {
         const originalSelf = global.self;
         delete global.window;
         global.self = global;
-        const path = require.resolve('../../core/ServiceRegistry.js');
+        const path = require.resolve('../../services/ServiceRegistry.js');
         delete require.cache[path];
-        await import('../../core/ServiceRegistry.js');
+        await import('../../services/ServiceRegistry.js');
         expect(global.self.ServiceRegistry).toBeDefined();
         expect(global.self.serviceRegistry).toBeDefined();
         if (originalWindow !== undefined) global.window = originalWindow;

@@ -358,5 +358,6 @@
     }
 
     global.MOBIExporter = MOBIExporter;
+    if (global.ExporterRegistry) global.ExporterRegistry.register('mobi', MOBIExporter, { label: 'MOBI' });
     console.log('[MOBIExporter] Loaded');
 })(typeof window !== 'undefined' ? window : self);

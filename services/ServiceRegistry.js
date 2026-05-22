@@ -1,16 +1,23 @@
 /**
- * DownloadLib core module
- * Module to manage services (MangaLib, Ranobelib, etc.)
- * @module core/ServiceRegistry
+ * DownloadLib service registry
+ * @module services/ServiceRegistry
  * @license MIT
  * @author ivanvit
- * @version 1.0.1
+ * @version 1.0.6
  */
 
 'use strict';
 
 (function(global) {
     console.log('[ServiceRegistry] Loading...');
+
+    const SERVICE_SCRIPTS = [
+        '/services/mangalib/config.js',
+        '/services/ranobelib/config.js',
+        '/services/BaseService.js',
+        '/services/mangalib/MangaLibService.js',
+        '/services/ranobelib/RanobeLibService.js',
+    ];
 
     class ServiceRegistry {
         constructor() {
@@ -48,6 +55,17 @@
             return this.services.get(name)?.instance || null;
         }
 
+        createService(name) {
+            const entry = this.services.get(name);
+            if (!entry) return null;
+            try {
+                return new entry.class();
+            } catch (e) {
+                console.error(`[ServiceRegistry] Failed to create service: ${name}`, e);
+                return null;
+            }
+        }
+
         getAllServices() {
             return Array.from(this.services.values()).map(s => s.instance);
         }
@@ -55,4 +73,16 @@
 
     global.ServiceRegistry = ServiceRegistry;
     global.serviceRegistry = new ServiceRegistry();
+
+    if (typeof importScripts === 'function') {
+        // Service Worker (Chrome MV3)
+        importScripts(...SERVICE_SCRIPTS);
+    } else if (typeof document !== 'undefined' && document.currentScript !== null) {
+        // Браузерная страница
+        SERVICE_SCRIPTS.forEach(src => {
+            document.write('<script src="' + src + '"><\/script>');
+        });
+    }
+
+    console.log('[ServiceRegistry] Loaded');
 })(typeof window !== 'undefined' ? window : self);

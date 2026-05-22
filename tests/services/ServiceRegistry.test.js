@@ -3,9 +3,9 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 let ServiceRegistry;
 
 beforeEach(async () => {
-    const path = require.resolve('../../core/ServiceRegistry.js');
+    const path = require.resolve('../../services/ServiceRegistry.js');
     delete require.cache[path];
-    await import('../../core/ServiceRegistry.js');
+    await import('../../services/ServiceRegistry.js');
     ServiceRegistry = global.ServiceRegistry;
 });
 
@@ -92,5 +92,50 @@ describe('ServiceRegistry', () => {
 
     it('Global serviceRegistry is defined', () => {
         expect(global.serviceRegistry).toBeInstanceOf(ServiceRegistry);
+    });
+
+    it('createService returns new instance by name', () => {
+        class DummyService {
+            constructor() { this.name = 'Dummy'; }
+            static matches() { return false; }
+        }
+        const registry = new ServiceRegistry();
+        registry.register(DummyService);
+        const instance = registry.createService('Dummy');
+        expect(instance).toBeInstanceOf(DummyService);
+    });
+
+    it('createService returns null for unknown name', () => {
+        const registry = new ServiceRegistry();
+        expect(registry.createService('Unknown')).toBeNull();
+    });
+
+    it('createService returns a fresh instance each call', () => {
+        class DummyService {
+            constructor() { this.name = 'Dummy'; }
+            static matches() { return false; }
+        }
+        const registry = new ServiceRegistry();
+        registry.register(DummyService);
+        const a = registry.createService('Dummy');
+        const b = registry.createService('Dummy');
+        expect(a).not.toBe(b);
+    });
+
+    it('createService returns null and logs error when constructor throws', () => {
+        const errorSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
+        let calls = 0;
+        class BadService {
+            constructor() {
+                if (++calls > 1) throw new Error('fail');
+                this.name = 'Bad';
+            }
+            static matches() { return false; }
+        }
+        const registry = new ServiceRegistry();
+        registry.register(BadService);
+        expect(registry.createService('Bad')).toBeNull();
+        expect(errorSpy).toHaveBeenCalled();
+        errorSpy.mockRestore();
     });
 });

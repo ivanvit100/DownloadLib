@@ -112,6 +112,21 @@ describe('MangaPatcher', () => {
             const patch = MangaPatcher.patch({ authors: [{ name: 'A' }, null, 'B', 42, {}] });
             expect(patch.authors).toEqual(['A', '', 'B', '', '']);
         });
+
+        it('Falls back to rus_name when name absent in object', () => {
+            const patch = MangaPatcher.patch({ authors: [{ rus_name: 'Иванов' }] });
+            expect(patch.authors).toEqual(['Иванов']);
+        });
+
+        it('Falls back to title when name and rus_name absent in object', () => {
+            const patch = MangaPatcher.patch({ authors: [{ title: 'Редактор' }] });
+            expect(patch.authors).toEqual(['Редактор']);
+        });
+
+        it('Prefers name over rus_name and title', () => {
+            const patch = MangaPatcher.patch({ authors: [{ name: 'A', rus_name: 'Б', title: 'В' }] });
+            expect(patch.authors).toEqual(['A']);
+        });
     });
 
     describe('SummaryResolutionModule', () => {
@@ -212,6 +227,21 @@ describe('MangaPatcher', () => {
             const patch = MangaPatcher.patch({ authors: [], cover: null });
             expect(patch.cover).toBe('');
         });
+
+        it('Falls back to image field when cover absent', () => {
+            const patch = MangaPatcher.patch({ authors: [], image: 'https://a.com/i.jpg' });
+            expect(patch.cover).toBe('https://a.com/i.jpg');
+        });
+        
+        it('Falls back to image field when cover object has no known keys', () => {
+            const patch = MangaPatcher.patch({ authors: [], cover: { foo: 'bar' }, image: 'https://a.com/i.jpg' });
+            expect(patch.cover).toBe('https://a.com/i.jpg');
+        });
+        
+        it('Prefers cover over image field', () => {
+            const patch = MangaPatcher.patch({ authors: [], cover: 'https://a.com/c.jpg', image: 'https://a.com/i.jpg' });
+            expect(patch.cover).toBe('https://a.com/c.jpg');
+        });
     });
 
     describe('AgeRatingResolutionModule', () => {
@@ -238,6 +268,68 @@ describe('MangaPatcher', () => {
         it('Resolves to 0 for non-numeric caution', () => {
             const patch = MangaPatcher.patch({ authors: [], caution: '18+' });
             expect(patch.ageRating).toBe(0);
+        });
+
+        it('Extracts rating from ageRestriction.label', () => {
+            const patch = MangaPatcher.patch({ authors: [], ageRestriction: { label: '18+' } });
+            expect(patch.rating).toBe('18+');
+        });
+
+        it('Coerces numeric ageRestriction.label to string', () => {
+            const patch = MangaPatcher.patch({ authors: [], ageRestriction: { label: 18 } });
+            expect(patch.rating).toBe('18');
+        });
+
+        it('Resolves rating to empty string when ageRestriction absent', () => {
+            const patch = MangaPatcher.patch({ authors: [] });
+            expect(patch.rating).toBe('');
+        });
+
+        it('Resolves rating to empty string when ageRestriction.label absent', () => {
+            const patch = MangaPatcher.patch({ authors: [], ageRestriction: {} });
+            expect(patch.rating).toBe('');
+        });
+    });
+
+    describe('ReleaseDateResolutionModule', () => {
+        it('Uses releaseDate field', () => {
+            const patch = MangaPatcher.patch({ authors: [], releaseDate: '2020-01-01' });
+            expect(patch.releaseDate).toBe('2020-01-01');
+        });
+
+        it('Falls back to releaseDateString', () => {
+            const patch = MangaPatcher.patch({ authors: [], releaseDateString: '2020' });
+            expect(patch.releaseDate).toBe('2020');
+        });
+
+        it('Falls back to release_date', () => {
+            const patch = MangaPatcher.patch({ authors: [], release_date: '2021' });
+            expect(patch.releaseDate).toBe('2021');
+        });
+
+        it('Falls back to published', () => {
+            const patch = MangaPatcher.patch({ authors: [], published: '2019' });
+            expect(patch.releaseDate).toBe('2019');
+        });
+
+        it('Falls back to year', () => {
+            const patch = MangaPatcher.patch({ authors: [], year: 2018 });
+            expect(patch.releaseDate).toBe('2018');
+        });
+
+        it('Falls back to date', () => {
+            const patch = MangaPatcher.patch({ authors: [], date: '2017-06-15' });
+            expect(patch.releaseDate).toBe('2017-06-15');
+        });
+
+        it('Resolves to empty string when all date fields absent', () => {
+            const patch = MangaPatcher.patch({ authors: [] });
+            expect(patch.releaseDate).toBe('');
+        });
+
+        it('Prefers releaseDate over all fallbacks', () => {
+            const patch = MangaPatcher.patch({ authors: [], releaseDate: '2022', year: 2000, date: '1999' });
+            expect(patch.releaseDate).toBe('2022');
         });
     });
 

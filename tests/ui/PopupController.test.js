@@ -91,6 +91,15 @@ beforeEach(async () => {
     };
     global.chrome = undefined;
     global.window.close = vi.fn();
+    global.ExporterRegistry = {
+        getFormats: vi.fn(() => [
+            { value: 'fb2', label: 'FB2' },
+            { value: 'epub', label: 'EPUB' },
+            { value: 'pdf', label: 'PDF' },
+            { value: 'mobi', label: 'MOBI' },
+            { value: 'simple', label: 'TXT/JPEG' },
+        ]),
+    };
     await import('../../core/MangaPatcher.js');
     await import('../../ui/PopupController.js');
     PopupController = global.PopupController;
@@ -1317,7 +1326,7 @@ describe('PopupController', () => {
         expect(document.getElementById('logoInfo').textContent).toContain('Авторы: Author');
     });
 
-    it('Sets authors to null if meta.authors is not an array', async () => {
+    it('Normalizes string authors via MangaPatcher', async () => {
         const controller = new PopupController();
         global.serviceRegistry.getServiceByUrl = vi.fn(() => ({
             name: 'ranobelib',
@@ -1339,7 +1348,7 @@ describe('PopupController', () => {
         });
         global.browser.tabs.query = vi.fn(async () => ([{ url: 'https://ranobelib.me/manga/slug' }]));
         await controller.loadMetadata();
-        expect(document.getElementById('logoInfo').textContent).not.toContain('Авторы:');
+        expect(document.getElementById('logoInfo').textContent).toContain('Авторы: Ivan');
     });
 
     it('Warns if no age restriction label found in metadata', async () => {

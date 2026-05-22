@@ -4,7 +4,7 @@
  * @module services/mangalib/MangaLibService
  * @license MIT
  * @author ivanvit
- * @version 1.0.4
+ * @version 1.0.6
  */
 
 'use strict';
@@ -348,5 +348,6 @@
     }
 
     global.MangaLibService = MangaLibService;
+    if (global.serviceRegistry) global.serviceRegistry.register(MangaLibService);
     console.log('[MangaLibService] Loaded');
 })(typeof window !== 'undefined' ? window : self);

@@ -35,11 +35,8 @@
 
             let service;
             if (serviceKey) {
-                if (serviceKey === 'ranobelib')
-                    service = new global.RanobeLibService();
-                else if (serviceKey === 'mangalib')
-                    service = new global.MangaLibService();
-                else throw new Error(`Unknown service: ${serviceKey}`);
+                service = global.serviceRegistry.createService(serviceKey);
+                if (!service) throw new Error(`Unknown service: ${serviceKey}`);
             } else if (url) {
                 service = global.serviceRegistry.getServiceByUrl(url);
             } else {
@@ -79,21 +76,17 @@
                 console.log('[DownloadManager] Metadata:', metadata);
                 
                 const manga = metadata.data || metadata;
-                downloadState.manga = manga;
-                
+                const patched = global.MangaPatcher.patch(manga);
+                downloadState.manga = patched;
+
                 let coverBase64 = '';
-                if (manga.cover) {
-                    const coverUrl = manga.cover.default || manga.cover.thumbnail || manga.cover.md || manga.cover;
+                if (patched.cover) {
+                    const coverUrl = patched.cover;
                     if (typeof coverUrl === 'string') {
                         try {
                             this.updateStatus(downloadId, 'Загружаем обложку...', 7);
-                            const referer = service.name === 'ranobelib' ? 'https://ranobelib.me/' : 'https://mangalib.me/';
-                            const response = await fetch(coverUrl, {
-                                headers: {
-                                    'Referer': referer,
-                                    'Accept': 'image/webp,image/apng,image/*,*/*;q=0.8'
-                                }
-                            });
+                            const coverHeaders = (service.config && service.config.imageHeaders) || {};
+                            const response = await fetch(coverUrl, { headers: coverHeaders });
                             
                             if (response.ok) {
                                 const blob = await response.blob();
@@ -123,7 +116,7 @@
 
                 downloadState.chapters = chapters;
 
-                await this.downloadWithSizeLimit(downloadState, service, chapters, manga, coverBase64, format, maxSizeMB);
+                await this.downloadWithSizeLimit(downloadState, service, chapters, patched, coverBase64, format, maxSizeMB);
 
                 this.updateStatus(downloadId, 'Готово!', 100);
                 this.eventBus.emit('download:completed', downloadState);
@@ -180,12 +173,10 @@
 
                     if (currentBatch.length > 0 && currentSize + chapterSize > maxSizeBytes) {
                         partIndex++;
-                        const exporter = global.ExporterFactory.create(format);
+                        const exporter = global.ExporterRegistry.create(format);
                         const partSuffix = ` (Часть ${partIndex})`;
-                        const mangaWithSuffix = { ...manga, rus_name: (manga.rus_name || manga.name) + partSuffix };
                         this.updateStatus(downloadId, `Сохранение части ${partIndex}...`, progress);
-                        const patch = global.MangaPatcher.patch(mangaWithSuffix);
-                        const file = await exporter.export(patch, currentBatch, coverBase64);
+                        const file = await exporter.export({ ...manga, name: manga.name + partSuffix }, currentBatch, coverBase64);
                         await this.saveFile(file.blob, file.filename);
 
                         currentBatch = [chapterResult];
@@ -204,13 +195,10 @@
 
             if (currentBatch.length > 0) {
                 partIndex++;
-                const exporter = global.ExporterFactory.create(format);
+                const exporter = global.ExporterRegistry.create(format);
                 const partSuffix = partIndex > 1 ? ` (Часть ${partIndex})` : '';
-                const finalManga = partSuffix ? { ...manga, rus_name: (manga.rus_name || manga.name) + partSuffix } : manga;
-
                 this.updateStatus(downloadId, `Создание ${format.toUpperCase()}...`, 95);
-                const patch = global.MangaPatcher.patch(finalManga);
-                const file = await exporter.export(patch, currentBatch, coverBase64);
+                const file = await exporter.export(partSuffix ? { ...manga, name: manga.name + partSuffix } : manga, currentBatch, coverBase64);
                 await this.saveFile(file.blob, file.filename);
             }
         }
@@ -269,7 +257,7 @@
                 const serverChapters = this.sortChapters(chaptersData.data || []);
                 
                 this.updateStatus(downloadId, 'Анализ существующего файла...', 10);
-                const exporter = global.ExporterFactory.create(format);
+                const exporter = global.ExporterRegistry.create(format);
                 
                 let existingData;
                 existingData = exporter.parse ?
@@ -340,10 +328,10 @@
         async parseFile(file, format) {
             if (format === 'fb2') {
                 const text = await this.readFileAsText(file);
-                const exporter = global.ExporterFactory.create('fb2');
+                const exporter = global.ExporterRegistry.create('fb2');
                 return exporter.parseFB2(text, file.name);
             } else if (format === 'epub') {
-                const exporter = global.ExporterFactory.create('epub');
+                const exporter = global.ExporterRegistry.create('epub');
                 return await exporter.parseEPUB(file);
             } else if (format === 'pdf') {
                 throw new Error('PDF парсинг пока не реализован');

@@ -23,20 +23,13 @@
         'RateLimiter',
         'ServiceRegistry',
         'DownloadManager',
-        'BaseService',
-        'MangaLibService',
-        'RanobeLibService',
-        'BaseExporter',
-        'FB2Exporter',
-        'EPUBExporter',
-        'PDFExporter',
         'MangaPatcher',
-        'ExporterFactory',
+        'ExporterRegistry',
         'PopupController'
     ];
 
     const missing = dependencies.filter(dep => typeof window[dep] === 'undefined');
-    
+
     if (missing.length > 0) {
         console.error('[App] Missing dependencies:', missing);
         document.body.innerHTML = '<div style="padding: 20px; color: red;">Ошибка загрузки модулей: ' + missing.join(', ') + '</div>';
@@ -44,19 +37,6 @@
     }
 
     console.log('[App] All dependencies loaded');
-    try {
-        window.serviceRegistry.register(window.MangaLibService);
-    } catch (e) {
-        console.error('[App] Failed to register MangaLibService:', e);
-    }
-
-    try {
-        window.serviceRegistry.register(window.RanobeLibService);
-    } catch (e) {
-        console.error('[App] Failed to register RanobeLibService:', e);
-    }
-
-    const services = window.serviceRegistry.getAllServices();
 
     function initUI() {
         console.log('[App] Initializing UI...');
