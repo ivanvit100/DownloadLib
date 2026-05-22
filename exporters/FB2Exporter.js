@@ -23,6 +23,70 @@
                 .replace(/'/g, '&apos;');
         }
 
+        firstNameAuthorDescription(author) {
+            return `         <first-name>${this.escapeXml(author || 'Unknown')}</first-name>\n`;
+        }
+
+        middleNameAuthorDescription(author) {
+            return `         <middle-name>${this.escapeXml(author || 'Unknown')}</middle-name>\n`;
+        }
+
+        lastNameAuthorDescription(author) {
+            return `         <last-name>${this.escapeXml(author || 'Unknown')}</last-name>\n`;
+        }
+
+        unknownNameAuthorDescription() {
+            return this.firstNameAuthorDescription(null);
+        }
+		
+        *createAuthorsDescription(author) {
+            if(author) {
+                const descriptions = author.split(' ');
+                for(let description = 0; description < descriptions.length; ++description) {
+                    if(description === 0) {
+                        yield this.firstNameAuthorDescription(descriptions[description]);
+                    }
+                    if(description === 1) {
+                        yield this.lastNameAuthorDescription(descriptions[description]);
+                    }
+                    if(description === 2) {
+                        yield this.middleNameAuthorDescription(descriptions[description]);
+                    }
+                }
+            }
+            else {
+                yield this.unknownNameAuthorDescription();
+            }
+        }
+
+        *createAuthorsTag(author) {
+            yield '     <author>\n';
+            for (const value of this.createAuthorsDescription(author)) {
+                yield value;
+            }
+            yield '     </author>\n';
+        }
+
+        *createAuthors(authors) {
+            if(Array.isArray(authors)) {
+                if(authors.length !== 0) {
+                    for (const author of authors) {
+                        for(const tag of this.createAuthorsTag(author)) {
+                            yield tag;
+                        }
+                    }
+                }
+                else {
+                    yield this.unknownNameAuthorDescription();
+                }
+            }
+            else {
+                for(const tag of this.createAuthorsTag(authors)) {
+                    yield tag;
+                }
+            }
+        }
+
         *createFB2Stream(manga, chapters, coverBase64) {
             yield '<?xml version="1.0" encoding="utf-8"?>\n';
             yield '<FictionBook xmlns="http://www.gribuser.ru/xml/fictionbook/2.0" xmlns:l="http://www.w3.org/1999/xlink">\n';
@@ -30,7 +94,9 @@
             yield '<description>\n';
             yield '  <title-info>\n';
             yield `    <genre>prose</genre>\n`;
-            yield `    <author><first-name>${this.escapeXml(manga.authors.filter(Boolean).join(', ') || 'Unknown')}</first-name></author>\n`;
+            for(const description of this.createAuthors(manga.authors)) {
+                yield description;
+            }
             yield `    <book-title>${this.escapeXml(manga.name || 'Unknown')}</book-title>\n`;
             if (coverBase64) {
                 yield '    <coverpage>\n';
