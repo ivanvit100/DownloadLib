@@ -40,7 +40,8 @@
         }
 		
         *createAuthorsDescription(author) {
-            if(author) {
+            if(author
+                && typeof author === 'string') {
                 const descriptions = author.split(' ');
                 for(let description = 0; description < descriptions.length; ++description) {
                     if(description === 0) {
@@ -77,7 +78,9 @@
                     }
                 }
                 else {
-                    yield this.unknownNameAuthorDescription();
+                    for(const tag of this.createAuthorsTag(null)) {
+                        yield tag;
+                    }
                 }
             }
             else {
