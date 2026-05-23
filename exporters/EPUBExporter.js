@@ -157,11 +157,11 @@
 </html>`;
         }
 
-		createAuthorsDescription(author) {
+	createAuthorsDescription(author) {
             return `<dc:creator>${this.escapeXml(author || 'Неизвестно')}</dc:creator>`
         }
 
-		unknownNameAuthorDescription() {
+	unknownNameAuthorDescription() {
             return this.createAuthorsDescription(null);
         }
 
@@ -172,7 +172,7 @@
                     for (const author of authors) {
                         descriptions.push(this.createAuthorsDescription(author));
                     }
-                    return descriptions.join('\n');
+                    return descriptions.join('\n\t');
                 }
                 else {
                     return this.unknownNameAuthorDescription();
