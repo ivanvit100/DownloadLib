@@ -369,7 +369,7 @@ if (browserAPI && browserAPI.runtime && browserAPI.runtime.onMessage) {
                     const win = await browserAPI.windows.create({
                         url: browserAPI.runtime.getURL('popup.html') + urlParams,
                         type: 'popup',
-                        width: 420,
+                        width: 350,
                         height: 650,
                         focused: true,
                         state: 'normal'
