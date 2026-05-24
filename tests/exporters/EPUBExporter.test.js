@@ -76,6 +76,18 @@ describe('EPUBExporter', () => {
         expect(html).toContain('src="images/img2.jpg"');
     });
 
+    it('Uses full name authors', () => {
+        const opf = exporter.createOPF({ name: 'Test', authors: ['First Last Middle'] });
+        expect(opf).toContain('<dc:creator>First Last Middle</dc:creator>');
+    });
+
+    it('Uses multiply name authors', () => {
+        const opf = exporter.createOPF({ name: 'Test', authors: ['First', 'Middle', 'Last'] });
+        expect(opf).toContain('<dc:creator>First</dc:creator>');
+        expect(opf).toContain('<dc:creator>Middle</dc:creator>');
+        expect(opf).toContain('<dc:creator>Last</dc:creator>');
+    });
+
     it('Uses defaults for missing manga fields', () => {
         const opf = exporter.createOPF({ authors: [] }, '', '');
         expect(opf).toContain('<dc:title>Без названия</dc:title>');
