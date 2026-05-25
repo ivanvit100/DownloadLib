@@ -232,8 +232,6 @@
 
                 const maxSizeLabel = document.createElement('label');
                 maxSizeLabel.textContent = 'Макс. размер части (МБ):';
-                maxSizeLabel.style.color = '#bdbdbd';
-                maxSizeLabel.style.fontSize = '14px';
                 maxSizeLabel.htmlFor = 'maxSizeInput';
 
                 const maxSizeInput = document.createElement('input');
@@ -267,18 +265,18 @@
                 chapterRangeContainer.id = 'chapterRangeContainer';
 
                 const chapterSelectRow = document.createElement('div');
-		chapterSelectRow.id = 'chapterSelectRow';
+                chapterSelectRow.id = 'chapterSelectRow';
 
                 const chapterFromLabel = document.createElement('div');
-		chapterFromLabel.id = 'chapterFromLabel';
+                chapterFromLabel.id = 'chapterFromLabel';
                 chapterFromLabel.textContent = 'от';
 
                 const chapterToLabel = document.createElement('div');
-		chapterToLabel.id = 'chapterToLabel';
+                chapterToLabel.id = 'chapterToLabel';
                 chapterToLabel.textContent = 'до';
 
                 const chapterLabelsRow = document.createElement('div');
-		chapterLabelsRow.id = 'chapterLabelsRow';
+                chapterLabelsRow.id = 'chapterLabelsRow';
                 chapterLabelsRow.appendChild(chapterFromLabel);
                 chapterLabelsRow.appendChild(chapterToLabel);
 
