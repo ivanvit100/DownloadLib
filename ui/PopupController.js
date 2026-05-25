@@ -51,10 +51,6 @@
             const btn = document.getElementById('downloadBtn');
             const status = document.getElementById('status');
             const progress = document.getElementById('progress');
-            const siteLogo = document.getElementById('siteLogo');
-            const logoInfo = document.getElementById('logoInfo');
-            const coverImg = document.getElementById('cover');
-            const desc = document.getElementById('description');
 
             if (!btn) {
                 console.error('downloadBtn not found in DOM');
@@ -65,27 +61,16 @@
             if (!releaseEl) {
                 releaseEl = document.createElement('div');
                 releaseEl.id = 'releaseDate';
-                releaseEl.style.textAlign = 'center';
-                releaseEl.style.color = '#bdbdbd';
-                releaseEl.style.fontSize = '12px';
-                releaseEl.style.marginTop = '8px';
-                releaseEl.style.marginBottom = '8px';
                 btn.parentNode.insertBefore(releaseEl, btn);
             }
 
             let formatSelector = document.getElementById('formatSelector');
             if (!formatSelector) {
                 const formatContainer = document.createElement('div');
-                formatContainer.style.textAlign = 'center';
-                formatContainer.style.marginTop = '10px';
-                formatContainer.style.marginBottom = '10px';
+                formatContainer.id = 'formatContainer';
 
                 formatSelector = document.createElement('select');
                 formatSelector.id = 'formatSelector';
-                formatSelector.style.padding = '6px 12px';
-                formatSelector.style.fontSize = '14px';
-                formatSelector.style.marginLeft = '8px';
-                formatSelector.style.marginRight = '8px';
 
                 global.ExporterRegistry.getFormats().forEach(({ value, label }) => {
                     const option = document.createElement('option');
@@ -96,8 +81,6 @@
 
                 const label = document.createElement('label');
                 label.textContent = 'Формат: ';
-                label.style.color = '#bdbdbd';
-                label.style.fontSize = '14px';
                 label.htmlFor = 'formatSelector';
 
                 formatContainer.appendChild(label);
@@ -122,14 +105,10 @@
             let rateLimitInput = document.getElementById('rateLimitInput');
             if (!rateLimitInput) {
                 const rateLimitContainer = document.createElement('div');
-                rateLimitContainer.style.textAlign = 'center';
-                rateLimitContainer.style.marginTop = '10px';
-                rateLimitContainer.style.marginBottom = '10px';
+                rateLimitContainer.id = 'rateLimitContainer';
                 
                 const label = document.createElement('label');
                 label.textContent = 'Запросов в минуту: ';
-                label.style.color = '#bdbdbd';
-                label.style.fontSize = '14px';
                 
                 rateLimitInput = document.createElement('input');
                 rateLimitInput.id = 'rateLimitInput';
@@ -155,12 +134,6 @@
             if (!activeDownloadsInfo) {
                 activeDownloadsInfo = document.createElement('div');
                 activeDownloadsInfo.id = 'activeDownloadsInfo';
-                activeDownloadsInfo.style.textAlign = 'center';
-                activeDownloadsInfo.style.color = '#bdbdbd';
-                activeDownloadsInfo.style.fontSize = '12px';
-                activeDownloadsInfo.style.marginTop = '8px';
-                activeDownloadsInfo.style.marginBottom = '8px';
-                activeDownloadsInfo.style.display = 'none';
                 
                 const rateLimitContainer = rateLimitInput.parentNode;
                 rateLimitContainer.parentNode.insertBefore(activeDownloadsInfo, rateLimitContainer.nextSibling);
@@ -170,23 +143,15 @@
             if (!fileInputContainer) {
                 fileInputContainer = document.createElement('div');
                 fileInputContainer.id = 'fileInputContainer';
-                fileInputContainer.style.textAlign = 'center';
-                fileInputContainer.style.marginTop = '10px';
-                fileInputContainer.style.marginBottom = '10px';
 
                 const hiddenFileInput = document.createElement('input');
                 hiddenFileInput.type = 'file';
                 hiddenFileInput.id = 'fileInput';
                 hiddenFileInput.accept = '.pdf,.epub,.fb2';
-                hiddenFileInput.style.display = 'none';
 
                 const customFileBtn = document.createElement('button');
                 customFileBtn.id = 'customFileBtn';
                 customFileBtn.textContent = 'Загрузить файл для обновления';
-                customFileBtn.style.padding = '8px 16px';
-                customFileBtn.style.cursor = 'pointer';
-                customFileBtn.style.fontSize = '14px';
-                customFileBtn.style.transition = 'all 0.3s ease';
 
                 fileInputContainer.appendChild(hiddenFileInput);
                 fileInputContainer.appendChild(customFileBtn);
@@ -232,55 +197,21 @@
             if (!controlsContainer) {
                 controlsContainer = document.createElement('div');
                 controlsContainer.id = 'downloadControls';
-                controlsContainer.style.display = 'none';
-                controlsContainer.style.textAlign = 'center';
-                controlsContainer.style.marginTop = '10px';
                 
                 const pauseBtn = document.createElement('button');
                 pauseBtn.id = 'pauseBtn';
                 pauseBtn.textContent = 'Пауза';
-                pauseBtn.style.padding = '8px 16px';
-                pauseBtn.style.cursor = 'pointer';
-                pauseBtn.style.width = 'calc(50% - 4px)';
-                pauseBtn.style.transition = 'all 0.3s ease';
                 
                 const backgroundBtn = document.createElement('button');
                 backgroundBtn.id = 'backgroundBtn';
                 backgroundBtn.textContent = 'Фоном';
-                backgroundBtn.style.padding = '8px 16px';
-                backgroundBtn.style.cursor = 'pointer';
-                backgroundBtn.style.width = 'calc(50% - 4px)';
-                backgroundBtn.style.transition = 'all 0.3s ease';
-
-                if (!document.getElementById('control-buttons-styles')) {
-                    const styleEl = document.createElement('style');
-                    styleEl.id = 'control-buttons-styles';
-                    styleEl.textContent = `
-                        #pauseBtn, #backgroundBtn, #customFileBtn {
-                            border: 2px solid var(--primary-color) !important;
-                            background: #252527 !important;
-                        }
-                        #pauseBtn:hover, #backgroundBtn:hover, #customFileBtn:hover {
-                            border: 2px solid var(--secondary-color) !important;
-                            background: #252527 !important;
-                        }
-                    `;
-                    document.head.appendChild(styleEl);
-                }
 
                 const stopBtn = document.createElement('button');
                 stopBtn.id = 'stopBtn';
                 stopBtn.textContent = 'Завершить';
-                stopBtn.style.marginTop = '12px';
-                stopBtn.style.padding = '8px 16px';
-                stopBtn.style.cursor = 'pointer';
-                stopBtn.style.display = 'block';
-                stopBtn.style.width = '100%';
-                stopBtn.style.transition = 'all 0.3s ease';
                 
                 const btnRow = document.createElement('div');
-                btnRow.style.display = 'flex';
-                btnRow.style.justifyContent = 'space-between';
+                btnRow.id = 'btnRow';
                 btnRow.appendChild(pauseBtn);
                 btnRow.appendChild(backgroundBtn);
                 
@@ -334,95 +265,47 @@
             if (!chapterRangeContainer) {
                 chapterRangeContainer = document.createElement('div');
                 chapterRangeContainer.id = 'chapterRangeContainer';
-                chapterRangeContainer.style.textAlign = 'center';
-                chapterRangeContainer.style.marginTop = '10px';
-                chapterRangeContainer.style.marginBottom = '10px';
-                chapterRangeContainer.style.display = 'none';
 
-                const selectRow = document.createElement('div');
-                selectRow.style.display = 'flex';
-                selectRow.style.justifyContent = 'space-between';
-                selectRow.style.alignItems = 'center';
+                const chapterSelectRow = document.createElement('div');
+		chapterSelectRow.id = 'chapterSelectRow';
 
-                const fromLabel = document.createElement('div');
-                fromLabel.textContent = 'от';
-                fromLabel.style.color = '#bdbdbd';
-                fromLabel.style.fontSize = '14px';
-                fromLabel.style.marginBottom = '2px';
-                fromLabel.style.width = '50%';
-                fromLabel.style.textAlign = 'center';
+                const chapterFromLabel = document.createElement('div');
+		chapterFromLabel.id = 'chapterFromLabel';
+                chapterFromLabel.textContent = 'от';
 
-                const toLabel = document.createElement('div');
-                toLabel.textContent = 'до';
-                toLabel.style.color = '#bdbdbd';
-                toLabel.style.fontSize = '14px';
-                toLabel.style.marginBottom = '2px';
-                toLabel.style.width = '50%';
-                toLabel.style.textAlign = 'center';
+                const chapterToLabel = document.createElement('div');
+		chapterToLabel.id = 'chapterToLabel';
+                chapterToLabel.textContent = 'до';
 
-                const labelsRow = document.createElement('div');
-                labelsRow.style.display = 'flex';
-                labelsRow.style.justifyContent = 'space-between';
-                labelsRow.appendChild(fromLabel);
-                labelsRow.appendChild(toLabel);
+                const chapterLabelsRow = document.createElement('div');
+		chapterLabelsRow.id = 'chapterLabelsRow';
+                chapterLabelsRow.appendChild(chapterFromLabel);
+                chapterLabelsRow.appendChild(chapterToLabel);
 
-                const fromSelect = document.createElement('select');
-                fromSelect.id = 'chapterFromSelect';
-                fromSelect.style.padding = '8px 16px';
-                fromSelect.style.fontSize = '14px';
-                fromSelect.style.width = 'calc(50% - 4px)';
-                fromSelect.style.cursor = 'pointer';
-                fromSelect.style.border = '2px solid var(--primary-color)';
-                fromSelect.style.background = '#252527';
-                fromSelect.style.color = '#bdbdbd';
-                fromSelect.style.transition = 'all 0.3s ease';
+                const chapterFromSelect = document.createElement('select');
+                chapterFromSelect.id = 'chapterFromSelect';
 
-                const toSelect = document.createElement('select');
-                toSelect.id = 'chapterToSelect';
-                toSelect.style.padding = '8px 16px';
-                toSelect.style.fontSize = '14px';
-                toSelect.style.width = 'calc(50% - 4px)';
-                toSelect.style.cursor = 'pointer';
-                toSelect.style.border = '2px solid var(--primary-color)';
-                toSelect.style.background = '#252527';
-                toSelect.style.color = '#bdbdbd';
-                toSelect.style.transition = 'all 0.3s ease';
+                const chapterToSelect = document.createElement('select');
+                chapterToSelect.id = 'chapterToSelect';
 
-                fromSelect.addEventListener('change', () => {
-                    const fromIdx = parseInt(fromSelect.value);
-                    const toIdx = parseInt(toSelect.value);
-                    if (fromIdx > toIdx) toSelect.value = fromSelect.value;
+                chapterFromSelect.addEventListener('change', () => {
+                    const fromIdx = parseInt(chapterFromSelect.value);
+                    const toIdx = parseInt(chapterToSelect.value);
+                    if (fromIdx > toIdx) chapterToSelect.value = chapterFromSelect.value;
                     else console.log('Chapter range selectors updated without invalid range');
                 });
 
-                toSelect.addEventListener('change', () => {
-                    const fromIdx = parseInt(fromSelect.value);
-                    const toIdx = parseInt(toSelect.value);
-                    if (toIdx < fromIdx) fromSelect.value = toSelect.value;
+                chapterToSelect.addEventListener('change', () => {
+                    const fromIdx = parseInt(chapterFromSelect.value);
+                    const toIdx = parseInt(chapterToSelect.value);
+                    if (toIdx < fromIdx) chapterFromSelect.value = chapterToSelect.value;
                     else console.log('Chapter range selectors updated without invalid range');
                 });
+                chapterSelectRow.appendChild(chapterFromSelect);
+                chapterSelectRow.appendChild(chapterToSelect);
 
-                fromSelect.addEventListener('mouseenter', () => {
-                    fromSelect.style.border = '2px solid var(--secondary-color)';
-                });
-
-                fromSelect.addEventListener('mouseleave', () => {
-                    fromSelect.style.border = '2px solid var(--primary-color)';
-                });
-
-                toSelect.addEventListener('mouseenter', () => {
-                    toSelect.style.border = '2px solid var(--secondary-color)';
-                });
-
-                toSelect.addEventListener('mouseleave', () => {
-                    toSelect.style.border = '2px solid var(--primary-color)';
-                });
-
-                selectRow.appendChild(fromSelect);
-                selectRow.appendChild(toSelect);
-
-                chapterRangeContainer.appendChild(labelsRow);
-                chapterRangeContainer.appendChild(selectRow);
+                chapterRangeContainer.appendChild(chapterLabelsRow);
+                chapterRangeContainer.appendChild(chapterSelectRow);
 
                 const rateLimitContainer = rateLimitInput.parentNode;
                 rateLimitContainer.parentNode.insertBefore(chapterRangeContainer, rateLimitContainer.nextSibling);
