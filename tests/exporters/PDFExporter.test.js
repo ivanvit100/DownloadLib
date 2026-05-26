@@ -31,6 +31,11 @@ beforeEach(async () => {
     const dom = new JSDOM('<!DOCTYPE html><html><body></body></html>');
     window.document = dom.window.document;
     window.Image = dom.window.Image;
+    const basePath = require.resolve('../../exporters/BaseExporter.js');
+    delete require.cache[basePath];
+    await import('../../exporters/BaseExporter.js');
+    const path = require.resolve('../../exporters/PDFExporter.js');
+    delete require.cache[path];
     await import('../../exporters/PDFExporter.js');
     PDFExporter = window.PDFExporter;
 });
@@ -89,7 +94,7 @@ describe('PDFExporter', () => {
 
     it('Throws if html2pdf is not loaded', async () => {
         window.html2pdf = undefined;
-        await expect(exporter.export({}, [], undefined)).rejects.toThrow('html2pdf library not loaded');
+        await expect(exporter.export({ name: 'Test', authors: [''] }, [], undefined)).rejects.toThrow('html2pdf library not loaded');
     });
 
     it('Returns blob, filename and mimeType', async () => {
@@ -106,6 +111,7 @@ describe('PDFExporter', () => {
                                 }
                             },
                             addPage: vi.fn(),
+                            setProperties: vi.fn(),
                             addImage: vi.fn(),
                             output: () => 'blob'
                         })
@@ -123,7 +129,7 @@ describe('PDFExporter', () => {
                 }, 1);
             }
         };
-        const manga = { name: 'Test Manga' };
+        const manga = { name: 'Test Manga', authors: [''] };
         const chapters = [
             { title: 'Chapter 1', content: [{ type: 'text', text: 'Hello world' }] }
         ];
@@ -149,6 +155,7 @@ describe('PDFExporter', () => {
                                 }
                             },
                             addPage: vi.fn(),
+                            setProperties: vi.fn(),
                             addImage: (...args) => {
                                 if (args[0].includes('coverdata')) coverAdded = true;
                             },
@@ -168,7 +175,7 @@ describe('PDFExporter', () => {
                 }, 1);
             }
         };
-        const manga = { name: 'Test Manga' };
+        const manga = { name: 'Test Manga', authors: [''] };
         const chapters = [];
         await exporter.export(manga, chapters, 'data:image/jpeg;base64,coverdata');
         expect(coverAdded).toBe(true);
@@ -190,6 +197,7 @@ describe('PDFExporter', () => {
                                 }
                             },
                             addPage: vi.fn(),
+                            setProperties: vi.fn(),
                             addImage: (...args) => {
                                 if (args[0].includes('imgdata')) imageAdded = true;
                             },
@@ -209,7 +217,7 @@ describe('PDFExporter', () => {
                 }, 1);
             }
         };
-        const manga = { name: 'Test Manga' };
+        const manga = { name: 'Test Manga', authors: [''] };
         const chapters = [
             { title: 'Chapter 1', content: [
                 { type: 'text', text: 'Hello world' },
@@ -378,6 +386,7 @@ describe('PDFExporter', () => {
                                 }
                             },
                             addPage: vi.fn(),
+                            setProperties: vi.fn(),
                             addImage: vi.fn(),
                             output: () => 'blob'
                         })
@@ -395,7 +404,7 @@ describe('PDFExporter', () => {
                 }, 1);
             }
         };
-        const manga = { name: 'Test' };
+        const manga = { name: 'Test', authors: [''] };
         const chapters = [];
         await exporter.export(manga, chapters, 'data:image/jpeg;base64,coverdata');
         document.createElement = origCreateElement;
@@ -416,6 +425,7 @@ describe('PDFExporter', () => {
                                 }
                             },
                             addPage: vi.fn(),
+                            setProperties: vi.fn(),
                             addImage: vi.fn(),
                             output: () => 'blob'
                         })
@@ -423,7 +433,7 @@ describe('PDFExporter', () => {
                 })
             })
         });
-        const manga = { name: 'Test' };
+        const manga = { name: 'Test', authors: [''] };
         const chapters = [];
         await exporter.export(manga, chapters, 'invalid_base64_string');
         expect(warnSpy).toHaveBeenCalledWith('[PDFExporter] Invalid cover image data, skipping cover page');
@@ -446,6 +456,7 @@ describe('PDFExporter', () => {
                                 }
                             },
                             addPage: vi.fn(),
+                            setProperties: vi.fn(),
                             addImage: (dataUrl, type, x, y, w, h) => {},
                             output: () => 'blob'
                         })
@@ -463,7 +474,7 @@ describe('PDFExporter', () => {
                 }, 1);
             }
         };
-        const manga = { name: 'Test' };
+        const manga = { name: 'Test', authors: [''] };
         const chapters = [
             { title: 'Chapter 1', content: [
                 { type: 'text', text: 'first' },
@@ -496,6 +507,7 @@ describe('PDFExporter', () => {
                                 }
                             },
                             addPage: vi.fn(),
+                            setProperties: vi.fn(),
                             addImage: vi.fn(),
                             output: () => 'blob'
                         })
@@ -513,7 +525,7 @@ describe('PDFExporter', () => {
                 }, 1);
             }
         };
-        const manga = { name: 'Test' };
+        const manga = { name: 'Test', authors: [''] };
         const chapters = [
             { title: 'Chapter 1', content: [{ type: 'text', text: null }] }
         ];
@@ -538,6 +550,7 @@ describe('PDFExporter', () => {
                                 }
                             },
                             addPage: vi.fn(),
+                            setProperties: vi.fn(),
                             addImage: vi.fn(),
                             output: () => 'blob'
                         })
@@ -555,7 +568,7 @@ describe('PDFExporter', () => {
                 }, 1);
             }
         };
-        const manga = { name: 'Test' };
+        const manga = { name: 'Test', authors: [''] };
         const chapters = [
             { title: 'Chapter 1', content: [{ type: 'text', text: '   ' }] }
         ];
@@ -580,6 +593,7 @@ describe('PDFExporter', () => {
                                 }
                             },
                             addPage: vi.fn(),
+                            setProperties: vi.fn(),
                             addImage: vi.fn(),
                             output: () => 'blob'
                         })
@@ -597,7 +611,7 @@ describe('PDFExporter', () => {
                 }, 1);
             }
         };
-        const manga = { name: 'Test' };
+        const manga = { name: 'Test', authors: [''] };
         const chapters = [
             { title: 'Chapter 1', content: 'not_an_array' }
         ];
@@ -622,6 +636,7 @@ describe('PDFExporter', () => {
                                 }
                             },
                             addPage: vi.fn(),
+                            setProperties: vi.fn(),
                             addImage: vi.fn(),
                             output: () => 'blob'
                         })
@@ -639,7 +654,7 @@ describe('PDFExporter', () => {
                 }, 1);
             }
         };
-        const manga = { name: 'Test' };
+        const manga = { name: 'Test', authors: [''] };
         const chapters = [
             { content: [{ type: 'text', text: 'abc' }] }
         ];
@@ -669,6 +684,7 @@ describe('PDFExporter', () => {
                                 }
                             },
                             addPage: vi.fn(),
+                            setProperties: vi.fn(),
                             addImage: vi.fn(),
                             output: () => 'blob'
                         })
@@ -686,7 +702,7 @@ describe('PDFExporter', () => {
                 }, 1);
             }
         };
-        const manga = { name: 'Test' };
+        const manga = { name: 'Test', authors: [''] };
         const chapters = [
             { title: 'Chapter 1', content: [
                 { type: 'text', text: 'first page content\n\nsecond page content\n\nthird page content' }
@@ -726,6 +742,7 @@ describe('PDFExporter', () => {
                                 }
                             },
                             addPage: vi.fn(),
+                            setProperties: vi.fn(),
                             addImage: vi.fn(),
                             output: () => 'blob'
                         })
@@ -743,8 +760,8 @@ describe('PDFExporter', () => {
                 }, 1);
             }
         };
-        const manga = { name: 'Test' };
-        const images = Array(6).fill(null).map(() => ({ 
+        const manga = { name: 'Test', authors: [''] };
+        const images = Array(6).fill(null).map(() => ({
             type: 'image', 
             data: { base64: 'imgdata', contentType: 'image/jpeg' } 
         }));
@@ -774,6 +791,7 @@ describe('PDFExporter', () => {
                                 }
                             },
                             addPage: vi.fn(),
+                            setProperties: vi.fn(),
                             addImage: vi.fn(),
                             output: () => 'blob'
                         })
@@ -791,7 +809,7 @@ describe('PDFExporter', () => {
                 }, 1);
             }
         };
-        const manga = { name: 'Test' };
+        const manga = { name: 'Test', authors: [''] };
         const chapters = [
             { title: 'Chapter 1', content: [
                 { type: 'text', text: Array(11).fill('page').join('\n\n') }
@@ -824,6 +842,7 @@ describe('PDFExporter', () => {
                                 }
                             },
                             addPage: vi.fn(),
+                            setProperties: vi.fn(),
                             addImage: (dataUrl, type, x, y, w, h) => {
                                 if (dataUrl.includes('imgdata')) {
                                     resizedW = w;
@@ -846,7 +865,7 @@ describe('PDFExporter', () => {
                 }, 1);
             }
         };
-        const manga = { name: 'Test' };
+        const manga = { name: 'Test', authors: [''] };
         const chapters = [
             { title: 'Chapter 1', content: [
                 { type: 'image', data: { base64: 'imgdata', contentType: 'image/jpeg' } }
@@ -873,6 +892,7 @@ describe('PDFExporter', () => {
                                 }
                             },
                             addPage,
+                            setProperties: vi.fn(),
                             addImage: vi.fn(),
                             output: () => 'blob'
                         })
@@ -891,7 +911,7 @@ describe('PDFExporter', () => {
             }
         };
 
-        const manga = { name: 'Test' };
+        const manga = { name: 'Test', authors: [''] };
         const chapters = [
             {
                 title: 'Chapter 1',
@@ -922,6 +942,7 @@ describe('PDFExporter', () => {
                                 }
                             },
                             addPage,
+                            setProperties: vi.fn(),
                             addImage: vi.fn(),
                             output: () => 'blob'
                         })
@@ -940,7 +961,7 @@ describe('PDFExporter', () => {
             }
         };
 
-        const manga = { name: 'Test' };
+        const manga = { name: 'Test', authors: [''] };
         const chapters = [
             { title: 'Chapter 1', content: [{ type: 'text', text: 'text page' }] }
         ];
@@ -964,6 +985,7 @@ describe('PDFExporter', () => {
                                 }
                             },
                             addPage: vi.fn(),
+                            setProperties: vi.fn(),
                             addImage: vi.fn(),
                             output: () => 'blob'
                         })
@@ -981,7 +1003,7 @@ describe('PDFExporter', () => {
                 }, 1);
             }
         };
-        const manga = {};
+        const manga = { authors: [''] };
         const chapters = [];
         const result = await exporter.export(manga, chapters, undefined);
         expect(result.filename).toBe('manga.pdf');
@@ -1030,6 +1052,7 @@ describe('PDFExporter', () => {
                                 }
                             },
                             addPage: vi.fn(),
+                            setProperties: vi.fn(),
                             addImage: (dataUrl) => {
                                 capturedDataUrl = dataUrl;
                             },
@@ -1049,7 +1072,7 @@ describe('PDFExporter', () => {
                 }, 1);
             }
         };
-        const manga = { name: 'Test' };
+        const manga = { name: 'Test', authors: [''] };
         const chapters = [
             {
                 title: 'Chapter 1',
@@ -1060,5 +1083,60 @@ describe('PDFExporter', () => {
         ];
         await exporter.export(manga, chapters, undefined);
         expect(capturedDataUrl).toBe('data:image/jpeg;base64,imgdata');
+    });
+
+    it('Writes title, author and summary to pdf properties', async () => {
+        let capturedProps = null;
+        window.html2pdf = () => ({
+            set: () => ({
+                from: () => ({
+                    toPdf: () => ({
+                        get: () => Promise.resolve({
+                            internal: { pageSize: { getWidth: () => 100, getHeight: () => 100 } },
+                            addPage: vi.fn(),
+                            addImage: vi.fn(),
+                            setProperties: (props) => { capturedProps = props; },
+                            output: () => 'blob'
+                        })
+                    })
+                })
+            })
+        });
+        window.Image = class {
+            constructor() {
+                this.src = '';
+                this.width = 100;
+                this.height = 100;
+                setTimeout(() => { if (this.onload) this.onload(); }, 1);
+            }
+        };
+        const manga = { name: 'Название', authors: ['Автор'], summary: 'Описание' };
+        await exporter.export(manga, [], undefined);
+        expect(capturedProps.title).toBe('Название');
+        expect(capturedProps.author).toBe('Автор');
+        expect(capturedProps.subject).toBe('Описание');
+    });
+
+    it('Uses Неизвестно for author and omits subject when summary is empty', async () => {
+        let capturedProps = null;
+        window.html2pdf = () => ({
+            set: () => ({
+                from: () => ({
+                    toPdf: () => ({
+                        get: () => Promise.resolve({
+                            internal: { pageSize: { getWidth: () => 100, getHeight: () => 100 } },
+                            addPage: vi.fn(),
+                            addImage: vi.fn(),
+                            setProperties: (props) => { capturedProps = props; },
+                            output: () => 'blob'
+                        })
+                    })
+                })
+            })
+        });
+        const manga = { name: '', authors: [''], summary: '' };
+        await exporter.export(manga, [], undefined);
+        expect(capturedProps.author).toBe('Неизвестно');
+        expect(capturedProps.subject).toBeUndefined();
     });
 });

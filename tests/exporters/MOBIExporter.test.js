@@ -18,6 +18,9 @@ const decodeBlobToText = async (blob) => {
 };
 
 beforeEach(async () => {
+    const basePath = require.resolve('../../exporters/BaseExporter.js');
+    delete require.cache[basePath];
+    await import('../../exporters/BaseExporter.js');
     const path = require.resolve('../../exporters/MOBIExporter.js');
     delete require.cache[path];
     await import('../../exporters/MOBIExporter.js');
@@ -32,7 +35,7 @@ describe('MOBIExporter', () => {
     it('Exports with defaults and writes MOBI header', async () => {
         const exporter = new MOBIExporter();
         const result = await exporter.export({ authors: [] }, []);
-        expect(result.filename).toBe('Книга.mobi');
+        expect(result.filename).toBe('manga.mobi');
         expect(result.mimeType).toBe('application/x-mobipocket-ebook');
 
         const text = await decodeBlobToText(result.blob);
@@ -132,6 +135,22 @@ describe('MOBIExporter', () => {
         expect(text).toContain('<h2>Long</h2>');
     });
 
+    it('Writes summary to EXTH record 103 when present', async () => {
+        const exporter = new MOBIExporter();
+        const manga = { name: 'Test', authors: ['A'], summary: 'Some description' };
+        const result = await exporter.export(manga, []);
+        const text = await decodeBlobToText(result.blob);
+        expect(text).toContain('Some description');
+    });
+
+    it('Omits EXTH record 103 when summary is empty', async () => {
+        const exporter = new MOBIExporter();
+        const manga = { name: 'Test', authors: ['A'], summary: '' };
+        const result = await exporter.export(manga, []);
+        const text = await decodeBlobToText(result.blob);
+        expect(text).not.toContain('Some description');
+    });
+
     it('Resolves plain string author', async () => {
         const exporter = new MOBIExporter();
         const manga = { name: 'Test', authors: ['Single Author'] };
@@ -145,7 +164,7 @@ describe('MOBIExporter', () => {
         const manga = { name: 'Test', authors: ['', ''] };
         const result = await exporter.export(manga, []);
         const text = await decodeBlobToText(result.blob);
-        expect(text).toContain('Unknown');
+        expect(text).toContain('Неизвестно');
     });
 
     it('Skips image block without data field', async () => {
@@ -212,7 +231,7 @@ describe('MOBIExporter', () => {
         expect(text).toContain('<p>ok</p>');
     });
 
-    it('Handles chapter with null/undefined title via escapeHtml', async () => {
+    it('Handles chapter with null/undefined title via escapeXml', async () => {
         const exporter = new MOBIExporter();
         const manga = { name: 'Test', authors: [] };
         const chapters = [

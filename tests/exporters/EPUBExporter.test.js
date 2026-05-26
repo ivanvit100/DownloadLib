@@ -2,6 +2,9 @@ import { describe, it, expect, beforeEach, vi } from 'vitest';
 
 let EPUBExporter;
 beforeEach(async () => {
+    const basePath = require.resolve('../../exporters/BaseExporter.js');
+    delete require.cache[basePath];
+    await import('../../exporters/BaseExporter.js');
     const path = require.resolve('../../exporters/EPUBExporter.js');
     delete require.cache[path];
     await import('../../exporters/EPUBExporter.js');
@@ -14,14 +17,10 @@ describe('EPUBExporter', () => {
         exporter = new EPUBExporter();
     });
 
-    it('Escapes HTML special chars', () => {
-        expect(exporter.escapeHtml('<>&"\'')).toBe('&lt;&gt;&amp;&quot;&apos;');
-        expect(exporter.escapeHtml('')).toBe('');
-        expect(exporter.escapeHtml(null)).toBe('');
-    });
-
-    it('Delegates to escapeHtml', () => {
-        expect(exporter.escapeXml('<>&')).toBe('&lt;&gt;&amp;');
+    it('Escapes XML special chars', () => {
+        expect(exporter.escapeXml('<>&"\'')).toBe('&lt;&gt;&amp;&quot;&apos;');
+        expect(exporter.escapeXml('')).toBe('');
+        expect(exporter.escapeXml(null)).toBe('');
     });
 
     it('Returns valid XML', () => {
@@ -89,12 +88,48 @@ describe('EPUBExporter', () => {
     });
 
     it('Uses defaults for missing manga fields', () => {
-        const opf = exporter.createOPF({ authors: [] }, '', '');
+        const opf = exporter.createOPF({ authors: [''] }, '', '');
         expect(opf).toContain('<dc:title>Без названия</dc:title>');
         expect(opf).toContain('<dc:creator>Неизвестно</dc:creator>');
     });
 
-    it('Uses defaults for missing manga fields', () => {
+    it('Includes dc:identifier with manga id', () => {
+        const opf = exporter.createOPF({ name: 'Test', authors: ['A'], id: '42' }, '', '');
+        expect(opf).toContain('<dc:identifier id="BookId">urn:manga:42</dc:identifier>');
+    });
+
+    it('Falls back to name for dc:identifier when id is missing', () => {
+        const opf = exporter.createOPF({ name: 'My Book', authors: ['A'] }, '', '');
+        expect(opf).toContain('<dc:identifier id="BookId">My Book</dc:identifier>');
+    });
+
+    it('NCX dtb:uid matches OPF identifier', () => {
+        const ncx = exporter.createNCX({ name: 'My Book', id: '42' }, '');
+        expect(ncx).toContain('content="urn:manga:42"');
+    });
+
+    it('Writes dc:description when summary is set', () => {
+        const opf = exporter.createOPF({ name: 'Test', authors: ['A'], summary: 'Краткое описание' }, '', '');
+        expect(opf).toContain('<dc:description>Краткое описание</dc:description>');
+    });
+
+    it('Omits dc:description when summary is empty', () => {
+        const opf = exporter.createOPF({ name: 'Test', authors: ['A'], summary: '' }, '', '');
+        expect(opf).not.toContain('<dc:description>');
+    });
+
+    it('Writes cover meta when manifest contains cover-image', () => {
+        const manifest = '<item id="cover-image" href="images/cover.jpg" media-type="image/jpeg"/>';
+        const opf = exporter.createOPF({ name: 'Test', authors: ['A'] }, manifest, '');
+        expect(opf).toContain('<meta name="cover" content="cover-image"/>');
+    });
+
+    it('Omits cover meta when manifest has no cover-image', () => {
+        const opf = exporter.createOPF({ name: 'Test', authors: ['A'] }, '', '');
+        expect(opf).not.toContain('<meta name="cover"');
+    });
+
+    it('Uses defaults for missing name in NCX', () => {
         const ncx = exporter.createNCX({}, '');
         expect(ncx).toContain('<docTitle><text>Без названия</text></docTitle>');
     });

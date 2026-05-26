@@ -12,9 +12,9 @@
 (function(global) {
     console.log('[SimpleExporter] Loading...');
 
-    class SimpleExporter {
+    class SimpleExporter extends global.BaseExporter {
         async export(manga, chapters, coverBase64) {
-            const name = this.sanitize(manga.name || 'book');
+            const name = this.sanitize(manga.name || 'manga');
 
             if (this.isRanobeLib(chapters))
                 return this.exportTxt(name, manga, chapters);
@@ -26,7 +26,7 @@
             for (const ch of chapters) {
                 if (!Array.isArray(ch.content)) continue;
                 for (const block of ch.content) {
-                    if (block.type === 'text' && block.text && String(block.text).trim())
+                    if (block.type === 'text' && block.text && this.sanitizeText(block.text))
                         return true;
                 }
             }
@@ -34,12 +34,13 @@
         }
 
         exportTxt(name, manga, chapters) {
-            const title  = manga.name || name;
+            const title  = manga.name || 'Без названия';
             const author = manga.authors.filter(Boolean).join(', ');
             const lines  = [];
 
             lines.push(title);
             if (author) lines.push(author);
+            if (manga.summary) lines.push(manga.summary);
             lines.push('─'.repeat(60));
             lines.push('');
 
@@ -117,7 +118,7 @@
                 .replace(/\s+/g, '_')
                 .replace(/_+/g, '_')
                 .replace(/^_|_$/g, '')
-                .substring(0, 180) || 'book';
+                .substring(0, 180) || 'manga';
         }
 
     }

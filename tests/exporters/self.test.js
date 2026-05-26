@@ -1,5 +1,11 @@
 import { describe, it, expect } from 'vitest';
 
+async function loadBaseExporter() {
+    const path = require.resolve('../../exporters/BaseExporter.js');
+    delete require.cache[path];
+    await import('../../exporters/BaseExporter.js');
+}
+
 describe('Exporters self branch', () => {
     it('Attaches BaseExporter to self', async () => {
         const originalWindow = global.window;
@@ -22,6 +28,7 @@ describe('Exporters self branch', () => {
         const originalSelf = global.self;
         delete global.window;
         global.self = global;
+        await loadBaseExporter();
         const path = require.resolve('../../exporters/FB2Exporter.js');
         delete require.cache[path];
         await import('../../exporters/FB2Exporter.js');
@@ -38,12 +45,13 @@ describe('Exporters self branch', () => {
         const originalSelf = global.self;
         delete global.window;
         global.self = global;
+        await loadBaseExporter();
         const path = require.resolve('../../exporters/EPUBExporter.js');
         delete require.cache[path];
         await import('../../exporters/EPUBExporter.js');
         expect(global.self.EPUBExporter).toBeDefined();
         const exporter = new global.self.EPUBExporter();
-        expect(typeof exporter.escapeHtml).toBe('function');
+        expect(typeof exporter.escapeXml).toBe('function');
         if (originalWindow !== undefined) global.window = originalWindow;
         if (originalSelf !== undefined) global.self = originalSelf;
         else delete global.self;
@@ -54,6 +62,7 @@ describe('Exporters self branch', () => {
         const originalSelf = global.self;
         delete global.window;
         global.self = global;
+        await loadBaseExporter();
         const path = require.resolve('../../exporters/PDFExporter.js');
         delete require.cache[path];
         await import('../../exporters/PDFExporter.js');
@@ -70,6 +79,7 @@ describe('Exporters self branch', () => {
         const originalSelf = global.self;
         delete global.window;
         global.self = global;
+        await loadBaseExporter();
         const path = require.resolve('../../exporters/SimpleExporter.js');
         delete require.cache[path];
         await import('../../exporters/SimpleExporter.js');
@@ -86,6 +96,7 @@ describe('Exporters self branch', () => {
         const originalSelf = global.self;
         delete global.window;
         global.self = global;
+        await loadBaseExporter();
         const path = require.resolve('../../exporters/MOBIExporter.js');
         delete require.cache[path];
         await import('../../exporters/MOBIExporter.js');
