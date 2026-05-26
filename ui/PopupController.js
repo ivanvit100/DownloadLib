@@ -226,9 +226,6 @@
             if (!splitModeContainer) {
                 splitModeContainer = document.createElement('div');
                 splitModeContainer.id = 'splitModeContainer';
-                splitModeContainer.style.textAlign = 'center';
-                splitModeContainer.style.marginTop = '10px';
-                splitModeContainer.style.marginBottom = '5px';
 
                 const maxSizeLabel = document.createElement('label');
                 maxSizeLabel.textContent = 'Макс. размер части (МБ):';
@@ -549,7 +546,6 @@
                 if (cover) {
                     coverImg.style.display = 'block';
                     coverImg.src = cover;
-                    coverImg.setAttribute('style', 'display:block; float:left; width:80px; height:auto; margin-right:10px;');
                 } else {
                     coverImg.style.display = 'none';
                 }

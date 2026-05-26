@@ -23,6 +23,10 @@ button:disabled {
     background: #939393;
     cursor: not-allowed;
 }
+label {
+    color: #bdbdbd;
+    font-size: 14px;
+}
 #status {
     margin-top: 10px;
     font-size: 14px;
@@ -46,10 +50,19 @@ button:disabled {
     background-color: var(--primary-color);
     border-radius: 8px;
 }
-#rateLimitInput, #formatSelector {
-    width: 60px;
-    padding: 4px;
+#cover {
+    display: none;
+    float: left;
+    width: 80px;
+    height: auto;
+    margin-right: 10px;
+}
+#rateLimitInput {
+    width: 80px;
+    padding: 6px;
+    font-size: 14px;
     margin-left: 8px;
+    margin-right: 8px;
     text-align: center;
     background: #252527;
     color: #fff;
@@ -57,7 +70,7 @@ button:disabled {
     border-radius: 4px;
     -moz-appearance: textfield;
 }
-#rateLimitInput:focus, #rateLimitInput:hover, #formatSelector:focus, #formatSelector:hover {
+#rateLimitInput:focus, #rateLimitInput:hover {
     outline: none;
     border-color: var(--primary-color);
     box-shadow: 0 0 5px var(--primary-color);
@@ -71,10 +84,12 @@ input[type="number"] {
     -moz-appearance: none;
     -webkit-appearance: none;
 }
-#maxSizeInput, #maxChaptersInput {
-    width: 60px;
-    padding: 4px;
+#maxSizeInput {
+    width: 80px;
+    padding: 6px;
+    font-size: 14px;
     margin-left: 8px;
+    margin-right: 8px;
     text-align: center;
     background: #252527;
     color: #fff;
@@ -82,7 +97,24 @@ input[type="number"] {
     border-radius: 4px;
     -moz-appearance: textfield;
 }
-#maxSizeInput:focus, #maxSizeInput:hover,
+#maxSizeInput:focus, #maxSizeInput:hover {
+    outline: none;
+    border-color: var(--primary-color);
+    box-shadow: 0 0 5px var(--primary-color);
+}
+#maxChaptersInput {
+    width: 80px;
+    padding: 6px;
+    font-size: 14px;
+    margin-left: 8px;
+    margin-right: 8px;
+    text-align: center;
+    background: #252527;
+    color: #fff;
+    border: 1px solid #444;
+    border-radius: 4px;
+    -moz-appearance: textfield;
+}
 #maxChaptersInput:focus, #maxChaptersInput:hover {
     outline: none;
     border-color: var(--primary-color);
@@ -109,14 +141,21 @@ input[type="number"] {
 }
 #formatSelector {
     width: 80px;
-    padding: 6px 12px;
+    padding: 6px;
     font-size: 14px;
     margin-left: 8px;
     margin-right: 8px;
+    text-align: center;
+    background: #252527;
+    color: #fff;
+    border: 1px solid #444;
+    border-radius: 4px;
+    -moz-appearance: textfield;
 }
-label {
-    color: #bdbdbd;
-    font-size: 14px;
+#formatSelector:focus, #formatSelector:hover {
+    outline: none;
+    border-color: var(--primary-color);
+    box-shadow: 0 0 5px var(--primary-color);
 }
 #rateLimitContainer {
     text-align: center;
@@ -235,9 +274,6 @@ label {
     background: #252527;
     color: #bdbdbd;
     transition: all 0.3s ease;
-}
-#chapterToSelect, #chapterFromSelect {
-    border: 2px solid var(--primary-color);
 }
 #chapterToSelect:hover, #chapterFromSelect:hover {
     border: 2px solid var(--secondary-color);
