@@ -10,6 +10,9 @@ const blobToText = (blob) => new Promise((resolve, reject) => {
 let SimpleExporter;
 
 beforeEach(async () => {
+    const basePath = require.resolve('../../exporters/BaseExporter.js');
+    delete require.cache[basePath];
+    await import('../../exporters/BaseExporter.js');
     const path = require.resolve('../../exporters/SimpleExporter.js');
     delete require.cache[path];
     await import('../../exporters/SimpleExporter.js');
@@ -40,8 +43,8 @@ describe('SimpleExporter', () => {
             expect(exporter.sanitize('_hello_')).toBe('hello');
         });
 
-        it('Returns "book" for empty result after sanitization', () => {
-            expect(exporter.sanitize('___')).toBe('book');
+        it('Returns "manga" for empty result after sanitization', () => {
+            expect(exporter.sanitize('___')).toBe('manga');
         });
 
         it('Truncates to 180 characters', () => {
@@ -192,6 +195,20 @@ describe('SimpleExporter', () => {
             expect(text).toContain('=== Глава 1:  ===');
         });
 
+        it('Includes summary in TXT output when present', async () => {
+            const manga = { name: 'Book', authors: [], summary: 'Краткое описание' };
+            const result = exporter.exportTxt('Book', manga, []);
+            const text = await blobToText(result.blob);
+            expect(text).toContain('Краткое описание');
+        });
+
+        it('Omits summary line when summary is empty', async () => {
+            const manga = { name: 'Book', authors: [], summary: '' };
+            const result = exporter.exportTxt('Book', manga, []);
+            const text = await blobToText(result.blob);
+            expect(text).not.toContain('Краткое описание');
+        });
+
         it('Uses name as title fallback when rus_name absent', async () => {
             const manga = { name: 'FallbackTitle', authors: [] };
             const chapters = [];
@@ -200,12 +217,12 @@ describe('SimpleExporter', () => {
             expect(text).toContain('FallbackTitle');
         });
 
-        it('Uses passed name when both rus_name and name are absent', async () => {
+        it('Uses Без названия when manga name is absent', async () => {
             const manga = { authors: [] };
             const chapters = [];
             const result = exporter.exportTxt('myname', manga, chapters);
             const text = await blobToText(result.blob);
-            expect(text).toContain('myname');
+            expect(text).toContain('Без названия');
         });
     });
 
@@ -378,7 +395,7 @@ describe('SimpleExporter', () => {
             const chapters = [{ content: [{ type: 'text', text: 'Hi' }] }];
             const manga = { authors: [] };
             const result = await exporter.export(manga, chapters, null);
-            expect(result.filename).toBe('book.txt');
+            expect(result.filename).toBe('manga.txt');
         });
     });
 });

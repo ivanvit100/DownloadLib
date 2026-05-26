@@ -12,127 +12,67 @@
 (function(global) {
     console.log('[FB2Exporter] Loading...');
 
-    class FB2Exporter {
-        escapeXml(str) {
-            if (!str) return '';
-            return String(str)
-                .replace(/&/g, '&amp;')
-                .replace(/</g, '&lt;')
-                .replace(/>/g, '&gt;')
-                .replace(/"/g, '&quot;')
-                .replace(/'/g, '&apos;');
-        }
-
-        firstNameAuthorDescription(author) {
-            return `         <first-name>${this.escapeXml(author || 'Unknown')}</first-name>\n`;
-        }
-
-        middleNameAuthorDescription(author) {
-            return `         <middle-name>${this.escapeXml(author || 'Unknown')}</middle-name>\n`;
-        }
-
-        lastNameAuthorDescription(author) {
-            return `         <last-name>${this.escapeXml(author || 'Unknown')}</last-name>\n`;
-        }
-
-        unknownNameAuthorDescription() {
-            return this.firstNameAuthorDescription(null);
-        }
-		
-        *createAuthorsDescription(author) {
-            if(author
-                && typeof author === 'string') {
-                const descriptions = author.split(' ');
-                for(let description = 0; description < descriptions.length; ++description) {
-                    if(description === 0) {
-                        yield this.firstNameAuthorDescription(descriptions[description]);
-                    }
-                    if(description === 1) {
-                        yield this.lastNameAuthorDescription(descriptions[description]);
-                    }
-                    if(description === 2) {
-                        yield this.middleNameAuthorDescription(descriptions[description]);
-                    }
-                }
+    class FB2Exporter extends global.BaseExporter {
+        createAuthorsDescription(author) {
+            if (author) {
+                const parts = author.split(' ');
+                let result = `         <first-name>${this.escapeXml(parts[0])}</first-name>\n`;
+                if (parts[1]) result += `         <middle-name>${this.escapeXml(parts[1])}</middle-name>\n`;
+                if (parts[2]) result += `         <last-name>${this.escapeXml(parts[2])}</last-name>\n`;
+                return result;
             }
-            else {
-                yield this.unknownNameAuthorDescription();
-            }
+            return `         <first-name>Неизвестно</first-name>\n`;
         }
 
-        *createAuthorsTag(author) {
-            yield '     <author>\n';
-            for (const value of this.createAuthorsDescription(author)) {
-                yield value;
-            }
-            yield '     </author>\n';
+        createAuthorsTag(author) {
+            return `     <author>\n${this.createAuthorsDescription(author)}     </author>\n`;
         }
 
-        *createAuthors(authors) {
-            if(Array.isArray(authors)) {
-                if(authors.length !== 0) {
-                    for (const author of authors) {
-                        for(const tag of this.createAuthorsTag(author)) {
-                            yield tag;
-                        }
-                    }
-                }
-                else {
-                    for(const tag of this.createAuthorsTag(null)) {
-                        yield tag;
-                    }
-                }
-            }
-            else {
-                for(const tag of this.createAuthorsTag(authors)) {
-                    yield tag;
-                }
-            }
+        createAuthors(authors) {
+            return authors.map(author => this.createAuthorsTag(author)).join('');
         }
 
         *createFB2Stream(manga, chapters, coverBase64) {
             yield '<?xml version="1.0" encoding="utf-8"?>\n';
             yield '<FictionBook xmlns="http://www.gribuser.ru/xml/fictionbook/2.0" xmlns:l="http://www.w3.org/1999/xlink">\n';
-            
+
             yield '<description>\n';
             yield '  <title-info>\n';
             yield `    <genre>prose</genre>\n`;
-            for(const description of this.createAuthors(manga.authors)) {
-                yield description;
-            }
-            yield `    <book-title>${this.escapeXml(manga.name || 'Unknown')}</book-title>\n`;
+            yield this.createAuthors(manga.authors);
+            yield `    <book-title>${this.escapeXml(manga.name || 'Без названия')}</book-title>\n`;
+            if (manga.summary)
+                yield `    <annotation><p>${this.escapeXml(manga.summary)}</p></annotation>\n`;
             if (coverBase64) {
                 yield '    <coverpage>\n';
-                yield '    <image l:href="#cover.jpg"/>\n';
+                yield '      <image l:href="#cover.jpg"/>\n';
                 yield '    </coverpage>\n';
             }
             yield `    <lang>ru</lang>\n`;
             yield '  </title-info>\n';
             yield '</description>\n';
-            
-            if (coverBase64) {
-                const coverId = 'cover.jpg';
-                const base64Data = coverBase64.includes(',') ? coverBase64.split(',')[1] : coverBase64;
-                yield `<binary id="${coverId}" content-type="image/jpeg">${base64Data}</binary>\n`;
-            }
-            
+
+            const binaries = [];
             let imageCounter = 0;
+
+            if (coverBase64) {
+                const base64Data = coverBase64.includes(',') ? coverBase64.split(',')[1] : coverBase64;
+                binaries.push(`<binary id="cover.jpg" content-type="image/jpeg">${base64Data}</binary>\n`);
+            }
+
             for (const chapter of chapters) {
                 if (!chapter.content || !Array.isArray(chapter.content)) continue;
-                
                 for (const block of chapter.content) {
                     if (block.type === 'image' && block.data && block.data.base64) {
                         imageCounter++;
                         const imageId = `image${imageCounter}`;
                         const contentType = block.data.contentType || 'image/jpeg';
-                        
-                        yield `<binary id="${imageId}" content-type="${contentType}">${block.data.base64}</binary>\n`;
-                        
+                        binaries.push(`<binary id="${imageId}" content-type="${contentType}">${block.data.base64}</binary>\n`);
                         block._fb2ImageId = imageId;
                     }
                 }
             }
-            
+
             yield '<body>\n';
             
             if (coverBase64) {
@@ -156,9 +96,9 @@
                                     yield `    <p>${this.escapeXml(trimmed)}</p>\n` :
                                     yield `    <empty-line/>\n`;
                             }
-                        } else if (block.type === 'image' && block._fb2ImageId) {
+                        } else if (block.type === 'image' && block._fb2ImageId)
                             yield `    <p><image l:href="#${block._fb2ImageId}"/></p>\n`;
-                        } else console.warn(`[FB2Exporter] Unsupported block type: ${block.type}`);
+                        else console.warn(`[FB2Exporter] Unsupported block type: ${block.type}`);
                     }
                 }
                 
@@ -166,6 +106,10 @@
             }
             
             yield '</body>\n';
+
+            for (const binary of binaries)
+                yield binary;
+
             yield '</FictionBook>';
         }
 
@@ -197,10 +141,11 @@
             const authorNodes = titleInfo?.querySelectorAll('author') || [];
             authorNodes.forEach(author => {
                 const firstName = author.querySelector('first-name')?.textContent || '';
+                const middleName = author.querySelector('middle-name')?.textContent || '';
                 const lastName = author.querySelector('last-name')?.textContent || '';
-                const name = [firstName, lastName].filter(Boolean).join(' ');
+                const name = [firstName, middleName, lastName].filter(Boolean).join(' ');
                 if (name) authors.push(name);
-                else authors.push('Unknown');
+                else authors.push('Неизвестно');
             });
 
             let cover = '';
@@ -213,17 +158,37 @@
             const chapters = [];
             const sections = doc.querySelectorAll('body > section');
             
+            const hasCover = !!doc.querySelector('binary[id*="cover"]');
+
             sections.forEach((section, idx) => {
                 const titleNode = section.querySelector('title');
                 const title = titleNode?.textContent?.trim() || `Глава ${idx + 1}`;
+
+                if (hasCover && title === 'Обложка') return;
                 
                 const content = [];
-                const paragraphs = section.querySelectorAll('p');
-                
+                const paragraphs = Array.from(section.querySelectorAll('p')).filter(
+                    p => !p.closest('title')
+                );
+
                 paragraphs.forEach(p => {
-                    const text = p.textContent.trim();
-                    if (text) content.push({ type: 'text', text });
-                    else content.push({ type: 'text', text: '' });
+                    const imageEl = p.querySelector('image');
+                    if (imageEl) {
+                        const href = imageEl.getAttributeNS('http://www.w3.org/1999/xlink', 'href')
+                            || imageEl.getAttribute('l:href')
+                            || '';
+                        const binaryId = href.startsWith('#') ? href.slice(1) : href;
+                        const binaryEl = doc.querySelector(`binary[id="${binaryId}"]`);
+                        if (binaryEl) {
+                            const contentType = binaryEl.getAttribute('content-type') || 'image/jpeg';
+                            const base64 = binaryEl.textContent.trim();
+                            content.push({ type: 'image', data: { base64, contentType } });
+                        }
+                    } else {
+                        const text = p.textContent.trim();
+                        if (text) content.push({ type: 'text', text });
+                        else content.push({ type: 'text', text: '' });
+                    }
                 });
 
                 chapters.push({
@@ -234,12 +199,15 @@
                 });
             });
 
+            const annotation = titleInfo?.querySelector('annotation');
+            const summary = annotation?.textContent?.trim() || '';
+
             return {
                 metadata: {
                     name: bookTitle,
                     rus_name: bookTitle,
                     authors,
-                    summary: ''
+                    summary
                 },
                 cover,
                 chapters

@@ -12,7 +12,7 @@
 (function(global) {
     console.log('[PDFExporter] Loading...');
 
-    class PDFExporter {
+    class PDFExporter extends global.BaseExporter {
         sanitizeFilename(filename) {
             return filename.replace(/[<>:"/\\|?*]/g, '_').substring(0, 200);
         }
@@ -103,9 +103,7 @@
                     if (metrics.width > maxX && line !== '') {
                         allLines.push(line.trim());
                         line = word + ' ';
-                    } else {
-                        line = testLine;
-                    }
+                    } else line = testLine;
                 }
 
                 /* istanbul ignore next */
@@ -163,9 +161,18 @@
             if (typeof html2pdf === 'undefined')
                 throw new Error('html2pdf library not loaded');
 
+            const title   = manga.name || 'Без названия';
+            const authors = manga.authors.filter(Boolean).join(', ') || 'Неизвестно';
+
             const worker = html2pdf();
             const pdf = await new Promise((resolve) => {
                 worker.set({}).from(document.createElement('div')).toPdf().get('pdf').then(resolve);
+            });
+
+            pdf.setProperties({
+                title,
+                author: authors,
+                ...(manga.summary && { subject: manga.summary })
             });
 
             const pageWidth = pdf.internal.pageSize.getWidth();
@@ -217,13 +224,13 @@
                 if (Array.isArray(ch.content)) {
                     for (const block of ch.content) {
                         if (block.type === 'text' && block.text) {
-                            const text = String(block.text).replace(/<[^>]+>/g, '').trim();
+                            const text = this.stripHtml(block.text);
                             if (text)
                                 chapterText += (chapterText ? '\n' : '') + text;
                             else console.warn('[PDFExporter] Skipping empty text block in chapter content');
-                        } else if (block.type === 'image' && block.data && block.data.base64) {
+                        } else if (block.type === 'image' && block.data && block.data.base64)
                             chapterImages.push(block);
-                        } else console.warn(`[PDFExporter] Unsupported block type in chapter content: ${block.type}`);
+                        else console.warn(`[PDFExporter] Unsupported block type in chapter content: ${block.type}`);
                     }
                 } else console.warn('[PDFExporter] Chapter content is not an array, skipping chapter content processing');
 
@@ -279,8 +286,7 @@
             }
 
             const blob = pdf.output('blob');
-            const title = manga.name || 'manga';
-            const filename = this.sanitizeFilename(`${title}.pdf`);
+            const filename = this.sanitizeFilename(`${manga.name || 'manga'}.pdf`);
 
             return {
                 blob,

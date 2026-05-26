@@ -81,7 +81,6 @@
     }
 
     const _enc = new TextEncoder();
-    const _dec = new TextDecoder('utf-8');
 
     function toUTF8(str) { return _enc.encode(str); }
 
@@ -90,7 +89,6 @@
         let pos = 0;
         while (pos < bytes.length) {
             let end = Math.min(pos + maxBytes, bytes.length);
-            // Walk back to start of a UTF-8 char if we're in the middle of one
             while (end > pos && (bytes[end] & 0xC0) === 0x80) end--;
             chunks.push(bytes.slice(pos, end));
             pos = end;
@@ -98,59 +96,24 @@
         return chunks;
     }
 
-    function escapeHtml(s) {
-        return String(s || '')
-            .replace(/&/g, '&amp;')
-            .replace(/</g, '&lt;')
-            .replace(/>/g, '&gt;')
-            .replace(/"/g, '&quot;');
-    }
 
-    function buildHTML(title, chapters, hasCover, imageList) {
-        let html = '<!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Transitional//EN"'
-                 + ' "http://www.w3.org/TR/xhtml1/DTD/xhtml1-transitional.dtd">\n'
-                 + '<html><head>'
-                 + '<meta http-equiv="Content-Type" content="text/html; charset=utf-8"/>'
-                 + `<title>${escapeHtml(title)}</title>`
-                 + '</head><body>\n';
-
-        if (hasCover)
-            html += '<div><img recindex="0001" alt="cover"/></div>\n';
-
-        for (const chapter of chapters) {
-            html += `<mbp:pagebreak/>\n<h2>${escapeHtml(chapter.title)}</h2>\n`;
-            if (!Array.isArray(chapter.content)) continue;
-
-            for (const block of chapter.content) {
-                if (block.type === 'text' && block.text) {
-                    for (const line of String(block.text).split('\n')) {
-                        const t = line.trim();
-                        html += t ? `<p>${escapeHtml(t)}</p>\n` : '<p>&#160;</p>\n';
-                    }
-                } else if (block.type === 'image' && block.data && block.data.base64) {
-                    const mime = block.data.contentType || 'image/jpeg';
-                    imageList.push({ base64: block.data.base64, contentType: mime });
-                    const idx = String(imageList.length).padStart(4, '0');
-                    html += `<div><img recindex="${idx}" alt=""/></div>\n`;
-                }
-            }
-        }
-
-        html += '</body></html>';
-        return html;
-    }
-
-    function buildEXTH(titleBytes, authorBytes) {
+    function buildEXTH(titleBytes, authorBytes, descBytes) {
         const w = new BufWriter();
 
         w.bytes([0x45, 0x58, 0x54, 0x48]);
         const lenPos = w.length;
         w.be32(0);
-        w.be32(3);
+        w.be32(descBytes ? 4 : 3);
 
         w.be32(100);
         w.be32(8 + authorBytes.length);
         w.bytes(authorBytes);
+
+        if (descBytes) {
+            w.be32(103);
+            w.be32(8 + descBytes.length);
+            w.bytes(descBytes);
+        }
 
         w.be32(503);
         w.be32(8 + titleBytes.length);
@@ -165,8 +128,8 @@
         return w.toUint8Array();
     }
 
-    function buildRecord0(titleBytes, authorBytes, textLen, textRecCount, firstImageRec, flisRec, fcisRec) {
-        const exth = buildEXTH(titleBytes, authorBytes);
+    function buildRecord0(titleBytes, authorBytes, descBytes, textLen, textRecCount, firstImageRec, flisRec, fcisRec) {
+        const exth = buildEXTH(titleBytes, authorBytes, descBytes);
         const MOBI_LEN = 232;
         const fullNameOff = 16 + MOBI_LEN + exth.length;
 
@@ -303,13 +266,48 @@
         return arr;
     }
 
-    class MOBIExporter {
+    class MOBIExporter extends global.BaseExporter {
+        createHTML(title, chapters, hasCover, imageList) {
+            let html = '<!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Transitional//EN"'
+                     + ' "http://www.w3.org/TR/xhtml1/DTD/xhtml1-transitional.dtd">\n'
+                     + '<html><head>'
+                     + '<meta http-equiv="Content-Type" content="text/html; charset=utf-8"/>'
+                     + `<title>${this.escapeXml(title)}</title>`
+                     + '</head><body>\n';
+
+            if (hasCover)
+                html += '<div><img recindex="0001" alt="cover"/></div>\n';
+
+            for (const chapter of chapters) {
+                html += `<mbp:pagebreak/>\n<h2>${this.escapeXml(chapter.title)}</h2>\n`;
+                if (!Array.isArray(chapter.content)) continue;
+
+                for (const block of chapter.content) {
+                    if (block.type === 'text' && block.text) {
+                        for (const line of String(block.text).split('\n')) {
+                            const t = line.trim();
+                            html += t ? `<p>${this.escapeXml(t)}</p>\n` : '<p>&#160;</p>\n';
+                        }
+                    } else if (block.type === 'image' && block.data && block.data.base64) {
+                        const mime = block.data.contentType || 'image/jpeg';
+                        imageList.push({ base64: block.data.base64, contentType: mime });
+                        const idx = String(imageList.length).padStart(4, '0');
+                        html += `<div><img recindex="${idx}" alt=""/></div>\n`;
+                    }
+                }
+            }
+
+            html += '</body></html>';
+            return html;
+        }
+
         async export(manga, chapters, coverBase64) {
-            const title  = manga.name || 'Книга';
-            const author = manga.authors.filter(Boolean).join(', ') || 'Unknown';
+            const title  = manga.name || 'Без названия';
+            const author = manga.authors.filter(Boolean).join(', ') || 'Неизвестно';
 
             const titleBytes  = toUTF8(title);
             const authorBytes = toUTF8(author);
+            const descBytes   = manga.summary ? toUTF8(manga.summary) : null;
 
             const imageList = [];
 
@@ -318,7 +316,7 @@
                 imageList.push({ base64: b64, contentType: 'image/jpeg' });
             }
 
-            const html      = buildHTML(title, chapters, !!coverBase64, imageList);
+            const html      = this.createHTML(title, chapters, !!coverBase64, imageList);
             const htmlBytes = toUTF8(html);
             const textLen   = htmlBytes.length;
 
@@ -334,7 +332,7 @@
             const records = [];
 
             records.push(buildRecord0(
-                titleBytes, authorBytes,
+                titleBytes, authorBytes, descBytes,
                 textLen, T,
                 firstImageRec, flisRec, fcisRec
             ));
@@ -351,7 +349,7 @@
 
             return {
                 blob,
-                filename: `${title}.mobi`,
+                filename: `${manga.name || 'manga'}.mobi`,
                 mimeType: 'application/x-mobipocket-ebook'
             };
         }

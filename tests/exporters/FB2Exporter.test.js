@@ -2,6 +2,9 @@ import { describe, it, expect, beforeEach, vi } from 'vitest';
 
 let FB2Exporter;
 beforeEach(async () => {
+    const basePath = require.resolve('../../exporters/BaseExporter.js');
+    delete require.cache[basePath];
+    await import('../../exporters/BaseExporter.js');
     const path = require.resolve('../../exporters/FB2Exporter.js');
     delete require.cache[path];
     await import('../../exporters/FB2Exporter.js');
@@ -47,6 +50,31 @@ describe('FB2Exporter', () => {
         expect(result).toContain('<binary id="image1" content-type="image/png">imgdata</binary>');
         expect(result).toContain('<p><image l:href="#cover.jpg"/></p>');
         expect(result).toContain('<p><image l:href="#image1"/></p>');
+    });
+
+    it('Places binary elements after body', () => {
+        const manga = { name: 'Test', authors: ['Author'] };
+        const chapters = [
+            { title: 'Ch', content: [
+                { type: 'image', data: { base64: 'imgdata', contentType: 'image/jpeg' } }
+            ]}
+        ];
+        const result = Array.from(exporter.createFB2Stream(manga, chapters, 'coverdata')).join('');
+        const bodyEnd = result.indexOf('</body>');
+        const binaryPos = result.indexOf('<binary');
+        expect(binaryPos).toBeGreaterThan(bodyEnd);
+    });
+
+    it('Writes annotation when summary is set', () => {
+        const manga = { name: 'Test', authors: ['Author'], summary: 'Описание книги' };
+        const result = Array.from(exporter.createFB2Stream(manga, [])).join('');
+        expect(result).toContain('<annotation><p>Описание книги</p></annotation>');
+    });
+
+    it('Omits annotation when summary is empty', () => {
+        const manga = { name: 'Test', authors: ['Author'], summary: '' };
+        const result = Array.from(exporter.createFB2Stream(manga, [])).join('');
+        expect(result).not.toContain('<annotation>');
     });
 
     it('Return blob, filename and mimeType', async () => {
@@ -111,22 +139,22 @@ describe('FB2Exporter', () => {
         expect(parsed.cover).toBe('');
     });
 
-    it('Uses Unknown for missing authors', () => {
+    it('Uses Неизвестно for missing authors', () => {
         const exporter = new FB2Exporter();
-        const manga = { name: 'Test', authors: [] };
+        const manga = { name: 'Test', authors: [''] };
         const chapters = [];
         const result = Array.from(exporter.createFB2Stream(manga, chapters)).join('');
-        expect(result).toContain('<first-name>Unknown</first-name>');
+        expect(result).toContain('<first-name>Неизвестно</first-name>');
     });
 
     it('Uses full name authors', () => {
         const exporter = new FB2Exporter();
-        const manga = { name: 'Test', authors: ['First Last Middle'] };
+        const manga = { name: 'Test', authors: ['First Middle Last'] };
         const chapters = [];
         const result = Array.from(exporter.createFB2Stream(manga, chapters)).join('');
         expect(result).toContain('<first-name>First</first-name>');
-        expect(result).toContain('<last-name>Last</last-name>');
         expect(result).toContain('<middle-name>Middle</middle-name>');
+        expect(result).toContain('<last-name>Last</last-name>');
     });
 
     it('Uses multiply name authors', () => {
@@ -139,12 +167,12 @@ describe('FB2Exporter', () => {
         expect(result).toContain('<first-name>Last</first-name>');
     });
 
-    it('Uses Unknown for missing name', () => {
+    it('Uses Без названия for missing name', () => {
         const exporter = new FB2Exporter();
         const manga = { authors: ['Author'] };
         const chapters = [];
         const result = Array.from(exporter.createFB2Stream(manga, chapters)).join('');
-        expect(result).toContain('<book-title>Unknown</book-title>');
+        expect(result).toContain('<book-title>Без названия</book-title>');
     });
 
     it('Uses coverBase64 as is if no comma present', () => {
@@ -286,7 +314,7 @@ describe('FB2Exporter', () => {
         };
         const exporter = new FB2Exporter();
         const parsed = exporter.parseFB2(fb2, 'file.fb2');
-        expect(parsed.metadata.authors).toEqual(['Unknown', 'Unknown']);
+        expect(parsed.metadata.authors).toEqual(['Неизвестно', 'Неизвестно']);
     });
 
     it('Uses getAttribute for cover content-type', () => {
@@ -405,5 +433,139 @@ describe('FB2Exporter', () => {
         expect(chapter.content).toContainEqual({ type: 'text', text: '' });
         const emptyBlocks = chapter.content.filter(b => b.text === '');
         expect(emptyBlocks.length).toBe(2);
+    });
+
+    it('Skips cover section on roundtrip', () => {
+        const fb2 = `<?xml version="1.0" encoding="utf-8"?>
+                    <FictionBook xmlns="http://www.gribuser.ru/xml/fictionbook/2.0" xmlns:l="http://www.w3.org/1999/xlink">
+                      <description>
+                        <title-info><book-title>Book</book-title></title-info>
+                      </description>
+                      <body>
+                        <section>
+                          <title><p>Обложка</p></title>
+                          <p><image l:href="#cover.jpg"/></p>
+                        </section>
+                        <section>
+                          <title><p>Глава 1</p></title>
+                          <p>Text</p>
+                        </section>
+                      </body>
+                      <binary id="cover.jpg" content-type="image/jpeg">abc</binary>
+                    </FictionBook>`;
+        global.DOMParser = class {
+            parseFromString(str) {
+                const { JSDOM } = require('jsdom');
+                return new JSDOM(str, { contentType: 'text/xml' }).window.document;
+            }
+        };
+        const exporter = new FB2Exporter();
+        const parsed = exporter.parseFB2(fb2, 'file.fb2');
+        expect(parsed.chapters.length).toBe(1);
+        expect(parsed.chapters[0].title).toBe('Глава 1');
+    });
+
+    it('Extracts image blocks from sections', () => {
+        const fb2 = `<?xml version="1.0" encoding="utf-8"?>
+                    <FictionBook xmlns="http://www.gribuser.ru/xml/fictionbook/2.0" xmlns:l="http://www.w3.org/1999/xlink">
+                      <description>
+                        <title-info><book-title>Book</book-title></title-info>
+                      </description>
+                      <binary id="image1" content-type="image/png">abc123</binary>
+                      <body>
+                        <section>
+                          <title><p>Ch 1</p></title>
+                          <p>Hello</p>
+                          <p><image l:href="#image1"/></p>
+                          <p>World</p>
+                        </section>
+                      </body>
+                    </FictionBook>`;
+        global.DOMParser = class {
+            parseFromString(str) {
+                const { JSDOM } = require('jsdom');
+                return new JSDOM(str, { contentType: 'text/xml' }).window.document;
+            }
+        };
+        const exporter = new FB2Exporter();
+        const parsed = exporter.parseFB2(fb2, 'file.fb2');
+        const content = parsed.chapters[0].content;
+        expect(content[0]).toEqual({ type: 'text', text: 'Hello' });
+        expect(content[1]).toEqual({ type: 'image', data: { base64: 'abc123', contentType: 'image/png' } });
+        expect(content[2]).toEqual({ type: 'text', text: 'World' });
+    });
+
+    it('Skips image block when binary not found', () => {
+        const fb2 = `<?xml version="1.0" encoding="utf-8"?>
+                    <FictionBook xmlns="http://www.gribuser.ru/xml/fictionbook/2.0" xmlns:l="http://www.w3.org/1999/xlink">
+                      <description>
+                        <title-info><book-title>Book</book-title></title-info>
+                      </description>
+                      <body>
+                        <section>
+                          <title><p>Ch 1</p></title>
+                          <p><image l:href="#missing"/></p>
+                          <p>Text</p>
+                        </section>
+                      </body>
+                    </FictionBook>`;
+        global.DOMParser = class {
+            parseFromString(str) {
+                const { JSDOM } = require('jsdom');
+                return new JSDOM(str, { contentType: 'text/xml' }).window.document;
+            }
+        };
+        const exporter = new FB2Exporter();
+        const parsed = exporter.parseFB2(fb2, 'file.fb2');
+        const content = parsed.chapters[0].content;
+        expect(content).toEqual([{ type: 'text', text: 'Text' }]);
+    });
+
+    it('Extracts middle-name from author nodes', () => {
+        const fb2 = `<?xml version="1.0" encoding="utf-8"?>
+                    <FictionBook>
+                      <description>
+                        <title-info>
+                          <author>
+                            <first-name>Ivan</first-name>
+                            <middle-name>Ivanovich</middle-name>
+                            <last-name>Petrov</last-name>
+                          </author>
+                          <book-title>Book</book-title>
+                        </title-info>
+                      </description>
+                      <body><section><title><p>Ch</p></title><p>Text</p></section></body>
+                    </FictionBook>`;
+        global.DOMParser = class {
+            parseFromString(str) {
+                const { JSDOM } = require('jsdom');
+                return new JSDOM(str, { contentType: 'text/xml' }).window.document;
+            }
+        };
+        const exporter = new FB2Exporter();
+        const parsed = exporter.parseFB2(fb2, 'file.fb2');
+        expect(parsed.metadata.authors).toEqual(['Ivan Ivanovich Petrov']);
+    });
+
+    it('Extracts summary from annotation', () => {
+        const fb2 = `<?xml version="1.0" encoding="utf-8"?>
+                    <FictionBook>
+                      <description>
+                        <title-info>
+                          <book-title>Book</book-title>
+                          <annotation><p>Some description</p></annotation>
+                        </title-info>
+                      </description>
+                      <body><section><title><p>Ch</p></title><p>Text</p></section></body>
+                    </FictionBook>`;
+        global.DOMParser = class {
+            parseFromString(str) {
+                const { JSDOM } = require('jsdom');
+                return new JSDOM(str, { contentType: 'text/xml' }).window.document;
+            }
+        };
+        const exporter = new FB2Exporter();
+        const parsed = exporter.parseFB2(fb2, 'file.fb2');
+        expect(parsed.metadata.summary).toBe('Some description');
     });
 });

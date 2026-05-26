@@ -12,21 +12,7 @@
 (function(global) {
     console.log('[EPUBExporter] Loading...');
 
-    class EPUBExporter {
-        escapeHtml(str) {
-            if (!str) return '';
-            return String(str)
-                .replace(/&/g, '&amp;')
-                .replace(/</g, '&lt;')
-                .replace(/>/g, '&gt;')
-                .replace(/"/g, '&quot;')
-                .replace(/'/g, '&apos;');
-        }
-
-        escapeXml(str) {
-            return this.escapeHtml(str);
-        }
-
+    class EPUBExporter extends global.BaseExporter {
         async export(manga, chapters, coverBase64) {
             if (typeof JSZip === 'undefined')
                 throw new Error('JSZip library not loaded');
@@ -102,7 +88,7 @@
         }
 
         createChapterXHTML(chapter, includeCover) {
-            const title = this.escapeHtml(chapter.title);
+            const title = this.escapeXml(chapter.title);
             const blocks = Array.isArray(chapter.content) ? chapter.content : [];
             const hasTextBlocks = blocks.some(block => block && block.type === 'text' && block.text && String(block.text).trim());
             const hasImageBlocks = blocks.some(block => block && block.type === 'image' && block._epubImagePath);
@@ -127,7 +113,7 @@
                         for (const line of lines) {
                             const trimmed = line.trim();
                             body += trimmed ? 
-                                `<p>${this.escapeHtml(trimmed)}</p>\n` :
+                                `<p>${this.escapeXml(trimmed)}</p>\n` :
                                 '<p>&#160;</p>\n';
                         }
                     } else if (block.type === 'image' && block._epubImagePath) {
@@ -157,41 +143,30 @@
 </html>`;
         }
 
-	createAuthorsDescription(author) {
-            return `<dc:creator>${this.escapeXml(author || 'Неизвестно')}</dc:creator>`
-        }
-
-	unknownNameAuthorDescription() {
-            return this.createAuthorsDescription(null);
+        createAuthorsDescription(author) {
+            return `<dc:creator>${this.escapeXml(author || 'Неизвестно')}</dc:creator>`;
         }
 
         createAuthors(authors) {
-            if(Array.isArray(authors)) {
-                if(authors.length !== 0) {
-                    let descriptions = [];
-                    for (const author of authors) {
-                        descriptions.push(this.createAuthorsDescription(author));
-                    }
-                    return descriptions.join('\n\t');
-                }
-                else {
-                    return this.unknownNameAuthorDescription();
-                }
-            }
-
-            return this.createAuthorsDescription(authors);
+            return authors.map(author => this.createAuthorsDescription(author)).join('\n    ');
         }
 
         createOPF(manga, manifest, spine) {
             const title = this.escapeXml(manga.name || 'Без названия');
-		    const authors = this.createAuthors(manga.authors);
+            const authors = this.createAuthors(manga.authors);
+            const identifier = this.escapeXml(manga.id ? `urn:manga:${manga.id}` : (manga.name || 'unknown'));
+            const description = manga.summary
+                ? `\n    <dc:description>${this.escapeXml(manga.summary)}</dc:description>` : '';
+            const coverMeta = manifest && manifest.includes('id="cover-image"')
+                ? '\n    <meta name="cover" content="cover-image"/>' : '';
 
             return `<?xml version="1.0" encoding="utf-8"?>
 <package xmlns="http://www.idpf.org/2007/opf" unique-identifier="BookId" version="2.0">
   <metadata xmlns:dc="http://purl.org/dc/elements/1.1/">
+    <dc:identifier id="BookId">${identifier}</dc:identifier>
     <dc:title>${title}</dc:title>
     ${authors}
-    <dc:language>ru</dc:language>
+    <dc:language>ru</dc:language>${description}${coverMeta}
   </metadata>
   <manifest>
     <item id="ncx" href="toc.ncx" media-type="application/x-dtbncx+xml"/>
@@ -205,11 +180,12 @@
 
         createNCX(manga, navPoints) {
             const title = this.escapeXml(manga.name || 'Без названия');
+            const identifier = this.escapeXml(manga.id ? `urn:manga:${manga.id}` : (manga.name || 'unknown'));
 
             return `<?xml version="1.0" encoding="UTF-8"?>
 <ncx xmlns="http://www.daisy.org/z3986/2005/ncx/" version="2005-1">
   <head>
-    <meta name="dtb:uid" content="id"/>
+    <meta name="dtb:uid" content="${identifier}"/>
     <meta name="dtb:depth" content="1"/>
     <meta name="dtb:totalPageCount" content="0"/>
     <meta name="dtb:maxPageNumber" content="0"/>
