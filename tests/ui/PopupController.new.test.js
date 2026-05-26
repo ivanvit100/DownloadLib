@@ -782,34 +782,6 @@ describe('PopupController second test file', () => {
         expect(fromSelect.value).toBe('1');
     });
 
-    it('Changes fromSelect border on mouseenter and restores on mouseleave', async () => {
-        const controller = new PopupController();
-
-        await new Promise(resolve => setTimeout(resolve, 100));
-
-        const fromSelect = document.getElementById('chapterFromSelect');
-
-        fromSelect.dispatchEvent(new Event('mouseenter'));
-        expect(fromSelect.style.border).toBe('2px solid var(--secondary-color)');
-
-        fromSelect.dispatchEvent(new Event('mouseleave'));
-        expect(fromSelect.style.border).toBe('2px solid var(--primary-color)');
-    });
-
-    it('Changes toSelect border on mouseenter and restores on mouseleave', async () => {
-        const controller = new PopupController();
-
-        await new Promise(resolve => setTimeout(resolve, 100));
-
-        const toSelect = document.getElementById('chapterToSelect');
-
-        toSelect.dispatchEvent(new Event('mouseenter'));
-        expect(toSelect.style.border).toBe('2px solid var(--secondary-color)');
-
-        toSelect.dispatchEvent(new Event('mouseleave'));
-        expect(toSelect.style.border).toBe('2px solid var(--primary-color)');
-    });
-
     it('Logs no saved format when localStorage has no format and logs UI setup complete', async () => {
         const logSpy = vi.spyOn(console, 'log');
 

@@ -23,6 +23,10 @@ button:disabled {
     background: #939393;
     cursor: not-allowed;
 }
+label {
+    color: #bdbdbd;
+    font-size: 14px;
+}
 #status {
     margin-top: 10px;
     font-size: 14px;
@@ -46,10 +50,19 @@ button:disabled {
     background-color: var(--primary-color);
     border-radius: 8px;
 }
-#rateLimitInput, #formatSelector {
-    width: 60px;
-    padding: 4px;
+#cover {
+    display: none;
+    float: left;
+    width: 80px;
+    height: auto;
+    margin-right: 10px;
+}
+#rateLimitInput {
+    width: 80px;
+    padding: 6px;
+    font-size: 14px;
     margin-left: 8px;
+    margin-right: 8px;
     text-align: center;
     background: #252527;
     color: #fff;
@@ -57,7 +70,7 @@ button:disabled {
     border-radius: 4px;
     -moz-appearance: textfield;
 }
-#rateLimitInput:focus, #rateLimitInput:hover, #formatSelector:focus, #formatSelector:hover {
+#rateLimitInput:focus, #rateLimitInput:hover {
     outline: none;
     border-color: var(--primary-color);
     box-shadow: 0 0 5px var(--primary-color);
@@ -71,13 +84,12 @@ input[type="number"] {
     -moz-appearance: none;
     -webkit-appearance: none;
 }
-#formatSelector {
+#maxSizeInput {
     width: 80px;
-}
-#maxSizeInput, #maxChaptersInput {
-    width: 60px;
-    padding: 4px;
+    padding: 6px;
+    font-size: 14px;
     margin-left: 8px;
+    margin-right: 8px;
     text-align: center;
     background: #252527;
     color: #fff;
@@ -85,7 +97,24 @@ input[type="number"] {
     border-radius: 4px;
     -moz-appearance: textfield;
 }
-#maxSizeInput:focus, #maxSizeInput:hover,
+#maxSizeInput:focus, #maxSizeInput:hover {
+    outline: none;
+    border-color: var(--primary-color);
+    box-shadow: 0 0 5px var(--primary-color);
+}
+#maxChaptersInput {
+    width: 80px;
+    padding: 6px;
+    font-size: 14px;
+    margin-left: 8px;
+    margin-right: 8px;
+    text-align: center;
+    background: #252527;
+    color: #fff;
+    border: 1px solid #444;
+    border-radius: 4px;
+    -moz-appearance: textfield;
+}
 #maxChaptersInput:focus, #maxChaptersInput:hover {
     outline: none;
     border-color: var(--primary-color);
@@ -97,4 +126,155 @@ input[type="number"] {
 #maxChaptersInput::-webkit-outer-spin-button {
     -webkit-appearance: none;
     margin: 0;
+}
+#releaseDate {
+	text-align: center;
+	color: #bdbdbd;
+	font-size: 12px;
+	margin-top: 8px;
+	margin-bottom: 8px;
+}
+#formatContainer {
+    text-align: center;
+    margin-top: 10px;
+    margin-bottom: 10px;
+}
+#formatSelector {
+    width: 80px;
+    padding: 6px;
+    font-size: 14px;
+    margin-left: 8px;
+    margin-right: 8px;
+    text-align: center;
+    background: #252527;
+    color: #fff;
+    border: 1px solid #444;
+    border-radius: 4px;
+    -moz-appearance: textfield;
+}
+#formatSelector:focus, #formatSelector:hover {
+    outline: none;
+    border-color: var(--primary-color);
+    box-shadow: 0 0 5px var(--primary-color);
+}
+#rateLimitContainer {
+    text-align: center;
+    margin-top: 10px;
+    margin-bottom: 10px;
+}
+#activeDownloadsInfo {
+    text-align: center;
+    color: #bdbdbd;
+    font-size: 12px;
+    margin-top: 8px;
+    margin-bottom: 8px;
+    display: none;
+}
+#fileInputContainer {
+    text-align: center;
+    margin-top: 10px;
+    margin-bottom: 10px;
+}
+#fileInput {
+    display: none;
+}
+#customFileBtn {
+    padding: 8px 16px;
+    cursor: pointer;
+    font-size: 14px;
+    transition: all 0.3s ease;
+}
+#downloadControls {
+    display: none;
+    text-align: center;
+    margin-top: 10px;
+}
+#pauseBtn {
+    padding: 8px 16px;
+    cursor: pointer;
+    width: calc(50% - 4px);
+    transition: all 0.3s ease;
+}
+#backgroundBtn {
+    padding: 8px 16px;
+    cursor: pointer;
+    width: calc(50% - 4px);
+    transition: all 0.3s ease;
+}
+#pauseBtn, #backgroundBtn, #customFileBtn {
+    border: 2px solid var(--primary-color) !important;
+    background: #252527 !important;
+}
+#pauseBtn:hover, #backgroundBtn:hover, #customFileBtn:hover {
+    border: 2px solid var(--secondary-color) !important;
+    background: #252527 !important;
+}
+#stopBtn {
+    margin-top: 12px;
+    padding: 8px 16px;
+    cursor: pointer;
+    display: block;
+    width: 100%;
+    transition: all 0.3s ease;
+}
+#btnRow {
+    display: flex;
+    justify-content: space-between;
+}
+#splitModeContainer {
+	text-align: center;
+	margin-top: 10px;
+	margin-bottom: 5px;
+}
+#chapterRangeContainer {
+    text-align: center;
+    margin-top: 10px;
+    margin-bottom: 10px;
+    display: none;
+}
+#chapterSelectRow {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+}
+#chapterFromLabel {
+    color: #bdbdbd;
+    font-size: 14px;
+    margin-bottom: 2px;
+    width: 50%;
+    text-align: center;
+}
+#chapterToLabel{
+    color: #bdbdbd;
+    font-size: 14px;
+    margin-bottom: 2px;
+    width: 50%;
+    text-align: center;
+}
+#chapterLabelsRow{
+    display: flex;
+    justify-content: space-between;
+}
+#chapterFromSelect {
+    padding: 8px 16px;
+    font-size: 14px;
+    width: calc(50% - 4px);
+    cursor: pointer;
+    border: 2px solid var(--primary-color);
+    background: #252527;
+    color: #bdbdbd;
+    transition: all 0.3s ease;
+}
+#chapterToSelect {
+    padding: 8px 16px;
+    font-size: 14px;
+    width: calc(50% - 4px);
+    cursor: pointer;
+    border: 2px solid var(--primary-color);
+    background: #252527;
+    color: #bdbdbd;
+    transition: all 0.3s ease;
+}
+#chapterToSelect:hover, #chapterFromSelect:hover {
+    border: 2px solid var(--secondary-color);
 }
