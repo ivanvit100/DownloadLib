@@ -77,7 +77,7 @@ describe('MangaLibService', () => {
         global.fetch = vi.fn().mockResolvedValue(fakeResponse);
         const errorSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
         await expect(svc.fetchMangaMetadata('slug')).rejects.toThrow('Failed to fetch manga:');
-        expect(errorSpy).toHaveBeenCalledWith('[MangaLibService] Error response:', 'fail');
+        expect(errorSpy).toHaveBeenCalledWith('[MangaLib] Error response:', 'fail');
         errorSpy.mockRestore();
         delete global.fetch;
     });
@@ -103,7 +103,7 @@ describe('MangaLibService', () => {
         expect(global.fetch).toHaveBeenCalledTimes(2);
         expect(global.fetch.mock.calls[0][0]).toContain('fields[]=id');
         expect(global.fetch.mock.calls[1][0]).toBe('https://mangalib.me/api/manga/slug');
-        expect(warnSpy).toHaveBeenCalledWith('[MangaLibService] Metadata endpoint rejected, retrying with fallback URL');
+        expect(warnSpy).toHaveBeenCalledWith('[MangaLib] Metadata endpoint rejected, retrying with fallback URL');
 
         warnSpy.mockRestore();
         delete global.fetch;
@@ -127,8 +127,9 @@ describe('MangaLibService', () => {
         delete global.fetch;
     });
 
-    it('Returns null when all metadata endpoints are forbidden', async () => {
+    it('Throws when all metadata endpoints are forbidden', async () => {
         const svc = new MangaLibService();
+        const errorSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
         global.fetch = vi.fn()
             .mockResolvedValueOnce({
                 ok: false,
@@ -140,9 +141,9 @@ describe('MangaLibService', () => {
                 status: 403,
                 text: vi.fn().mockResolvedValue('forbidden-2')
             });
-        const result = await svc.fetchMangaMetadata('slug');
-        expect(result).toBeNull();
+        await expect(svc.fetchMangaMetadata('slug')).rejects.toThrow('Failed to fetch manga: 403');
         expect(global.fetch).toHaveBeenCalledTimes(2);
+        errorSpy.mockRestore();
         delete global.fetch;
     });
 
@@ -255,7 +256,7 @@ describe('MangaLibService', () => {
     it('Split long image resolves with one part for normal image', async () => {
         const svc = new MangaLibService();
         global.Image = class {
-            set src(val) { setTimeout(() => this.onload(), 0); }
+            set src(_val) { setTimeout(() => this.onload(), 0); }
             get height() { return 210; }
             get width() { return 297; }
         };
@@ -277,7 +278,7 @@ describe('MangaLibService', () => {
     it('Split long image resolves with multiple parts for long image', async () => {
         const svc = new MangaLibService();
         global.Image = class {
-            set src(val) { setTimeout(() => this.onload(), 0); }
+            set src(_val) { setTimeout(() => this.onload(), 0); }
             get height() { return 1000; }
             get width() { return 210; }
         };
@@ -299,7 +300,7 @@ describe('MangaLibService', () => {
     it('Split long image resolves with one part on error', async () => {
         const svc = new MangaLibService();
         global.Image = class {
-            set src(val) { setTimeout(() => this.onerror(), 0); }
+            set src(_val) { setTimeout(() => this.onerror(), 0); }
         };
         global.document = {
             createElement: () => ({
@@ -511,7 +512,7 @@ describe('MangaLibService', () => {
         const errorSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
         await expect(svc.fetchMangaMetadata('slug')).rejects.toThrow('Failed to fetch manga: 500');
         expect(fakeResponse.text).toHaveBeenCalled();
-        expect(errorSpy).toHaveBeenCalledWith('[MangaLibService] Error response:', '');
+        expect(errorSpy).toHaveBeenCalledWith('[MangaLib] Error response:', '');
 
         errorSpy.mockRestore();
         delete global.fetch;
@@ -574,7 +575,7 @@ describe('MangaLibService', () => {
         await svc.fetchChapter('slug');
 
         const calledUrl = global.fetch.mock.calls[0][0];
-        expect(calledUrl).toMatch(/numer=1/);
+        expect(calledUrl).toMatch(/number=1/);
 
         delete global.fetch;
     });
@@ -598,7 +599,7 @@ describe('MangaLibService', () => {
         const svc = new MangaLibService();
 
         global.Image = class {
-            set src(val) { setTimeout(() => this.onload(), 0); }
+            set src(_val) { setTimeout(() => this.onload(), 0); }
             get height() { return 1000; } 
             get width() { return 210; }
         };

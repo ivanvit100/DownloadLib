@@ -37,21 +37,6 @@ describe('BaseService', () => {
         expect(svc.extractPages({ pages: [] })).toEqual([]);
     });
 
-    it('Fetch manga metadata throws error', async () => {
-        const svc = new BaseService(config);
-        await expect(svc.fetchMangaMetadata('slug')).rejects.toThrow('fetchMangaMetadata must be implemented');
-    });
-
-    it('Fetch chapters list throws error', async () => {
-        const svc = new BaseService(config);
-        await expect(svc.fetchChaptersList('slug')).rejects.toThrow('fetchChaptersList must be implemented');
-    });
-
-    it('Fetch chapter throws error', async () => {
-        const svc = new BaseService(config);
-        await expect(svc.fetchChapter('slug', 1, 1)).rejects.toThrow('fetchChapter must be implemented');
-    });
-
     it('Static matches throws error', () => {
         expect(() => BaseService.matches('url')).toThrow('matches must be implemented');
     });
@@ -97,7 +82,7 @@ describe('BaseService', () => {
         const origFileReader = global.FileReader;
         class FakeFileReader {
             constructor() { this.onloadend = null; }
-            readAsDataURL(blob) {
+            readAsDataURL(_blob) {
                 setTimeout(() => { this.result = 'data:base64,abc'; this.onloadend(); }, 0);
             }
         }
@@ -112,7 +97,7 @@ describe('BaseService', () => {
         const origFileReader = global.FileReader;
         class FakeFileReader {
             constructor() { this.onloadend = null; }
-            readAsDataURL(blob) {
+            readAsDataURL(_blob) {
                 setTimeout(() => { this.result = 'data:base64,xyz'; this.onloadend(); }, 0);
             }
         }

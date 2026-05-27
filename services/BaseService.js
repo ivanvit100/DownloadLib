@@ -18,19 +18,84 @@
             console.log(`[BaseService] Created service: ${this.name}`);
         }
 
+        get extensionApi() {
+            return typeof global.getExtensionApi === 'function'
+                ? global.getExtensionApi()
+                : ((typeof global.browser !== 'undefined' && global.browser) ||
+                   (typeof global.chrome !== 'undefined' && global.chrome) || null);
+        }
+
         async fetchMangaMetadata(slug) {
-            throw new Error('fetchMangaMetadata must be implemented');
+            const fields = this.config.fields;
+            const query = Array.isArray(fields) && fields.length
+                ? fields.map(f => `fields[]=${f}`).join('&')
+                : '';
+            const urls = [];
+            if (query) urls.push(`${this.baseUrl}/api/manga/${slug}?${query}`);
+            urls.push(`${this.baseUrl}/api/manga/${slug}`);
+
+            for (let i = 0; i < urls.length; i++) {
+                const url = urls[i];
+                console.log(`[${this.name}] Fetching metadata:`, url);
+                const response = await this.fetchWithRateLimitRetry(url, {
+                    method: 'GET',
+                    headers: this.config.headers,
+                    mode: 'cors',
+                    credentials: 'include',
+                    cache: 'no-store'
+                });
+                if (!response.ok) {
+                    const text = await response.text().catch(() => '');
+                    if (response.status === 403 && i < urls.length - 1) {
+                        console.warn(`[${this.name}] Metadata endpoint rejected, retrying with fallback URL`);
+                        continue;
+                    }
+                    console.error(`[${this.name}] Error response:`, text);
+                    throw new Error(`Failed to fetch manga: ${response.status}`);
+                }
+                const text = await response.text().catch(() => '');
+                return text ? JSON.parse(text) : null;
+            }
+            return null;
         }
-        
+
         async fetchChaptersList(slug) {
-            throw new Error('fetchChaptersList must be implemented');
+            const url = `${this.baseUrl}/api/manga/${slug}/chapters`;
+            console.log(`[${this.name}] Fetching chapters:`, url);
+            const response = await this.fetchWithRateLimitRetry(url, {
+                method: 'GET',
+                headers: this.config.headers,
+                mode: 'cors',
+                credentials: 'include',
+                cache: 'no-store'
+            });
+            if (!response.ok)
+                throw new Error(`Failed to fetch chapters: ${response.status}`);
+            const text = await response.text().catch(() => '');
+            return text ? JSON.parse(text) : null;
         }
-        
-        async fetchChapter(slug, number, volume) {
-            throw new Error('fetchChapter must be implemented');
+
+        async fetchChapter(slug, number, volume = '1') {
+            const params = new URLSearchParams();
+            if (number !== undefined && number !== null) params.set('number', String(number));
+            else params.set('number', '1');
+            params.set('volume', String(volume));
+            const url = `${this.baseUrl}/api/manga/${slug}/chapter?${params.toString()}`;
+            const response = await this.fetchWithRateLimitRetry(url, {
+                method: 'GET',
+                headers: this.config.headers,
+                mode: 'cors',
+                credentials: 'include',
+                cache: 'no-store'
+            });
+            if (!response.ok)
+                throw new Error(`Failed to fetch chapter: ${response.status}`);
+            const text = await response.text().catch(() => '');
+            return text ? JSON.parse(text) : null;
         }
 
         extractPages(chapterData) {
+            if (!chapterData) return [];
             const keys = ['pages', 'images', 'pages_list', 'content'];
             for (const key of keys)
                 if (Array.isArray(chapterData[key]) && chapterData[key].length)
@@ -89,7 +154,7 @@
             });
         }
 
-        static matches(url) {
+        static matches(_url) {
             throw new Error('matches must be implemented');
         }
     }

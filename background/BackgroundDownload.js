@@ -97,6 +97,7 @@ class BackgroundDownload {
                                 chapterMeta: rawContent,
                                 chapterObj: chapter,
                                 mangaSlug: download.slug,
+                                mangaId: download.manga?.id || null,
                                 splitLongImages: download.format !== 'simple'
                             }
                           )
@@ -186,7 +187,7 @@ class BackgroundDownload {
 
     getActiveDownloads() {
         const downloads = [];
-        for (const [id, download] of this.activeDownloads) {
+        for (const [, download] of this.activeDownloads) {
             downloads.push({
                 id: download.id,
                 slug: download.slug,

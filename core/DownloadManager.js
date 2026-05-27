@@ -59,6 +59,7 @@
                 controller: controller || this.createController(),
                 loadedFile: loadedFile,
                 manga: null,
+                mangaId: null,
                 coverBase64: null,
                 chapterContents: [],
                 chapters: [],
@@ -78,6 +79,7 @@
                 const manga = metadata.data || metadata;
                 const patched = global.MangaPatcher.patch(manga);
                 downloadState.manga = patched;
+                downloadState.mangaId = patched.id || null;
 
                 let coverBase64 = '';
                 if (patched.cover) {
@@ -226,6 +228,7 @@
                             chapterMeta: rawContent,
                             chapterObj: chapter,
                             mangaSlug: downloadState.slug,
+                            mangaId: downloadState.mangaId,
                             splitLongImages: downloadState.format !== 'simple'
                         }
                       )
@@ -425,7 +428,7 @@
                         ? service.extractText(contentToExtract) 
                         : contentToExtract;
 
-                    const processedContent = service.processChapterContent 
+                    const processedContent = service.processChapterContent
                         ? await service.processChapterContent(
                             extractedContent,
                             document.getElementById('status'),
@@ -433,6 +436,7 @@
                                 chapterMeta: rawContent,
                                 chapterObj: chapter,
                                 mangaSlug: downloadState.slug,
+                                mangaId: downloadState.mangaId,
                                 splitLongImages: downloadState.format !== 'simple'
                             }
                           )
@@ -564,7 +568,7 @@
                         ? service.extractText(contentToExtract) 
                         : contentToExtract;
 
-                    const processedContent = service.processChapterContent 
+                    const processedContent = service.processChapterContent
                         ? await service.processChapterContent(
                             extractedContent,
                             document.getElementById('status'),
@@ -572,6 +576,7 @@
                                 chapterMeta: rawContent,
                                 chapterObj: chapter,
                                 mangaSlug: downloadState.slug,
+                                mangaId: downloadState.mangaId,
                                 splitLongImages: downloadState.format !== 'simple'
                             }
                           )

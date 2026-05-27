@@ -12,11 +12,6 @@
 (function(global) {
     console.log('[MangaLibService] Loading...');
 
-    /* istanbul ignore next */
-    const extensionApi = typeof global.getExtensionApi === 'function'
-        ? global.getExtensionApi()
-        : ((typeof global.browser !== 'undefined' && global.browser) || (typeof global.chrome !== 'undefined' && global.chrome) || null);
-
     class MangaLibService extends global.BaseService {
         constructor() {
             super(global.mangalibConfig);
@@ -31,98 +26,6 @@
             } catch {
                 return false;
             }
-        }
-
-        async fetchMangaMetadata(slug) {
-            const fields = this.config.fields;
-            const query = Array.isArray(fields) && fields.length
-                ? fields.map(f => `fields[]=${f}`).join('&')
-                : '';
-            const urls = [];
-
-            if (query) urls.push(`${this.baseUrl}/api/manga/${slug}?${query}`);
-            urls.push(`${this.baseUrl}/api/manga/${slug}`);
-
-            for (let i = 0; i < urls.length; i++) {
-                const url = urls[i];
-                console.log('[MangaLibService] Fetching metadata:', url);
-
-                const response = await this.fetchWithRateLimitRetry(url, {
-                    method: 'GET',
-                    headers: this.config.headers,
-                    mode: 'cors',
-                    credentials: 'include',
-                    cache: 'no-store'
-                });
-
-                if (!response.ok) {
-                    const text = await response.text().catch(() => '');
-                    if (response.status === 403) {
-                        if (i < urls.length - 1)
-                            console.warn('[MangaLibService] Metadata endpoint rejected, retrying with fallback URL');
-                        continue;
-                    }
-                    console.error('[MangaLibService] Error response:', text);
-                    throw new Error(`Failed to fetch manga: ${response.status}`);
-                }
-
-                const text = await response.text().catch(() => '');
-                return text ? JSON.parse(text) : null;
-            }
-
-            return null;
-        }
-
-        async fetchChaptersList(slug) {
-            const url = `${this.baseUrl}/api/manga/${slug}/chapters`;
-            console.log('[MangaLibService] Fetching chapters:', url);
-            
-            const response = await this.fetchWithRateLimitRetry(url, {
-                method: 'GET',
-                headers: this.config.headers,
-                mode: 'cors',
-                credentials: 'include',
-                cache: 'no-store'
-            });
-            
-            if (!response.ok) {
-                throw new Error(`Failed to fetch chapters: ${response.status}`);
-            }
-            
-            const text = await response.text().catch(() => '');
-            return text ? JSON.parse(text) : null;
-        }
-
-        async fetchChapter(slug, chapterNumberOrId, volume = '1') {
-            const params = new URLSearchParams();
-            if (chapterNumberOrId !== undefined && chapterNumberOrId !== null)
-                params.set('number', String(chapterNumberOrId));
-            else params.set('numer', '1');
-            params.set('volume', String(volume));
-            const url = `${this.baseUrl}/api/manga/${slug}/chapter?${params.toString()}`;
-            
-            const response = await this.fetchWithRateLimitRetry(url, {
-                method: 'GET',
-                headers: this.config.headers,
-                mode: 'cors',
-                credentials: 'include',
-                cache: 'no-store'
-            });
-            
-            if (!response.ok)
-                throw new Error(`Failed to fetch chapter: ${response.status}`);
-            
-            const text = await response.text().catch(() => '');
-            return text ? JSON.parse(text) : null;
-        }
-
-        extractPages(chapterData) {
-            if (!chapterData) return [];
-            if (Array.isArray(chapterData.pages) && chapterData.pages.length) return chapterData.pages.slice();
-            if (Array.isArray(chapterData.images) && chapterData.images.length) return chapterData.images.slice();
-            if (Array.isArray(chapterData.pages_list) && chapterData.pages_list.length) return chapterData.pages_list.slice();
-            if (Array.isArray(chapterData.content) && chapterData.content.length) return chapterData.content.slice();
-            return [];
         }
 
         extractText(content) {
@@ -164,7 +67,7 @@
         }
 
         async splitLongImage(base64Data, contentType) {
-            return new Promise((resolve, reject) => {
+            return new Promise((resolve) => {
                 const img = new Image();
                 const dataUrl = `data:${contentType};base64,${base64Data}`;
                 
@@ -241,13 +144,13 @@
                 if (this._imageCache.has(url))
                     return this._imageCache.get(url);
 
-                if (!extensionApi || !extensionApi.runtime || !extensionApi.runtime.sendMessage) {
+                if (!this.extensionApi || !this.extensionApi.runtime || !this.extensionApi.runtime.sendMessage) {
                     console.error('[MangaLibService] browser.runtime not available!');
                     return null;
                 }
 
                 const response = await new Promise((resolve, reject) => {
-                    extensionApi.runtime.sendMessage({
+                    this.extensionApi.runtime.sendMessage({
                         action: 'fetchImage',
                         url: url
                     }).then(resolve).catch(reject);

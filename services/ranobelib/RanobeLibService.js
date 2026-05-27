@@ -12,15 +12,9 @@
 (function(global) {
     console.log('[RanobeLibService] Loading...');
 
-    /* istanbul ignore next */
-    const extensionApi = typeof global.getExtensionApi === 'function'
-        ? global.getExtensionApi()
-        : ((typeof global.browser !== 'undefined' && global.browser) || (typeof global.chrome !== 'undefined' && global.chrome) || null);
-
     class RanobeLibService extends global.BaseService {
         constructor() {
             super(global.ranolibConfig);
-            this._mangaIdCache = null;
             console.log('[RanobeLibService] Instance created');
         }
 
@@ -31,92 +25,6 @@
             } catch {
                 return false;
             }
-        }
-
-        async fetchMangaMetadata(slug) {
-            const fields = this.config.fields;
-            const query = Array.isArray(fields) && fields.length
-                ? fields.map(f => `fields[]=${f}`).join('&')
-                : '';
-            const urls = [];
-
-            if (query) urls.push(`${this.baseUrl}/api/manga/${slug}?${query}`);
-            urls.push(`${this.baseUrl}/api/manga/${slug}`);
-
-            let result = null;
-
-            for (let i = 0; i < urls.length; i++) {
-                const url = urls[i];
-                console.log('[RanobeLibService] Fetching metadata:', url);
-
-                const response = await this.fetchWithRateLimitRetry(url, {
-                    method: 'GET',
-                    headers: this.config.headers,
-                    mode: 'cors',
-                    credentials: 'include',
-                    cache: 'no-store'
-                });
-
-                if (!response.ok) {
-                    const text = await response.text().catch(() => '');
-                    if (response.status === 403 && i < urls.length - 1) {
-                        console.warn('[RanobeLibService] Metadata endpoint rejected, retrying with fallback URL');
-                        continue;
-                    }
-                    console.error('[RanobeLibService] Error response:', text);
-                    throw new Error(`Failed to fetch manga: ${response.status}`);
-                }
-
-                const text = await response.text().catch(() => '');
-                result = text ? JSON.parse(text) : null;
-                break;
-            }
-
-            if (result && result.data && result.data.id)
-                this._mangaIdCache = result.data.id;
-
-            return result;
-        }
-
-        async fetchChaptersList(slug) {
-            const url = `${this.baseUrl}/api/manga/${slug}/chapters`;
-            console.log('[RanobeLibService] Fetching chapters:', url);
-
-            const response = await this.fetchWithRateLimitRetry(url, {
-                method: 'GET',
-                headers: this.config.headers,
-                mode: 'cors',
-                credentials: 'include',
-                cache: 'no-store'
-            });
-
-            if (!response.ok)
-                throw new Error(`Failed to fetch chapters: ${response.status}`);
-
-            const text = await response.text().catch(() => '');
-            return text ? JSON.parse(text) : null;
-        }
-
-        async fetchChapter(slug, number, volume = '1') {
-            const params = new URLSearchParams();
-            if (number !== undefined && number !== null) params.set('number', String(number));
-            else params.set('number', '1');
-            params.set('volume', String(volume));
-            const url = `${this.baseUrl}/api/manga/${slug}/chapter?${params.toString()}`;
-
-            const response = await this.fetchWithRateLimitRetry(url, {
-                method: 'GET',
-                headers: this.config.headers,
-                mode: 'cors',
-                credentials: 'include',
-                cache: 'no-store'
-            });
-
-            if (!response.ok)
-                throw new Error(`Failed to fetch chapter: ${response.status}`);
-
-            const text = await response.text().catch(() => '');
-            return text ? JSON.parse(text) : null;
         }
 
         stripHtml(str) {
@@ -236,9 +144,9 @@
             return result;
         }
 
-        async processChapterContent(extracted, status, opts = {}) {
+        async processChapterContent(extracted, _status, opts = {}) {
             const chapterMeta = opts.chapterMeta || {};
-            const mangaId = this._mangaIdCache || chapterMeta.manga_id;
+            const mangaId = opts.mangaId || chapterMeta.manga_id;
             const chapterId = chapterMeta.id;
 
             const attachmentMap = {};
@@ -286,13 +194,13 @@
                         const url = `${baseUrl}.${ext}`;
 
                         try {
-                            if (!extensionApi || !extensionApi.runtime || !extensionApi.runtime.sendMessage) {
+                            if (!this.extensionApi || !this.extensionApi.runtime || !this.extensionApi.runtime.sendMessage) {
                                 console.error('[RanobeLibService] browser.runtime not available!');
                                 continue;
                             }
 
                             const response = await new Promise((resolve, reject) => {
-                                extensionApi.runtime.sendMessage({
+                                this.extensionApi.runtime.sendMessage({
                                     action: 'fetchImage',
                                     url: url,
                                     referer: 'https://ranobelib.me/'

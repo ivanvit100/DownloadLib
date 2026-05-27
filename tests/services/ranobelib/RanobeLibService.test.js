@@ -39,7 +39,6 @@ describe('RanobeLibService', () => {
         const svc = new RanobeLibService();
         expect(svc.name).toBe('RanobeLib');
         expect(svc.baseUrl).toBe('https://ranobelib.me');
-        expect(svc._mangaIdCache).toBeNull();
         expect(logSpy).toHaveBeenCalledWith('[RanobeLibService] Instance created');
         logSpy.mockRestore();
     });
@@ -54,7 +53,7 @@ describe('RanobeLibService', () => {
         expect(RanobeLibService.matches('not a url')).toBe(false);
     });
 
-    it('Fetch manga metadata returns parsed result and caches id', async () => {
+    it('Fetch manga metadata returns parsed result', async () => {
         const svc = new RanobeLibService();
         const fakeJson = { data: { id: 123, title: 'Test' } };
         const fakeResponse = {
@@ -64,7 +63,6 @@ describe('RanobeLibService', () => {
         global.fetch = vi.fn().mockResolvedValue(fakeResponse);
         const result = await svc.fetchMangaMetadata('slug');
         expect(result).toEqual(fakeJson);
-        expect(svc._mangaIdCache).toBe(123);
         delete global.fetch;
     });
 
@@ -77,7 +75,7 @@ describe('RanobeLibService', () => {
         global.fetch = vi.fn().mockResolvedValue(fakeResponse);
         const errorSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
         await expect(svc.fetchMangaMetadata('slug')).rejects.toThrow('Failed to fetch manga:');
-        expect(errorSpy).toHaveBeenCalledWith('[RanobeLibService] Error response:', 'fail');
+        expect(errorSpy).toHaveBeenCalledWith('[RanobeLib] Error response:', 'fail');
         errorSpy.mockRestore();
         delete global.fetch;
     });
@@ -100,11 +98,10 @@ describe('RanobeLibService', () => {
         const result = await svc.fetchMangaMetadata('slug');
 
         expect(result).toEqual({ data: { id: 77 } });
-        expect(svc._mangaIdCache).toBe(77);
         expect(global.fetch).toHaveBeenCalledTimes(2);
         expect(global.fetch.mock.calls[0][0]).toContain('fields[]=id');
         expect(global.fetch.mock.calls[1][0]).toBe('https://ranobelib.me/api/manga/slug');
-        expect(warnSpy).toHaveBeenCalledWith('[RanobeLibService] Metadata endpoint rejected, retrying with fallback URL');
+        expect(warnSpy).toHaveBeenCalledWith('[RanobeLib] Metadata endpoint rejected, retrying with fallback URL');
 
         warnSpy.mockRestore();
         delete global.fetch;
@@ -221,7 +218,7 @@ describe('RanobeLibService', () => {
     it('Process chapter content tries all extensions and pushes image', async () => {
         const svc = new RanobeLibService();
         const extracted = [{ type: 'image', src: 'img123.jpg' }];
-        svc._mangaIdCache = 1;
+
         const chapterMeta = { id: 2, manga_id: 1 };
         global.browser = {
             runtime: {
@@ -242,7 +239,7 @@ describe('RanobeLibService', () => {
     it('Process chapter content logs error', async () => {
         const svc = new RanobeLibService();
         const extracted = [{ type: 'image', src: 'img123.jpg' }];
-        svc._mangaIdCache = 1;
+
         const errorSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
         const result = await svc.processChapterContent(extracted, {}, { chapterMeta: { id: 2, manga_id: 1 } });
         expect(errorSpy).toHaveBeenCalledWith('[RanobeLibService] browser.runtime not available!');
@@ -253,7 +250,7 @@ describe('RanobeLibService', () => {
     it('Process chapter content logs error if all image loads fail', async () => {
         const svc = new RanobeLibService();
         const extracted = [{ type: 'image', src: 'img123.jpg' }];
-        svc._mangaIdCache = 1;
+
         global.browser = {
             runtime: {
                 sendMessage: vi.fn().mockRejectedValue(new Error('fail'))
@@ -297,7 +294,7 @@ describe('RanobeLibService', () => {
         await expect(svc.fetchMangaMetadata('slug')).rejects.toThrow('Failed to fetch manga:');
 
         expect(fakeResponse.text).toHaveBeenCalled();
-        expect(errorSpy).toHaveBeenCalledWith('[RanobeLibService] Error response:', '');
+        expect(errorSpy).toHaveBeenCalledWith('[RanobeLib] Error response:', '');
 
         errorSpy.mockRestore();
         delete global.fetch;
@@ -587,20 +584,6 @@ describe('RanobeLibService', () => {
         global.fetch = vi.fn().mockResolvedValue(fakeResponse);
         const result = await svc.fetchMangaMetadata('slug');
         expect(result).toBeNull();
-        expect(svc._mangaIdCache).toBeNull();
-        delete global.fetch;
-    });
-
-    it('Fetch manga metadata does not cache id when result has no data.id', async () => {
-        const svc = new RanobeLibService();
-        const fakeJson = { data: { title: 'No Id' } };
-        const fakeResponse = {
-            ok: true,
-            text: vi.fn().mockResolvedValue(JSON.stringify(fakeJson))
-        };
-        global.fetch = vi.fn().mockResolvedValue(fakeResponse);
-        await svc.fetchMangaMetadata('slug');
-        expect(svc._mangaIdCache).toBeNull();
         delete global.fetch;
     });
 
@@ -806,9 +789,8 @@ describe('RanobeLibService', () => {
         expect(result).toEqual([{ type: 'text', text: 'li' }]);
     });
 
-    it('Process chapter content uses _mangaIdCache over chapterMeta.manga_id', async () => {
+    it('Process chapter content uses opts.mangaId over chapterMeta.manga_id', async () => {
         const svc = new RanobeLibService();
-        svc._mangaIdCache = 99;
         global.browser = {
             runtime: {
                 sendMessage: vi.fn().mockResolvedValue({ ok: true, base64: 'b64', contentType: 'image/jpeg' })
@@ -817,7 +799,7 @@ describe('RanobeLibService', () => {
         await svc.processChapterContent(
             [{ type: 'image', src: 'img.jpg' }],
             {},
-            { chapterMeta: { id: 5, manga_id: 1 } }
+            { chapterMeta: { id: 5, manga_id: 1 }, mangaId: 99 }
         );
         const calledUrl = global.browser.runtime.sendMessage.mock.calls[0][0].url;
         expect(calledUrl).toContain('/ranobe/99/');
@@ -837,7 +819,7 @@ describe('RanobeLibService', () => {
 
     it('Process chapter content succeeds on fallback extension after first fails', async () => {
         const svc = new RanobeLibService();
-        svc._mangaIdCache = 1;
+
         let callCount = 0;
         global.browser = {
             runtime: {
@@ -861,7 +843,7 @@ describe('RanobeLibService', () => {
 
     it('Process chapter content uses jpg as default extension when src has no recognized ext', async () => {
         const svc = new RanobeLibService();
-        svc._mangaIdCache = 1;
+
         global.browser = {
             runtime: {
                 sendMessage: vi.fn().mockResolvedValue({ ok: true, base64: 'b', contentType: 'image/png' })
