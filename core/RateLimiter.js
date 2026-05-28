@@ -4,7 +4,7 @@
  * @module core/RateLimiter
  * @license MIT
  * @author ivanvit
- * @version 1.0.2
+ * @version 1.0.6
  */
 
 'use strict';
@@ -21,13 +21,14 @@
             this._isProcessing = false;
             this._throttled = false;
             this._throttleTimer = null;
-            
+
             console.log(`[RateLimiter] Initialized with limit: ${this._maxRequestsPerMinute} requests/minute`);
         }
 
         setLimit(limit) {
-            if (typeof limit !== 'number' || limit < 2) limit = 2;
-            this._maxRequestsPerMinute = Math.max(2, Math.floor(limit)) - 1;
+            let lmt = parseInt(limit);
+            if (isNaN(lmt) || lmt < 2) lmt = 2;
+            this._maxRequestsPerMinute = Math.max(2, Math.floor(lmt)) - 1;
             console.log(`[RateLimiter] Rate limit set to: ${this._maxRequestsPerMinute} requests/minute`);
         }
 
@@ -61,14 +62,14 @@
                 const request = this._pendingQueue.shift();
                 if (!request) continue;
 
-                this._requestsInLastMinute++;
+                this._requestsInLastMinute += 1;
                 const timestamp = Date.now();
                 this._requestTimestamps.push(timestamp);
 
                 request.resolve();
 
                 setTimeout(() => {
-                    this._requestsInLastMinute--;
+                    this._requestsInLastMinute -= 1;
                     this._requestTimestamps.shift();
                     console.debug(`[RateLimiter] Request expired: ${this._requestsInLastMinute}/${this._maxRequestsPerMinute} used`);
                 }, 60000);
@@ -77,7 +78,7 @@
             this._isProcessing = false;
         }
 
-        async trackRequest(source = 'unknown') {
+        trackRequest(source = 'unknown') {
             return new Promise((resolve) => {
                 this._pendingQueue.push({ source, resolve });
                 this._processQueue();
@@ -86,16 +87,16 @@
 
         recordRequest(source = 'unknown') {
             if (this._requestsInLastMinute >= this._maxRequestsPerMinute) return;
-            this._requestsInLastMinute++;
+            this._requestsInLastMinute += 1;
             this._requestTimestamps.push(Date.now());
             console.debug(`[RateLimiter] Recorded external request (${source}): ${this._requestsInLastMinute}/${this._maxRequestsPerMinute}`);
             setTimeout(() => {
-                this._requestsInLastMinute--;
+                this._requestsInLastMinute -= 1;
                 this._requestTimestamps.shift();
             }, 60000);
         }
 
-        async acquire(serviceName = 'default') {
+        acquire(serviceName = 'default') {
             return this.trackRequest(serviceName);
         }
 
@@ -128,9 +129,9 @@
     }
 
     global.RateLimiter = RateLimiter;
-    
+
     if (!global.globalRateLimiter) global.globalRateLimiter = new RateLimiter({ maxRequestsPerMinute: 85 });
     else console.log('[RateLimiter] Using existing global RateLimiter instance');
-    
+
     console.log('[RateLimiter] Loaded');
 })(typeof window !== 'undefined' ? window : self);

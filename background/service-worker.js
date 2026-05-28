@@ -17,7 +17,7 @@ try {
     throw e;
 }
 
-self.addEventListener('install', (event) => {
+self.addEventListener('install', () => {
     console.log('[ServiceWorker] Installing...');
     self.skipWaiting();
 });

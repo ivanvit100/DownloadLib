@@ -17,7 +17,7 @@
             this.format = 'unknown';
         }
 
-        async export(metadata, chapters) {
+        async export() { // eslint-disable-line require-await
             throw new Error('export method must be implemented');
         }
 
@@ -54,7 +54,7 @@
                 .replace(/<[^>]+>/g, '\n')
                 .replace(/&nbsp;/g, ' ')
                 .replace(/&quot;/g, '"')
-                .replace(/&apos;/g, "'")
+                .replace(/&apos;/g, '\'')
                 .replace(/&lt;/g, '<')
                 .replace(/&gt;/g, '>')
                 .replace(/&amp;/g, '&')
@@ -63,9 +63,8 @@
         }
 
         extractText(content) {
-            if (typeof content === 'string') {
+            if (typeof content === 'string')
                 return this.stripHtml(content);
-            }
 
             if (Array.isArray(content)) {
                 return content.map(block => {
@@ -79,7 +78,7 @@
                         return block.text;
                     if (block.type === 'text' && block.content)
                         return String(block.content);
-                    else return '';
+                    return '';
                 }).filter(Boolean).join('\n\n');
             }
 

@@ -32,7 +32,7 @@
 
     if (missing.length > 0) {
         console.error('[App] Missing dependencies:', missing);
-        document.body.innerHTML = '<div style="padding: 20px; color: red;">Ошибка загрузки модулей: ' + missing.join(', ') + '</div>';
+        document.body.innerHTML = `<div style="padding: 20px; color: red;">Ошибка загрузки модулей: ${missing.join(', ')}</div>`;
         return;
     }
 
@@ -40,12 +40,12 @@
 
     function initUI() {
         console.log('[App] Initializing UI...');
-        
+
         try {
             window.popupController = new window.PopupController();
         } catch (e) {
             console.error('[App] Failed to initialize PopupController:', e);
-            document.getElementById('error').textContent = 'Ошибка инициализации: ' + e.message;
+            document.getElementById('error').textContent = `Ошибка инициализации: ${e.message}`;
             document.getElementById('error').classList.remove('hidden');
         }
     }

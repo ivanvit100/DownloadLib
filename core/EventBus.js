@@ -4,7 +4,7 @@
  * @module core/EventBus
  * @license MIT
  * @author ivanvit
- * @version 1.0.0
+ * @version 1.0.6
  */
 
 'use strict';
@@ -52,11 +52,8 @@
         }
 
         clear(event) {
-            if (event) {
-                this.listeners.delete(event);
-            } else {
-                this.listeners.clear();
-            }
+            if (event) this.listeners.delete(event);
+            else this.listeners.clear();
         }
     }
 

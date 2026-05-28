@@ -22,7 +22,7 @@
         /* istanbul ignore next */
         u8(v) {
             this._chunks.push(new Uint8Array([v & 0xFF]));
-            this._len++;
+            this._len += 1;
         }
 
         be16(v) {
@@ -89,13 +89,12 @@
         let pos = 0;
         while (pos < bytes.length) {
             let end = Math.min(pos + maxBytes, bytes.length);
-            while (end > pos && (bytes[end] & 0xC0) === 0x80) end--;
+            while (end > pos && (bytes[end] & 0xC0) === 0x80) end -= 1;
             chunks.push(bytes.slice(pos, end));
             pos = end;
         }
         return chunks;
     }
-
 
     function buildEXTH(titleBytes, authorBytes, descBytes) {
         const w = new BufWriter();
@@ -141,14 +140,14 @@
         w.be16(textRecCount);
         w.be16(4096);
         w.be32(0);
-        
+
         w.bytes([0x4D, 0x4F, 0x42, 0x49]);
         w.be32(MOBI_LEN);
         w.be32(2);
         w.be32(65001);
         w.be32(0xABCD1234);
         w.be32(6);
-        for (let i = 0; i < 10; i++) w.be32(0xFFFFFFFF); 
+        for (let i = 0; i < 10; i++) w.be32(0xFFFFFFFF);
         w.be32(textRecCount + 1);
         w.be32(fullNameOff);
         w.be32(titleBytes.length);
@@ -228,25 +227,25 @@
         pos += 16;
         pos += 8;
 
-        out[pos++] = 0x42; out[pos++] = 0x4F; out[pos++] = 0x4F; out[pos++] = 0x4B;
-        out[pos++] = 0x4D; out[pos++] = 0x4F; out[pos++] = 0x42; out[pos++] = 0x49;
-        out[pos++] = 0x12; out[pos++] = 0x34; out[pos++] = 0x56; out[pos++] = 0x78;
+        out[pos += 1] = 0x42; out[pos += 1] = 0x4F; out[pos += 1] = 0x4F; out[pos += 1] = 0x4B;
+        out[pos += 1] = 0x4D; out[pos += 1] = 0x4F; out[pos += 1] = 0x42; out[pos += 1] = 0x49;
+        out[pos += 1] = 0x12; out[pos += 1] = 0x34; out[pos += 1] = 0x56; out[pos += 1] = 0x78;
 
         pos += 4;
 
-        out[pos++] = (N >> 8) & 0xFF;
-        out[pos++] =  N       & 0xFF;
+        out[pos+= 1] = (N >> 8) & 0xFF;
+        out[pos+= 1] =  N       & 0xFF;
 
         for (let i = 0; i < N; i++) {
             const o = offsets[i];
-            out[pos++] = (o >>> 24) & 0xFF;
-            out[pos++] = (o >>> 16) & 0xFF;
-            out[pos++] = (o >>>  8) & 0xFF;
-            out[pos++] =  o         & 0xFF;
-            out[pos++] = 0;
-            out[pos++] = (i >> 16) & 0xFF;
-            out[pos++] = (i >>  8) & 0xFF;
-            out[pos++] =  i        & 0xFF;
+            out[pos += 1] = (o >>> 24) & 0xFF;
+            out[pos += 1] = (o >>> 16) & 0xFF;
+            out[pos += 1] = (o >>>  8) & 0xFF;
+            out[pos += 1] =  o         & 0xFF;
+            out[pos += 1] = 0;
+            out[pos += 1] = (i >> 16) & 0xFF;
+            out[pos += 1] = (i >>  8) & 0xFF;
+            out[pos += 1] =  i        & 0xFF;
         }
 
         pos += 2;
@@ -301,7 +300,7 @@
             return html;
         }
 
-        async export(manga, chapters, coverBase64) {
+        export(manga, chapters, coverBase64) {
             const title  = manga.name || 'Без названия';
             const author = manga.authors.filter(Boolean).join(', ') || 'Неизвестно';
 

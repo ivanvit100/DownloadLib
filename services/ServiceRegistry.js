@@ -16,7 +16,7 @@
         '/services/ranobelib/config.js',
         '/services/BaseService.js',
         '/services/mangalib/MangaLibService.js',
-        '/services/ranobelib/RanobeLibService.js',
+        '/services/ranobelib/RanobeLibService.js'
     ];
 
     class ServiceRegistry {
@@ -80,7 +80,7 @@
     } else if (typeof document !== 'undefined' && document.currentScript !== null) {
         // Браузерная страница
         SERVICE_SCRIPTS.forEach(src => {
-            document.write('<script src="' + src + '"><\/script>');
+            document.write(`<script src="${src}"><\/script>`);
         });
     }
 

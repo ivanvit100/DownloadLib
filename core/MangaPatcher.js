@@ -19,7 +19,7 @@
     }
 
     class AuthorsResolutionModule {
-        static patch_array(authors) {
+        static patchArray(authors) {
             if (authors.length === 0) return [''];
             return authors.map(author => {
                 if (author !== null && typeof author === 'object')
@@ -30,15 +30,15 @@
             });
         }
 
-        static patch_other(authors) {
+        static patchOther(authors) {
             if (typeof authors === 'string') return [authors];
             return [''];
         }
 
         static patch(manga) {
             const authors = Array.isArray(manga.authors)
-                ? this.patch_array(manga.authors)
-                : this.patch_other(manga.authors);
+                ? this.patchArray(manga.authors)
+                : this.patchOther(manga.authors);
             return { ...manga, authors };
         }
     }
@@ -47,8 +47,10 @@
         static patch(manga) {
             let summary = '';
             if (typeof manga.summary === 'string')
-                summary = manga.summary;
-            else if (manga.summary !== null && typeof manga.summary === 'object' && Array.isArray(manga.summary.content))
+                ({ summary } = manga);
+            else if (manga.summary !== null &&
+                typeof manga.summary === 'object' &&
+                Array.isArray(manga.summary.content))
                 summary = manga.summary.content.flatMap(p => p.content?.map(t => t.text) ?? []).join('');
             return { ...manga, summary };
         }
@@ -97,10 +99,12 @@
                 ReleaseDateResolutionModule
             ];
 
-            for (const pipe of pipes)
-                pipeline = pipe.patch(pipeline);
+            let result = pipeline;
 
-            return pipeline;
+            for (const pipe of pipes)
+                result = pipe.patch(result);
+
+            return result;
         }
     }
 

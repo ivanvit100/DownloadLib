@@ -198,7 +198,7 @@ describe('PopupController second test file', () => {
 
         await new Promise(resolve => setTimeout(resolve, 50));
 
-        expect(warnSpy).toHaveBeenCalledWith('Status element not found when updating status after moving to background');
+        expect(warnSpy).toHaveBeenCalledWith('Status element not found after moving to background');
     });
 
     it('Handles progress, completed and failed events from eventBus', async () => {

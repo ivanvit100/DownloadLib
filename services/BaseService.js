@@ -26,7 +26,7 @@
         }
 
         async fetchMangaMetadata(slug) {
-            const fields = this.config.fields;
+            const {fields} = this.config;
             const query = Array.isArray(fields) && fields.length
                 ? fields.map(f => `fields[]=${f}`).join('&')
                 : '';
@@ -77,7 +77,7 @@
 
         async fetchChapter(slug, number, volume = '1') {
             const params = new URLSearchParams();
-            if (number !== undefined && number !== null) params.set('number', String(number));
+            if (number != null) params.set('number', String(number));
             else params.set('number', '1');
             params.set('volume', String(volume));
             const url = `${this.baseUrl}/api/manga/${slug}/chapter?${params.toString()}`;
@@ -97,9 +97,10 @@
         extractPages(chapterData) {
             if (!chapterData) return [];
             const keys = ['pages', 'images', 'pages_list', 'content'];
-            for (const key of keys)
+            for (const key of keys) {
                 if (Array.isArray(chapterData[key]) && chapterData[key].length)
                     return chapterData[key].slice();
+            }
             return [];
         }
 
@@ -127,7 +128,7 @@
                     const retryAfter = parseInt(response.headers.get('Retry-After'), 10);
                     const waitMs = (retryAfter && retryAfter > 0) ? retryAfter * 1000 : 30000;
                     console.warn(`[${this.name}] 429 Too Many Requests (attempt ${attempt + 1}/${maxRetries}), waiting ${waitMs}ms...`);
-                    this._on429 && this._on429(waitMs);
+                    if (this._on429) this._on429(waitMs);
                     if (typeof global !== 'undefined' && global.globalRateLimiter && global.globalRateLimiter.throttle)
                         global.globalRateLimiter.throttle(waitMs);
                     else if (typeof self !== 'undefined' && self.globalRateLimiter && self.globalRateLimiter.throttle)
@@ -145,7 +146,7 @@
             return new Promise(resolve => setTimeout(resolve, ms));
         }
 
-        async blobToBase64(blob) {
+        blobToBase64(blob) {
             return new Promise((resolve, reject) => {
                 const reader = new FileReader();
                 reader.onloadend = () => resolve(reader.result);
@@ -155,7 +156,7 @@
         }
 
         static matches(_url) {
-            throw new Error('matches must be implemented');
+            throw new Error(`matches must be implemented for check ${_url}`);
         }
     }
 

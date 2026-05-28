@@ -13,13 +13,12 @@
     console.log('[SimpleExporter] Loading...');
 
     class SimpleExporter extends global.BaseExporter {
-        async export(manga, chapters, coverBase64) {
+        async export(manga, chapters) {
             const name = this.sanitize(manga.name || 'manga');
 
             if (this.isRanobeLib(chapters))
                 return this.exportTxt(name, manga, chapters);
-            else
-                return this.exportZip(name, chapters);
+            return await this.exportZip(name, chapters);
         }
 
         isRanobeLib(chapters) {
@@ -69,10 +68,10 @@
         }
 
         async exportZip(name, chapters) {
-            if (typeof JSZip === 'undefined')
+            if (typeof global.JSZip === 'undefined')
                 throw new Error('[SimpleExporter] JSZip not loaded (include lib/jszip.min.js)');
 
-            const zip = new JSZip();
+            const zip = new global.JSZip();
 
             for (let ci = 0; ci < chapters.length; ci++) {
                 const ch  = chapters[ci];
@@ -87,7 +86,7 @@
                     if (block.type !== 'image') continue;
                     if (!block.data || !block.data.base64) continue;
 
-                    pageIdx++;
+                    pageIdx += 1;
 
                     const contentType = block.data.contentType || 'image/jpeg';
                     const ext         = this.mimeToExt(contentType);
@@ -99,7 +98,7 @@
 
             const blob = await zip.generateAsync({
                 type:        'blob',
-                compression: 'STORE',
+                compression: 'STORE'
             });
 
             return { blob, filename: `${name}.zip`, mimeType: 'application/zip' };
@@ -114,13 +113,12 @@
 
         sanitize(str) {
             return String(str)
-                .replace(/[<>:"/\\|?*\x00-\x1F]/g, '_')
+                .replace(/[<>:"/\\|?*\x00-\x1F]/g, '_') // eslint-disable-line no-control-regex
                 .replace(/\s+/g, '_')
                 .replace(/_+/g, '_')
                 .replace(/^_|_$/g, '')
                 .substring(0, 180) || 'manga';
         }
-
     }
 
     global.SimpleExporter = SimpleExporter;

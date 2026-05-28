@@ -4,7 +4,7 @@
  * @module core/BrowserApi
  * @license MIT
  * @author ivanvit
- * @version 1.0.4
+ * @version 1.0.6
  */
 
 'use strict';
@@ -55,7 +55,7 @@
                     ...chromeApi.storage.local,
                     get: (...args) => toPromise(chromeApi.storage.local.get, chromeApi.storage.local, args),
                     set: (...args) => toPromise(chromeApi.storage.local.set, chromeApi.storage.local, args)
-                } : undefined
+                } : void 0
             },
             webRequest: chromeApi.webRequest,
             declarativeNetRequest: chromeApi.declarativeNetRequest

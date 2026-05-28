@@ -16,7 +16,7 @@
         '/exporters/EPUBExporter.js',
         '/exporters/MOBIExporter.js',
         '/exporters/PDFExporter.js',
-        '/exporters/SimpleExporter.js',
+        '/exporters/SimpleExporter.js'
     ];
 
     class ExporterRegistry {
@@ -49,12 +49,12 @@
     }
 
     global.ExporterRegistry = ExporterRegistry;
-    
-    if (typeof importScripts === 'function') {
+
+    if (typeof importScripts === 'function')
         importScripts(...EXPORTER_SCRIPTS);
-    } else if (typeof document !== 'undefined' && document.currentScript !== null) {
+    else if (typeof document !== 'undefined' && document.currentScript !== null) {
         EXPORTER_SCRIPTS.forEach(src => {
-            document.write('<script src="' + src + '"><\/script>');
+            document.write(`<script src="${src}"><\/script>`);
         });
     }
 

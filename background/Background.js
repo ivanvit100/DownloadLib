@@ -4,7 +4,7 @@
  * @module background/Background
  * @license MIT
  * @author ivanvit
- * @version 1.0.4
+ * @version 1.0.6
  */
 
 'use strict';
@@ -24,10 +24,10 @@ const browserEnv = typeof getBrowserEnv === 'function'
 const isChrome = !!browserEnv.isChromium || !!browserEnv.supportsDnr;
 const isFirefox = !!browserEnv.isFirefox;
 
-console.log('[Background] Detected browser:', isChrome ? 'Chrome' : (isFirefox ? 'Firefox' : 'Unknown'));
+console.log('[Background] Detected browser:', isFirefox ? 'Firefox' : 'Chrome');
 
 const rateLimiter = globalRateLimiter || new RateLimiter({ maxRequestsPerMinute: 80 });
-let ServiceConfigs = {};
+const ServiceConfigs = {};
 
 if (typeof mangalibConfig !== 'undefined')
     ServiceConfigs.mangalib = mangalibConfig;
@@ -35,10 +35,10 @@ if (typeof ranolibConfig !== 'undefined')
     ServiceConfigs.ranobelib = ranolibConfig;
 
 function isImageRequest(url) {
-    return url.includes('mixlib.me') || 
-           url.includes('imglib.info') || 
+    return url.includes('mixlib.me') ||
+           url.includes('imglib.info') ||
            url.includes('imgslib.link') ||
-           url.includes('/covers/') || 
+           url.includes('/covers/') ||
            url.includes('/uploads/');
 }
 
@@ -72,7 +72,9 @@ function detectServiceByReferer(details) {
     if (referer.includes('mangalib.me') || referer.includes('mangalib.org')) return 'mangalib';
 
     if (isImageRequest(details.url)) {
-        if (details.url.includes('mixlib.me') || details.url.includes('imglib.info') || details.url.includes('imgslib.link'))
+        if (details.url.includes('mixlib.me') ||
+            details.url.includes('imglib.info') ||
+            details.url.includes('imgslib.link'))
             return 'mangalib';
         if (details.url.includes('ranobelib.me'))
             return 'ranobelib';
@@ -114,9 +116,8 @@ if (isFirefox && browserAPI && browserAPI.webRequest) {
 
             if (!fromExtension) return {};
 
-            if (serviceName) {
+            if (serviceName)
                 await rateLimiter.trackRequest(serviceName);
-            }
 
             let headers = details.requestHeaders || [];
 
@@ -172,7 +173,7 @@ if (isFirefox && browserAPI && browserAPI.webRequest) {
 
 if (isChrome && browserAPI && browserAPI.webRequest) {
     console.log('[Background] Chrome: Setting up rate limiter');
-    
+
     browserAPI.webRequest.onBeforeSendHeaders.addListener(
         async (details) => {
             const serviceName = detectServiceByReferer(details);
@@ -194,13 +195,12 @@ if (isChrome && browserAPI && browserAPI.webRequest) {
         },
         ['requestHeaders']
     );
-    
+
     console.log('[Background] Chrome: Rate limiter installed');
 }
 
 if (browserAPI && browserAPI.runtime && browserAPI.runtime.onMessage) {
     browserAPI.runtime.onMessage.addListener((message, sender, sendResponse) => {
-        
         if (message.action === 'setRateLimit') {
             rateLimiter.setLimit(message.limit);
             sendResponse({ ok: true });
@@ -211,8 +211,8 @@ if (browserAPI && browserAPI.runtime && browserAPI.runtime.onMessage) {
         } else if (message.action === 'fetchImage') {
             (async () => {
                 try {
-                    const url = message.url;
-                    
+                    const { url } = message;
+
                     const isRanobelib = url.includes('ranobelib.me');
                     const defaultReferer = isRanobelib
                         ? 'https://ranobelib.me/'
@@ -231,7 +231,7 @@ if (browserAPI && browserAPI.runtime && browserAPI.runtime.onMessage) {
                         redirect: 'follow',
                         mode: 'cors'
                     };
-                    
+
                     const MAX_RETRIES = 4;
                     let response;
                     for (let attempt = 0; attempt < MAX_RETRIES; attempt++) {
@@ -250,7 +250,7 @@ if (browserAPI && browserAPI.runtime && browserAPI.runtime.onMessage) {
                     }
 
                     const blob = await response.blob();
-                    
+
                     if (blob.size === 0) {
                         sendResponse({ ok: false, error: 'Empty response' });
                         return;
@@ -275,10 +275,9 @@ if (browserAPI && browserAPI.runtime && browserAPI.runtime.onMessage) {
         } else if (message.action === 'fetchWithRateLimit') {
             (async () => {
                 try {
-                    const url = message.url;
-                    
-                    let fetchOptions = message.options || {};
-                    
+                    const { url } = message;
+                    const fetchOptions = message.options || {};
+
                     if (!fetchOptions.credentials)
                         fetchOptions.credentials = isFirefox ? 'include' : 'omit';
 
@@ -293,19 +292,19 @@ if (browserAPI && browserAPI.runtime && browserAPI.runtime.onMessage) {
                         rateLimiter.throttle(30000);
                         await rateLimiter.trackRequest('429-retry');
                     }
-                    
+
                     if (!response.ok) {
-                        sendResponse({ 
-                            ok: false, 
+                        sendResponse({
+                            ok: false,
                             status: response.status,
-                            statusText: response.statusText 
+                            statusText: response.statusText
                         });
                         return;
                     }
 
                     const text = await response.text();
-                    sendResponse({ 
-                        ok: true, 
+                    sendResponse({
+                        ok: true,
                         status: response.status,
                         body: text,
                         contentType: response.headers.get('content-type')
@@ -358,10 +357,12 @@ if (browserAPI && browserAPI.runtime && browserAPI.runtime.onMessage) {
                     const tabUrl = sender.tab && sender.tab.url;
                     if (!tabUrl) { sendResponse({ ok: false, error: 'No tab URL' }); return; }
 
-                    const slugMatch = tabUrl.match(/\/(manga|book)\/([^\/\?#]+)/);
-                    const slug = slugMatch ? slugMatch[2] : null;
+                    const slugMatch = tabUrl.match(/\/(?:manga|book)\/([^/?#]+)/);
+                    const slug = slugMatch ? slugMatch[1] : null;
                     const serviceKey = detectServiceByUrl(tabUrl);
-                    if (!slug || !serviceKey) { sendResponse({ ok: false, error: 'Cannot detect slug or service' }); return; }
+                    if (!slug || !serviceKey) {
+                        sendResponse({ ok: false, error: 'Cannot detect slug or service' }); return;
+                    }
 
                     const format = encodeURIComponent(message.format || 'fb2');
                     const urlParams = `?download=true&slug=${encodeURIComponent(slug)}&service=${encodeURIComponent(serviceKey)}&format=${format}&rateLimit=85&maxSizeMB=200`;
@@ -381,15 +382,17 @@ if (browserAPI && browserAPI.runtime && browserAPI.runtime.onMessage) {
                 }
             })();
             return true;
-        } else return false;
+        }
+
+        return false;
     });
-    
+
     console.log('[Background] Message listener installed');
 }
 
 if (browserAPI && browserAPI.webRequest && browserAPI.webRequest.onBeforeRequest) {
     browserAPI.webRequest.onBeforeRequest.addListener(
-        function(details) {
+        (details) => {
             let isService = false;
             try {
                 const tabUrl = details.documentUrl || details.initiator || details.originUrl || '';
@@ -397,9 +400,7 @@ if (browserAPI && browserAPI.webRequest && browserAPI.webRequest.onBeforeRequest
                     tabUrl.includes('mangalib.me') ||
                     tabUrl.includes('mangalib.org') ||
                     tabUrl.includes('ranobelib.me')
-                ) {
-                    isService = true;
-                }
+                ) isService = true;
             } catch (e) {}
 
             if (
@@ -408,9 +409,7 @@ if (browserAPI && browserAPI.webRequest && browserAPI.webRequest.onBeforeRequest
                     details.url.startsWith('https://mangalib.me/uploads/slider_items/') ||
                     details.url.startsWith('https://yandex.ru')
                 )
-            ) {
-                return { cancel: true };
-            }
+            ) return { cancel: true };
         },
         {
             urls: [

@@ -32,9 +32,28 @@
             return authors.map(author => this.createAuthorsTag(author)).join('');
         }
 
+        *_yieldChapterContent(chapter) {
+            if (!chapter.content || !Array.isArray(chapter.content)) return;
+
+            for (const block of chapter.content) {
+                if (block.type === 'text' && block.text) {
+                    const lines = block.text.split('\n');
+                    for (const line of lines) {
+                        const trimmed = line.trim();
+                        if (trimmed)
+                            yield `    <p>${this.escapeXml(trimmed)}</p>\n`;
+                        else
+                            yield '    <empty-line/>\n';
+                    }
+                } else if (block.type === 'image' && block._fb2ImageId)
+                    yield `    <p><image l:href="#${block._fb2ImageId}"/></p>\n`;
+                else console.warn(`[FB2Exporter] Unsupported block type: ${block.type}`);
+            }
+        }
+
         *createFB2Stream(manga, chapters, coverBase64) {
             yield '<?xml version="1.0" encoding="utf-8"?>\n';
-            yield '<FictionBook xmlns="http://www.gribuser.ru/xml/fictionbook/2.0" xmlns:l="http://www.w3.org/1999/xlink">\n';
+            yield `<FictionBook xmlns="http://www.gribuser.ru/xml/fictionbook/2.0" xmlns:l="http://www.w3.org/1999/xlink">\n`;
 
             yield '<description>\n';
             yield '  <title-info>\n';
@@ -64,7 +83,7 @@
                 if (!chapter.content || !Array.isArray(chapter.content)) continue;
                 for (const block of chapter.content) {
                     if (block.type === 'image' && block.data && block.data.base64) {
-                        imageCounter++;
+                        imageCounter += 1;
                         const imageId = `image${imageCounter}`;
                         const contentType = block.data.contentType || 'image/jpeg';
                         binaries.push(`<binary id="${imageId}" content-type="${contentType}">${block.data.base64}</binary>\n`);
@@ -74,37 +93,23 @@
             }
 
             yield '<body>\n';
-            
+
             if (coverBase64) {
                 yield '  <section>\n';
                 yield '    <title><p>Обложка</p></title>\n';
                 yield '    <p><image l:href="#cover.jpg"/></p>\n';
                 yield '  </section>\n';
             }
-            
+
             for (const chapter of chapters) {
                 yield '  <section>\n';
                 yield `    <title><p>${this.escapeXml(chapter.title)}</p></title>\n`;
-                
-                if (chapter.content && Array.isArray(chapter.content)) {
-                    for (const block of chapter.content) {
-                        if (block.type === 'text' && block.text) {
-                            const lines = block.text.split('\n');
-                            for (const line of lines) {
-                                const trimmed = line.trim();
-                                trimmed ?
-                                    yield `    <p>${this.escapeXml(trimmed)}</p>\n` :
-                                    yield `    <empty-line/>\n`;
-                            }
-                        } else if (block.type === 'image' && block._fb2ImageId)
-                            yield `    <p><image l:href="#${block._fb2ImageId}"/></p>\n`;
-                        else console.warn(`[FB2Exporter] Unsupported block type: ${block.type}`);
-                    }
-                }
-                
+
+                yield* this._yieldChapterContent(chapter);
+
                 yield '  </section>\n';
             }
-            
+
             yield '</body>\n';
 
             for (const binary of binaries)
@@ -113,16 +118,15 @@
             yield '</FictionBook>';
         }
 
-        async export(manga, chapters, coverBase64) {
+        export(manga, chapters, coverBase64) {
             const chunks = [];
             for (const chunk of this.createFB2Stream(manga, chapters, coverBase64))
                 chunks.push(chunk);
-            
+
             const content = chunks.join('');
             const blob = new Blob([content], { type: 'application/xml' });
-            
             const filename = `${manga.name || 'manga'}.fb2`;
-            
+
             return {
                 blob,
                 filename,
@@ -136,7 +140,7 @@
 
             const titleInfo = doc.querySelector('title-info');
             const bookTitle = titleInfo?.querySelector('book-title')?.textContent || filename;
-            
+
             const authors = [];
             const authorNodes = titleInfo?.querySelectorAll('author') || [];
             authorNodes.forEach(author => {
@@ -157,7 +161,6 @@
 
             const chapters = [];
             const sections = doc.querySelectorAll('body > section');
-            
             const hasCover = !!doc.querySelector('binary[id*="cover"]');
 
             sections.forEach((section, idx) => {
@@ -165,7 +168,7 @@
                 const title = titleNode?.textContent?.trim() || `Глава ${idx + 1}`;
 
                 if (hasCover && title === 'Обложка') return;
-                
+
                 const content = [];
                 const paragraphs = Array.from(section.querySelectorAll('p')).filter(
                     p => !p.closest('title')
@@ -185,8 +188,8 @@
                             content.push({ type: 'image', data: { base64, contentType } });
                         }
                     } else {
-                        const text = p.textContent.trim();
-                        if (text) content.push({ type: 'text', text });
+                        const pText = p.textContent.trim();
+                        if (pText) content.push({ type: 'text', text: pText });
                         else content.push({ type: 'text', text: '' });
                     }
                 });

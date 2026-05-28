@@ -22,9 +22,9 @@ class BackgroundDownload {
         console.log('[BackgroundDownload] Initialized');
     }
 
-    async takeOverDownload(options) {
-        const downloadId = `bg_${Date.now()}_${++this.downloadIdCounter}`;
-        
+    takeOverDownload(options) {
+        const downloadId = `bg_${Date.now()}_${this.downloadIdCounter += 1}`;
+
         const download = {
             id: downloadId,
             slug: options.slug,
@@ -41,16 +41,16 @@ class BackgroundDownload {
             currentChapterIndex: options.currentChapterIndex || 0,
             loadedFile: options.loadedFile
         };
-        
+
         this.activeDownloads.set(downloadId, download);
         console.log(`[BackgroundDownload] Took over download ${downloadId} from chapter ${download.currentChapterIndex}`);
-        
+
         this.continueDownload(download).catch(err => {
             console.error(`[BackgroundDownload] Download ${downloadId} failed:`, err);
             download.status = 'failed';
             download.error = err.message;
         });
-        
+
         return { downloadId };
     }
 
@@ -60,7 +60,7 @@ class BackgroundDownload {
             if (!service) throw new Error(`Unknown service: ${download.serviceKey}`);
 
             const total = download.chapters.length;
-            
+
             for (let i = download.currentChapterIndex; i < total; i++) {
                 await download.controller.waitIfPaused();
                 if (download.controller.shouldStop()) {
@@ -70,7 +70,7 @@ class BackgroundDownload {
 
                 const chapter = download.chapters[i];
                 const progress = Math.floor((i / total) * 80) + 10;
-                
+
                 download.status = `Глава ${i + 1}/${total}: ${chapter.name || chapter.number}`;
                 download.progress = progress;
                 download.currentChapterIndex = i;
@@ -84,12 +84,12 @@ class BackgroundDownload {
 
                     const rawContent = chapterData.data || chapterData;
                     const contentToExtract = rawContent.content || rawContent;
-                    
-                    const extractedContent = service.extractText 
-                        ? service.extractText(contentToExtract) 
+
+                    const extractedContent = service.extractText
+                        ? service.extractText(contentToExtract)
                         : contentToExtract;
 
-                    const processedContent = service.processChapterContent 
+                    const processedContent = service.processChapterContent
                         ? await service.processChapterContent(
                             extractedContent,
                             download.loadedFile,
@@ -109,7 +109,6 @@ class BackgroundDownload {
                         volume: chapter.volume,
                         number: chapter.number
                     });
-
                 } catch (error) {
                     console.error(`[BackgroundDownload] Failed to download chapter ${chapter.number}:`, error);
                     download.chapterContents.push({
@@ -128,14 +127,12 @@ class BackgroundDownload {
 
             download.status = `Создание ${download.format.toUpperCase()}...`;
             download.progress = 95;
-            
+
             const exporter = ExporterRegistry.create(download.format);
             const patch = MangaPatcher.patch(download.manga);
             const file = await exporter.export(patch, download.chapterContents, download.coverBase64);
 
-            const filename = file.filename;
-            const blob = file.blob;
-            
+            const { filename, blob } = file;
             const url = URL.createObjectURL(blob);
 
             if (!extensionApi || !extensionApi.downloads || !extensionApi.downloads.download)
@@ -146,16 +143,15 @@ class BackgroundDownload {
                 filename: filename,
                 saveAs: false
             });
-            
+
             download.status = 'Готово!';
             download.progress = 100;
             download.downloadItemId = downloadItem;
-            
+
             setTimeout(() => {
                 URL.revokeObjectURL(url);
                 this.activeDownloads.delete(download.id);
             }, 10000);
-
         } catch (error) {
             console.error('[BackgroundDownload] Error:', error);
             download.status = `Ошибка: ${error.message}`;
@@ -168,14 +164,17 @@ class BackgroundDownload {
         let paused = false;
         let stopped = false;
 
+        const isPaused = () => paused;
+        const shouldStop = () => stopped;
+
         return {
-            pause: () => paused = true,
-            resume: () => paused = false,
-            stop: () => stopped = true,
-            isPaused: () => paused,
-            shouldStop: () => stopped,
+            pause: () => { paused = true; },
+            resume: () => { paused = false; },
+            stop: () => { stopped = true; },
+            isPaused,
+            shouldStop,
             waitIfPaused: async () => {
-                while (paused && !stopped)
+                while (isPaused() && !shouldStop())
                     await new Promise(resolve => setTimeout(resolve, 100));
             }
         };
@@ -220,7 +219,7 @@ class BackgroundDownload {
     }
 }
 
-const backgroundDownload = new BackgroundDownload();
+self.backgroundDownload = new BackgroundDownload();
 
 console.log('[BackgroundDownload] Loaded');
 

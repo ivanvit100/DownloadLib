@@ -21,8 +21,10 @@
 
         static matches(url) {
             try {
-                const hostname = new URL(url).hostname;
-                return /mangalib\.me$/i.test(hostname) || /imgslib\.link$/i.test(hostname) || /mangalib\.org$/i.test(hostname);
+                const { hostname } = new URL(url);
+                return /mangalib\.me$/i.test(hostname) ||
+                    /imgslib\.link$/i.test(hostname) ||
+                    /mangalib\.org$/i.test(hostname);
             } catch {
                 return false;
             }
@@ -48,7 +50,7 @@
 
         resolvePageUrl(filename) {
             if (!filename) return null;
-            
+
             let filenameStr;
             if (typeof filename === 'string')
                 filenameStr = filename;
@@ -60,60 +62,60 @@
                 filenameStr = filename.src;
             else
                 filenameStr = String(filename);
-            
+
             if (/^https?:\/\//i.test(filenameStr)) return filenameStr;
             if (filenameStr.startsWith('/')) return `${this.config.imagesDomain}${filenameStr}`;
             return `${this.config.imagesDomain}/${filenameStr}`;
         }
 
-        async splitLongImage(base64Data, contentType) {
+        splitLongImage(base64Data, contentType) {
             return new Promise((resolve) => {
                 const img = new Image();
                 const dataUrl = `data:${contentType};base64,${base64Data}`;
-                
+
                 img.onload = () => {
                     const A4_RATIO = 297 / 210;
                     const imgRatio = img.height / img.width;
-                    
+
                     if (imgRatio <= A4_RATIO * 1.1) {
                         resolve([{ base64: base64Data, contentType }]);
                         return;
                     }
-                    
+
                     const numParts = Math.ceil(imgRatio / A4_RATIO);
                     const partHeight = Math.floor(img.height / numParts);
-                    
+
                     const parts = [];
                     const canvas = document.createElement('canvas');
                     const ctx = canvas.getContext('2d');
                     canvas.width = img.width;
-                    
+
                     for (let i = 0; i < numParts; i++) {
                         const y = i * partHeight;
                         const h = (i === numParts - 1) ? (img.height - y) : partHeight;
-                        
+
                         canvas.height = h;
                         ctx.clearRect(0, 0, canvas.width, canvas.height);
                         ctx.drawImage(img, 0, y, img.width, h, 0, 0, img.width, h);
-                        
+
                         const partDataUrl = canvas.toDataURL(contentType || 'image/jpeg', 0.95);
-                        const partBase64 = partDataUrl.split(',')[1];
-                        
+                        const [, partBase64] = partDataUrl.split(',');
+
                         parts.push({
                             base64: partBase64,
                             contentType: contentType || 'image/jpeg'
                         });
                     }
-                    
+
                     console.log(`[MangaLibService] Split image into ${parts.length} parts (ratio: ${imgRatio.toFixed(2)})`);
                     resolve(parts);
                 };
-                
+
                 img.onerror = () => {
                     console.warn('[MangaLibService] Error loading image for splitting');
                     resolve([{ base64: base64Data, contentType }]);
                 };
-                
+
                 img.src = dataUrl;
             });
         }
@@ -121,20 +123,19 @@
         async loadPageAsBase64(ref, opts = {}) {
             try {
                 if (!ref) return null;
-                
+
                 let url = null;
-                
-                if (typeof ref === 'string') {
+
+                if (typeof ref === 'string')
                     url = this.resolvePageUrl(ref);
-                } else if (ref.filename) {
+                else if (ref.filename)
                     url = this.resolvePageUrl(ref.filename);
-                } else if (ref.url) {
-                    url = ref.url;
+                else if (ref.url) {
+                    ({ url } = ref);
                     if (!/^https?:\/\//i.test(url))
                         url = this.resolvePageUrl(url);
-                } else if (ref.src) {
+                } else if (ref.src)
                     url = this.resolvePageUrl(ref.src);
-                }
 
                 if (!url) {
                     console.warn('[MangaLibService] Could not resolve page url for', ref);
@@ -144,7 +145,7 @@
                 if (this._imageCache.has(url))
                     return this._imageCache.get(url);
 
-                if (!this.extensionApi || !this.extensionApi.runtime || !this.extensionApi.runtime.sendMessage) {
+                if (!this.extensionApi?.runtime?.sendMessage) {
                     console.error('[MangaLibService] browser.runtime not available!');
                     return null;
                 }
@@ -163,14 +164,14 @@
 
                 const base64Data = response.base64;
                 const contentType = response.contentType || 'image/jpeg';
-                
+
                 if (opts.splitLongImages !== false) {
                     const parts = await this.splitLongImage(base64Data, contentType);
                     if (parts.length > 1) {
                         this._imageCache.set(url, parts);
                         return parts;
                     }
-                    const result = parts[0];
+                    const [result] = parts;
                     this._imageCache.set(url, result);
                     return result;
                 }
@@ -187,7 +188,7 @@
         async processChapterContent(extracted, status, opts = {}) {
             const chapterMeta = opts.chapterMeta || {};
             const chapterObj = opts.chapterObj || {};
-            
+
             let pages = [];
             try {
                 pages = this.extractPages(chapterMeta) || this.extractPages(chapterObj) || [];
@@ -204,10 +205,10 @@
             const result = [];
             let completed = 0;
             const concurrency = 5;
-            
+
             for (let i = 0; i < pages.length; i += concurrency) {
                 const batch = pages.slice(i, Math.min(i + concurrency, pages.length));
-                const batchPromises = batch.map((page, batchIdx) => 
+                const batchPromises = batch.map((page, batchIdx) =>
                     this.loadPageAsBase64(page, loadOpts)
                         .then(img => ({ img, index: i + batchIdx }))
                         .catch(err => {
@@ -219,9 +220,9 @@
                 const batchResults = await Promise.all(batchPromises);
 
                 for (const { img, index } of batchResults) {
-                    if (!img) {
+                    if (!img)
                         result.push({ type: 'text', text: `[Ошибка загрузки изображения ${index + 1}]` });
-                    } else if (Array.isArray(img)) {
+                    else if (Array.isArray(img)) {
                         img.forEach((part, partIndex) => {
                             result.push({
                                 type: 'image',
@@ -241,11 +242,11 @@
                         });
                     }
 
-                    completed++;
+                    completed += 1;
                     if (status) status.textContent = `Загружено страниц: ${completed}/${pages.length}`;
                 }
             }
-            
+
             return result;
         }
     }

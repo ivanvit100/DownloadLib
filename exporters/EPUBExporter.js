@@ -17,11 +17,11 @@
             if (typeof JSZip === 'undefined')
                 throw new Error('JSZip library not loaded');
 
-            const zip = new JSZip();
+            const zip = new global.JSZip();
 
             zip.file('mimetype', 'application/epub+zip', { compression: 'STORE' });
             zip.file('META-INF/container.xml', this.createContainer());
-            
+
             let manifest = '';
             let spine = '';
             let navPoints = '';
@@ -35,19 +35,19 @@
 
             for (let i = 0; i < chapters.length; i++) {
                 const chapter = chapters[i];
-                
+
                 if (chapter.content && Array.isArray(chapter.content)) {
                     for (const block of chapter.content) {
                         if (block.type === 'image' && block.data && block.data.base64) {
-                            imageCounter++;
+                            imageCounter += 1;
                             const imageId = `image${imageCounter}`;
                             const contentType = block.data.contentType || 'image/jpeg';
                             const ext = contentType === 'image/png' ? 'png' : 'jpg';
                             const filename = `images/${imageId}.${ext}`;
-                            
+
                             zip.file(`OEBPS/${filename}`, block.data.base64, { base64: true });
                             manifest += `<item id="${imageId}" href="${filename}" media-type="${contentType}"/>\n`;
-                            
+
                             block._epubImagePath = filename;
                         } else console.warn(`[EPUBExporter] Chapter ${i + 1} has unsupported image block or missing data`);
                     }
@@ -57,9 +57,9 @@
             for (let i = 0; i < chapters.length; i++) {
                 const chapter = chapters[i];
                 const filename = `chapter${i + 1}.xhtml`;
-                
+
                 zip.file(`OEBPS/${filename}`, this.createChapterXHTML(chapter, coverBase64 && i === 0));
-                
+
                 manifest += `<item id="chapter${i + 1}" href="${filename}" media-type="application/xhtml+xml"/>\n`;
                 spine += `<itemref idref="chapter${i + 1}"/>\n`;
                 navPoints += this.createNavPoint(chapter.title, filename, i + 1);
@@ -90,12 +90,13 @@
         createChapterXHTML(chapter, includeCover) {
             const title = this.escapeXml(chapter.title);
             const blocks = Array.isArray(chapter.content) ? chapter.content : [];
-            const hasTextBlocks = blocks.some(block => block && block.type === 'text' && block.text && String(block.text).trim());
+            const hasTextBlocks = blocks.some(block =>
+                block && block.type === 'text' && block.text && String(block.text).trim());
             const hasImageBlocks = blocks.some(block => block && block.type === 'image' && block._epubImagePath);
             const isImageOnlyChapter = !hasTextBlocks && hasImageBlocks;
-            
+
             let body = '';
-            
+
             if (includeCover) {
                 if (isImageOnlyChapter)
                     body += '<img class="page-image" src="images/cover.jpg" alt="Cover"/>\n';
@@ -112,7 +113,7 @@
                         const lines = block.text.split('\n');
                         for (const line of lines) {
                             const trimmed = line.trim();
-                            body += trimmed ? 
+                            body += trimmed ?
                                 `<p>${this.escapeXml(trimmed)}</p>\n` :
                                 '<p>&#160;</p>\n';
                         }
@@ -204,87 +205,96 @@
     </navPoint>\n`;
         }
 
-        async parseEPUB(file) {
-            if (typeof JSZip === 'undefined')
-                throw new Error('JSZip library not loaded. Include it in popup.html');
-
-            const zip = new JSZip();
-            const zipContent = await zip.loadAsync(file);
-            let opfFile = null;
+        async _resolveOpfFile(zipContent) {
             const containerXml = await zipContent.file('META-INF/container.xml')?.async('text');
-            
+
             if (containerXml) {
                 const parser = new DOMParser();
                 const containerDoc = parser.parseFromString(containerXml, 'text/xml');
                 const rootfile = containerDoc.querySelector('rootfile');
                 const opfPath = rootfile?.getAttribute('full-path');
-                if (opfPath) opfFile = zipContent.file(opfPath);
-                else console.warn('[EPUBExporter] No full-path attribute found in container.xml');
+                if (opfPath) return zipContent.file(opfPath);
+                console.warn('[EPUBExporter] No full-path attribute found in container.xml');
             }
 
-            if (!opfFile) {
-                for (const filename in zipContent.files) {
-                    if (filename.endsWith('.opf')) {
-                        opfFile = zipContent.files[filename];
-                        break;
-                    } else console.warn(`[EPUBExporter] Skipping non-opf file: ${filename}`);
-                }
+            for (const filename of Object.keys(zipContent.files)) {
+                if (filename.endsWith('.opf'))
+                    return zipContent.files[filename];
+                console.warn(`[EPUBExporter] Skipping non-opf file: ${filename}`);
             }
 
-            let metadata = {
+            return null;
+        }
+
+        async _parseOpfFile(opfFile, metadata, zipContent) {
+            if (!opfFile) return { cover: '', spineOrder: [] };
+
+            const opfText = await opfFile.async('text');
+            const parser = new DOMParser();
+            const opfDoc = parser.parseFromString(opfText, 'text/xml');
+            const metadataNode = opfDoc.querySelector('metadata');
+
+            if (metadataNode) {
+                const title = metadataNode.querySelector('dc\\:title, title')?.textContent || metadata.name;
+                metadata.name = title;
+                metadata.rus_name = title;
+
+                const authorNodes = metadataNode.querySelectorAll('dc\\:creator, creator');
+                metadata.authors = Array.from(authorNodes).map(a => a.textContent.trim()).filter(Boolean);
+
+                const description = metadataNode.querySelector('dc\\:description, description')?.textContent;
+                if (description) metadata.summary = description;
+                else console.warn('[EPUBExporter] No description found in metadata');
+            }
+
+            const manifest = opfDoc.querySelector('manifest');
+            const coverItem = manifest?.querySelector(`item[properties*="cover-image"], item[id="cover"], item[id="cover-image"]`);
+            let cover = '';
+
+            if (coverItem) {
+                const coverHref = coverItem.getAttribute('href');
+                const opfDir = opfFile.name.substring(0, opfFile.name.lastIndexOf('/') + 1);
+                const coverPath = opfDir + coverHref;
+                const coverFile = zipContent.file(coverPath);
+                if (coverFile) {
+                    const coverBlob = await coverFile.async('blob');
+                    cover = await this.blobToBase64(coverBlob);
+                } else console.warn('[EPUBExporter] Cover file not found in zip:', coverPath);
+            }
+
+            let spineOrder = [];
+            const spine = opfDoc.querySelector('spine');
+            if (spine) {
+                const itemrefs = spine.querySelectorAll('itemref');
+                spineOrder = Array.from(itemrefs).map(ref => ref.getAttribute('idref'));
+            }
+
+            return { cover, spineOrder };
+        }
+
+        async parseEPUB(file) {
+            if (typeof JSZip === 'undefined')
+                throw new Error('JSZip library not loaded. Include it in popup.html');
+
+            const zip = new global.JSZip();
+            const zipContent = await zip.loadAsync(file);
+
+            const metadata = {
                 name: file.name.replace('.epub', ''),
                 rus_name: file.name.replace('.epub', ''),
                 authors: [],
                 summary: ''
             };
 
-            let cover = '';
-            let spineOrder = [];
-
-            if (opfFile) {
-                const opfText = await opfFile.async('text');
-                const parser = new DOMParser();
-                const opfDoc = parser.parseFromString(opfText, 'text/xml');
-                const metadataNode = opfDoc.querySelector('metadata');
-                if (metadataNode) {
-                    const title = metadataNode.querySelector('dc\\:title, title')?.textContent || metadata.name;
-                    metadata.name = title;
-                    metadata.rus_name = title;
-
-                    const authorNodes = metadataNode.querySelectorAll('dc\\:creator, creator');
-                    metadata.authors = Array.from(authorNodes).map(a => a.textContent.trim()).filter(Boolean);
-
-                    const description = metadataNode.querySelector('dc\\:description, description')?.textContent;
-                    if (description) metadata.summary = description;
-                    else console.warn('[EPUBExporter] No description found in metadata');
-                }
-
-                const manifest = opfDoc.querySelector('manifest');
-                const coverItem = manifest?.querySelector('item[properties*="cover-image"], item[id="cover"], item[id="cover-image"]');
-                if (coverItem) {
-                    const coverHref = coverItem.getAttribute('href');
-                    const opfDir = opfFile.name.substring(0, opfFile.name.lastIndexOf('/') + 1);
-                    const coverPath = opfDir + coverHref;
-                    const coverFile = zipContent.file(coverPath);
-                    if (coverFile) {
-                        const coverBlob = await coverFile.async('blob');
-                        cover = await this.blobToBase64(coverBlob);
-                    } else console.warn('[EPUBExporter] Cover file not found in zip:', coverPath);
-                }
-
-                const spine = opfDoc.querySelector('spine');
-                if (spine) {
-                    const itemrefs = spine.querySelectorAll('itemref');
-                    spineOrder = Array.from(itemrefs).map(ref => ref.getAttribute('idref'));
-                }
-            }
+            const opfFile = await this._resolveOpfFile(zipContent);
+            const { cover, spineOrder } = await this._parseOpfFile(opfFile, metadata, zipContent);
 
             const chapters = [];
-            const htmlFiles = Object.keys(zipContent.files).filter(f => 
+            const htmlFiles = Object.keys(zipContent.files).filter(f =>
                 f.match(/\.(x?html?)$/i) && !f.includes('nav.') && !f.includes('toc.')
             );
 
-            const sortedFiles = spineOrder.length > 0 
+            const sortedFiles = spineOrder.length > 0
                 ? spineOrder.map(id => {
                     const item = htmlFiles.find(f => f.includes(id) || f.endsWith(`${id}.html`) || f.endsWith(`${id}.xhtml`));
                     return item;
@@ -322,7 +332,7 @@
                             if (imgFile) {
                                 const imgBlob = await imgFile.async('blob');
                                 const imgBase64 = await this.blobToBase64(imgBlob);
-                                const base64Data = imgBase64.split(',')[1];
+                                const [ , base64Data] = imgBase64.split(',');
                                 chapterContent.push({
                                     type: 'image',
                                     data: {
@@ -352,7 +362,7 @@
             };
         }
 
-        async blobToBase64(blob) {
+        blobToBase64(blob) {
             return new Promise((resolve, reject) => {
                 const reader = new FileReader();
                 reader.onloadend = () => resolve(reader.result);

@@ -97,12 +97,12 @@
                 let line = '';
 
                 for (const word of words) {
-                    const testLine = line + word + ' ';
+                    const testLine = `${line}${word} `;
                     const metrics = ctx.measureText(testLine);
 
                     if (metrics.width > maxX && line !== '') {
                         allLines.push(line.trim());
-                        line = word + ' ';
+                        line = `${word} `;
                     } else line = testLine;
                 }
 
@@ -145,16 +145,39 @@
             return pages;
         }
 
-        async ensureDataUrl(input) {
+        ensureDataUrl(input) {
             if (!input) return null;
             if (typeof input === 'string' && /^data:[\w+/.-]+;base64,/.test(input)) return input;
-            if (typeof input === 'string' && /^[A-Za-z0-9+/=\s]+$/.test(input) && input.length > 100)
-                return 'data:image/jpeg;base64,' + input.replace(/\s+/g, '');
+            if (typeof input === 'string' && /^[a-z0-9+/=\s]+$/i.test(input) && input.length > 100)
+                return `data:image/jpeg;base64,${input.replace(/\s+/g, '')}`;
             return null;
         }
 
-        async delay(ms) {
+        delay(ms) {
             return new Promise(resolve => setTimeout(resolve, ms));
+        }
+
+        _parseChapterContent(ch) {
+            let chapterText = '';
+            const chapterImages = [];
+
+            if (!Array.isArray(ch.content)) {
+                console.warn('[PDFExporter] Chapter content is not an array, skipping chapter content processing');
+                return { chapterText, chapterImages };
+            }
+
+            for (const block of ch.content) {
+                if (block.type === 'text' && block.text) {
+                    const text = this.stripHtml(block.text);
+                    if (text)
+                        chapterText += (chapterText ? '\n' : '') + text;
+                    else console.warn('[PDFExporter] Skipping empty text block in chapter content');
+                } else if (block.type === 'image' && block.data && block.data.base64)
+                    chapterImages.push(block);
+                else console.warn(`[PDFExporter] Unsupported block type in chapter content: ${block.type}`);
+            }
+
+            return { chapterText, chapterImages };
         }
 
         async export(manga, chapters, coverBase64) {
@@ -164,7 +187,7 @@
             const title   = manga.name || 'Без названия';
             const authors = manga.authors.filter(Boolean).join(', ') || 'Неизвестно';
 
-            const worker = html2pdf();
+            const worker = global.html2pdf();
             const pdf = await new Promise((resolve) => {
                 worker.set({}).from(document.createElement('div')).toPdf().get('pdf').then(resolve);
             });
@@ -210,41 +233,27 @@
                         w = h * imgRatio;
                     }
                     pdf.addImage(coverDataUrl, 'JPEG', (pageWidth - w) / 2, (pageHeight - h) / 2, w, h);
-                    pageCount++;
+                    pageCount += 1;
 
                     img.src = '';
                 } else console.warn('[PDFExporter] Invalid cover image data, skipping cover page');
-            } 
+            }
 
             for (let chIdx = 0; chIdx < chapters.length; chIdx++) {
                 const ch = chapters[chIdx];
-                let chapterText = '';
-                const chapterImages = [];
-
-                if (Array.isArray(ch.content)) {
-                    for (const block of ch.content) {
-                        if (block.type === 'text' && block.text) {
-                            const text = this.stripHtml(block.text);
-                            if (text)
-                                chapterText += (chapterText ? '\n' : '') + text;
-                            else console.warn('[PDFExporter] Skipping empty text block in chapter content');
-                        } else if (block.type === 'image' && block.data && block.data.base64)
-                            chapterImages.push(block);
-                        else console.warn(`[PDFExporter] Unsupported block type in chapter content: ${block.type}`);
-                    }
-                } else console.warn('[PDFExporter] Chapter content is not an array, skipping chapter content processing');
+                const { chapterText, chapterImages } = this._parseChapterContent(ch);
 
                 if (chapterText) {
                     const chapterTitle = ch.title || `Глава ${chIdx + 1}`;
                     const textPages = this.splitTextIntoPages(chapterText, chapterTitle);
-                    
+
                     for (let i = 0; i < textPages.length; i++) {
                         ensurePageForNextContent();
-                        
+
                         const titleForPage = i === 0 ? chapterTitle : null;
                         const textCanvas = this.renderTextToCanvas(textPages[i], titleForPage);
                         pdf.addImage(textCanvas, 'JPEG', 0, 0, pageWidth, pageHeight);
-                        pageCount++;
+                        pageCount += 1;
 
                         if (pageCount % 10 === 0)
                             await this.delay(50);
@@ -254,7 +263,7 @@
 
                 for (const imageBlock of chapterImages) {
                     ensurePageForNextContent();
-                    
+
                     const contentType = imageBlock.data.contentType || 'image/jpeg';
                     const dataUrl = `data:${contentType};base64,${imageBlock.data.base64}`;
                     const img = new Image();
@@ -274,7 +283,7 @@
                         w = h * imgRatio;
                     } else console.warn('[PDFExporter] Image fits within page without resizing');
                     pdf.addImage(dataUrl, 'JPEG', (pageWidth - w) / 2, (pageHeight - h) / 2, w, h);
-                    pageCount++;
+                    pageCount += 1;
 
                     img.src = '';
 

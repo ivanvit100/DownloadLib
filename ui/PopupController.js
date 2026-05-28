@@ -14,7 +14,9 @@
 
     const browserAPI = typeof global.getExtensionApi === 'function'
         ? global.getExtensionApi()
-        : ((typeof global.browser !== 'undefined' && global.browser) || (typeof global.chrome !== 'undefined' && global.chrome) || null);
+        : ((typeof global.browser !== 'undefined' && global.browser) ||
+            (typeof global.chrome !== 'undefined' && global.chrome) ||
+            null);
 
     if (!browserAPI) {
         console.error('[PopupController] No browser API available');
@@ -36,14 +38,14 @@
             this.setupEventListeners();
             this.subscribeToEvents();
             this.loadMetadata();
-            
+
             setInterval(() => this.updateActiveDownloadsInfo(), 2000);
-            
+
             this.downloadManager.eventBus.on('download:started', (state) => {
                 this.currentDownloadId = state.id;
                 console.log('[PopupController] Download started with ID:', this.currentDownloadId);
             });
-            
+
             console.log('[PopupController] Initialized');
         }
 
@@ -106,10 +108,10 @@
             if (!rateLimitInput) {
                 const rateLimitContainer = document.createElement('div');
                 rateLimitContainer.id = 'rateLimitContainer';
-                
+
                 const label = document.createElement('label');
                 label.textContent = 'Запросов в минуту: ';
-                
+
                 rateLimitInput = document.createElement('input');
                 rateLimitInput.id = 'rateLimitInput';
                 rateLimitInput.type = 'number';
@@ -117,14 +119,14 @@
                 rateLimitInput.max = '200';
                 rateLimitInput.step = '1';
                 rateLimitInput.value = '85';
-                
+
                 rateLimitInput.addEventListener('input', (e) => {
                     let val = parseInt(e.target.value);
                     if (isNaN(val) || val < 2) val = 2;
                     if (val > 200) val = 200;
                     e.target.value = Math.floor(val);
                 });
-                
+
                 rateLimitContainer.appendChild(label);
                 rateLimitContainer.appendChild(rateLimitInput);
                 btn.parentNode.insertBefore(rateLimitContainer, btn);
@@ -134,7 +136,7 @@
             if (!activeDownloadsInfo) {
                 activeDownloadsInfo = document.createElement('div');
                 activeDownloadsInfo.id = 'activeDownloadsInfo';
-                
+
                 const rateLimitContainer = rateLimitInput.parentNode;
                 rateLimitContainer.parentNode.insertBefore(activeDownloadsInfo, rateLimitContainer.nextSibling);
             }
@@ -161,7 +163,7 @@
                     e.stopPropagation();
                     const file = hiddenFileInput.files && hiddenFileInput.files[0];
                     this.loadedFile = null;
-                    
+
                     if (!file) {
                         formatSelector.disabled = false;
                         if (status) status.textContent = '';
@@ -171,7 +173,7 @@
                         btn.style.display = 'block';
                         return;
                     }
-                    
+
                     const ext = file.name.split('.').pop().toLowerCase();
                     if (['pdf', 'epub', 'fb2'].includes(ext)) {
                         formatSelector.value = ext;
@@ -197,11 +199,11 @@
             if (!controlsContainer) {
                 controlsContainer = document.createElement('div');
                 controlsContainer.id = 'downloadControls';
-                
+
                 const pauseBtn = document.createElement('button');
                 pauseBtn.id = 'pauseBtn';
                 pauseBtn.textContent = 'Пауза';
-                
+
                 const backgroundBtn = document.createElement('button');
                 backgroundBtn.id = 'backgroundBtn';
                 backgroundBtn.textContent = 'Фоном';
@@ -209,12 +211,12 @@
                 const stopBtn = document.createElement('button');
                 stopBtn.id = 'stopBtn';
                 stopBtn.textContent = 'Завершить';
-                
+
                 const btnRow = document.createElement('div');
                 btnRow.id = 'btnRow';
                 btnRow.appendChild(pauseBtn);
                 btnRow.appendChild(backgroundBtn);
-                
+
                 controlsContainer.appendChild(btnRow);
                 controlsContainer.appendChild(stopBtn);
                 btn.parentNode.insertBefore(controlsContainer, btn.nextSibling);
@@ -249,11 +251,10 @@
                 splitModeContainer.appendChild(maxSizeInput);
 
                 const chapterRangeContainer = document.getElementById('chapterRangeContainer');
-                if (chapterRangeContainer) {
-                    chapterRangeContainer.parentNode.insertBefore(splitModeContainer, chapterRangeContainer.nextSibling);
-                } else {
+                if (chapterRangeContainer)
+                    chapterRangeContainer.parentNode.insertBefore(splitModeContainer,chapterRangeContainer.nextSibling);
+                else
                     btn.parentNode.insertBefore(splitModeContainer, btn);
-                }
             } else console.warn('splitModeContainer found in DOM');
 
             let chapterRangeContainer = document.getElementById('chapterRangeContainer');
@@ -315,11 +316,10 @@
             try {
                 const urlParams = new URLSearchParams(window.location.search);
                 const hasParams = urlParams.has('download') || urlParams.has('fileUpload');
-                
+
                 if (hasParams) return true;
-                
                 if (window.outerWidth <= 500 && window.outerHeight <= 700) return true;
-                
+
                 const currentWindow = await browserAPI.windows.getCurrent();
                 console.log('[PopupController] Window type:', currentWindow.type);
                 return currentWindow.type === 'popup';
@@ -332,42 +332,174 @@
         async updateActiveDownloadsInfo() {
             const activeDownloadsInfo = document.getElementById('activeDownloadsInfo');
             if (!activeDownloadsInfo) return;
-            
+
             try {
                 const response = await browserAPI.runtime.sendMessage({ action: 'getActiveDownloads' });
-                
+
                 if (response.ok && response.downloads) {
                     const bgDownloads = response.downloads;
                     const fgDownloads = this.isDownloading ? 1 : 0;
                     const total = bgDownloads.length + fgDownloads;
-                    
+
                     if (total > 0) {
                         const parts = [];
                         if (fgDownloads > 0) parts.push(`${fgDownloads} обычная`);
                         if (bgDownloads.length > 0) parts.push(`${bgDownloads.length} фоновая`);
                         else console.log('No background downloads currently active');
-                        
+
                         activeDownloadsInfo.textContent = `Активных загрузок: ${parts.join(' + ')}`;
                         activeDownloadsInfo.style.display = 'block';
-                        
+
                         if (bgDownloads.length > 0) {
-                            const details = bgDownloads.map(d => 
+                            const details = bgDownloads.map(d =>
                                 `${d.slug}: ${d.status} (${d.progress}%)`
                             ).join('\n');
                             activeDownloadsInfo.title = details;
                         } else console.log('No background downloads to show in tooltip');
-                    } else {
+                    } else
                         activeDownloadsInfo.style.display = 'none';
-                    }
                 } else console.warn('Failed to get active downloads or no downloads found:', response);
             } catch (e) {
                 console.error('[PopupController] Failed to get active downloads:', e);
             }
         }
 
+        _applyServiceTheme(serviceKey, siteLogo) {
+            const isRanobeLib = serviceKey === 'ranobelib';
+            document.body.style.setProperty('--primary-color', isRanobeLib ? '#2196f3' : '#ff9100');
+            document.body.style.setProperty('--secondary-color', isRanobeLib ? '#1f82d3ff' : '#c77101');
+            if (siteLogo) siteLogo.src = isRanobeLib ? 'icons/logo3.png' : 'icons/logo1.png';
+            else console.warn('Site logo element not found when setting logo for service:', serviceKey);
+        }
+
+        _showEmptyState({ logoInfo, coverImg, desc, releaseEl, btn, status }, descText, context) {
+            logoInfo.textContent = '';
+            if (coverImg) coverImg.style.display = 'none';
+            else console.warn(`Cover image element not found when showing ${context}`);
+            console.warn(`Description element found when showing ${context}`);
+            if (desc) desc.textContent = descText;
+            console.warn(`Release date element found when showing ${context}`);
+            if (releaseEl) releaseEl.textContent = '';
+            btn.disabled = true;
+            if (status) status.textContent = '';
+            else console.warn(`Status element not found when showing ${context}`);
+        }
+
+        _applyUrlParams({ formatFromUrl, maxSizeMBFromUrl, rateLimitFromUrl, formatSelector, rateLimitInput }) {
+            if (formatFromUrl && formatSelector) {
+                formatSelector.value = formatFromUrl;
+                localStorage.setItem('manga_parser_selected_format', formatFromUrl);
+            }
+
+            if (maxSizeMBFromUrl) {
+                localStorage.setItem('manga_parser_max_size_mb', maxSizeMBFromUrl);
+                const maxSizeInput = document.getElementById('maxSizeInput');
+                if (maxSizeInput) maxSizeInput.value = maxSizeMBFromUrl;
+                else console.warn('Max size input element not found');
+            }
+
+            if (rateLimitFromUrl && rateLimitInput)
+                rateLimitInput.value = rateLimitFromUrl;
+        }
+
+        async _loadChaptersAndPopulateSelects(service, slug, chapterFromUrl, chapterToUrl) {
+            try {
+                const chaptersData = await service.fetchChaptersList(slug);
+                const chapters = chaptersData.data || [];
+                const chaptersCount = chapters.length;
+
+                if (chaptersCount > 0) {
+                    const fromSelect = document.getElementById('chapterFromSelect');
+                    const toSelect = document.getElementById('chapterToSelect');
+                    const chapterRangeContainer = document.getElementById('chapterRangeContainer');
+
+                    if (fromSelect && toSelect && chapterRangeContainer) {
+                        fromSelect.innerHTML = '';
+                        toSelect.innerHTML = '';
+                        chapters.forEach((ch, idx) => {
+                            const optionFrom = document.createElement('option');
+                            optionFrom.value = idx;
+                            optionFrom.textContent = `Том ${ch.volume}, Глава ${ch.number}`;
+                            fromSelect.appendChild(optionFrom);
+
+                            const optionTo = document.createElement('option');
+                            optionTo.value = idx;
+                            optionTo.textContent = `Том ${ch.volume}, Глава ${ch.number}`;
+                            toSelect.appendChild(optionTo);
+                        });
+
+                        if (chapterFromUrl !== null && chapterToUrl !== null) {
+                            fromSelect.value = chapterFromUrl;
+                            toSelect.value = chapterToUrl;
+                            console.log(`[PopupController] Restored chapter range from URL: ${chapterFromUrl} - ${chapterToUrl}`);
+                        } else
+                            toSelect.selectedIndex = chapters.length - 1;
+
+                        chapterRangeContainer.style.display = 'block';
+                    }
+                }
+                return chaptersCount;
+            } catch (e) {
+                console.warn('[PopupController] Failed to fetch chapters count:', e);
+                return null;
+            }
+        }
+
+        _renderMeta({ patched, chaptersCount, slug, coverImg, desc, releaseEl, logoInfo }) {
+            const title = patched.name || slug;
+            const summary = this.truncateText(patched.summary || 'Описание отсутствует.', 100);
+            const cover = patched.cover || null;
+            if (!cover) console.warn('No cover information found in metadata');
+
+            if (cover) {
+                coverImg.style.display = 'block';
+                coverImg.src = cover;
+            } else
+                coverImg.style.display = 'none';
+
+            const authors = patched.authors.filter(Boolean);
+            const rating = patched.rating || null;
+            if (!rating) console.warn('No age restriction label found in metadata');
+
+            const firstLineParts = [];
+            if (chaptersCount !== null) firstLineParts.push(`Глав: ${chaptersCount}`);
+            if (rating) firstLineParts.push(`Рейтинг: ${rating}`);
+            else console.warn('No rating information found in metadata');
+
+            const secondLine = (authors && authors.length) ? `Авторы: ${authors.join(', ')}` : '';
+            const logoText = secondLine
+                ? `${firstLineParts.join(' · ')}\n${secondLine}`
+                : firstLineParts.join(' · ');
+            logoInfo.textContent = logoText;
+
+            desc.innerHTML = `<strong>${title}</strong><br><small>${summary}</small>`;
+
+            const release = patched.releaseDate || '';
+            if (releaseEl) releaseEl.textContent = release ? `Дата выхода: ${release}` : '';
+            else console.warn('Release date element not found when setting release date:', release);
+        }
+
+        _setReadyState({ btn, status, fileUploadMode, hiddenFileInput }) {
+            btn.disabled = false;
+            if (status) status.textContent = 'Нажмите "Скачать" для загрузки книги';
+            else console.warn('Status element not found when setting ready to download message');
+            if (fileUploadMode && hiddenFileInput) {
+                if (status) status.textContent = 'Выберите файл для обновления';
+                else console.warn('Status element not found when prompting for file selection in file upload mode');
+                setTimeout(() => hiddenFileInput.click(), 300);
+            }
+        }
+
+        _handleLoadError(error, { desc, status, btn }) {
+            console.error('[PopupController] Failed to load metadata:', error);
+            if (desc) desc.textContent = `Ошибка: ${error.message}`;
+            if (status) status.textContent = '';
+            if (btn) btn.disabled = true;
+        }
+
         async loadMetadata() {
             await this.updateActiveDownloadsInfo();
-            
+
             const status = document.getElementById('status');
             const btn = document.getElementById('downloadBtn');
             const logoInfo = document.getElementById('logoInfo');
@@ -377,6 +509,7 @@
             const siteLogo = document.getElementById('siteLogo');
             const customFileBtn = document.getElementById('customFileBtn');
             const hiddenFileInput = document.getElementById('fileInput');
+            const uiElements = { logoInfo, coverImg, desc, releaseEl, btn, status };
 
             const urlParams = new URLSearchParams(window.location.search);
             const autoDownload = urlParams.get('download') === 'true';
@@ -390,94 +523,47 @@
             const maxSizeMBFromUrl = urlParams.get('maxSizeMB');
 
             const formatSelector = document.getElementById('formatSelector');
-            if (formatFromUrl && formatSelector) {
-                formatSelector.value = formatFromUrl;
-                localStorage.setItem('manga_parser_selected_format', formatFromUrl);
-            }
-
-            if (maxSizeMBFromUrl) {
-                localStorage.setItem('manga_parser_max_size_mb', maxSizeMBFromUrl);
-                const maxSizeInput = document.getElementById('maxSizeInput');
-                if (maxSizeInput) maxSizeInput.value = maxSizeMBFromUrl;
-                else console.warn('Max size input element not found');
-            }
-
             const rateLimitInput = document.getElementById('rateLimitInput');
-            if (rateLimitFromUrl && rateLimitInput)
-                rateLimitInput.value = rateLimitFromUrl;
+            this._applyUrlParams({ formatFromUrl, maxSizeMBFromUrl, rateLimitFromUrl, formatSelector, rateLimitInput });
 
             if (btn) btn.disabled = true;
             if (status) status.textContent = 'Получаем информацию...';
 
             try {
-                let currentUrl, hostname, slug, serviceKey, service;
+                let currentUrl, slug, serviceKey, service;
 
                 if ((autoDownload || fileUploadMode) && slugFromUrl && serviceFromUrl) {
                     slug = slugFromUrl;
                     serviceKey = serviceFromUrl;
-                    
+
                     if (serviceKey === 'ranobelib')
                         service = new global.RanobeLibService();
                     else if (serviceKey === 'mangalib')
                         service = new global.MangaLibService();
                     else throw new Error(`Unknown service: ${serviceKey}`);
-                    
-                    hostname = serviceKey === 'ranobelib' ? 'ranobelib.me' : 'mangalib.me';
                 } else {
                     const tabs = await browserAPI.tabs.query({ active: true, currentWindow: true });
-                    
                     if (!tabs || !tabs[0]) throw new Error('No active tab found');
-                    
                     currentUrl = tabs[0].url;
                     console.log('[PopupController] Current URL:', currentUrl);
 
-                    const match = currentUrl.match(/\/(manga|book)\/([^\/\?]+)/);
-                    slug = match ? match[2] : null;
+                    const match = currentUrl.match(/\/(?:manga|book)\/([^/?]+)/);
+                    slug = match ? match[1] : null;
 
-                    const url = new URL(currentUrl);
-                    hostname = url.hostname;
-                    
                     service = global.serviceRegistry.getServiceByUrl(currentUrl);
                     if (!service) {
-                        logoInfo.textContent = '';
-                        if (coverImg) coverImg.style.display = 'none';
-                        else console.warn('No service found for current URL');
-                        if (desc) desc.textContent = 'Сперва откройте один из сайтов проекта MangaLib';
-                        else console.warn('Description element found when showing no service error');
-                        if (releaseEl) releaseEl.textContent = '';
-                        else console.warn('Release date element found when showing no service error');
-                        btn.disabled = true;
-                        if (status) status.textContent = '';
-                        else console.warn('Status element not found when showing no service error');
+                        this._showEmptyState(uiElements,
+                            'Сперва откройте один из сайтов проекта MangaLib', 'no service error');
                         return;
                     }
-                    
+
                     serviceKey = service.name;
                 }
 
-                if (serviceKey === 'ranobelib') {
-                    document.body.style.setProperty('--primary-color', '#2196f3');
-                    document.body.style.setProperty('--secondary-color', '#1f82d3ff');
-                    if (siteLogo) siteLogo.src = 'icons/logo3.png';
-                    else console.warn('Site logo element not found when setting logo for service:', serviceKey);
-                } else {
-                    document.body.style.setProperty('--primary-color', '#ff9100');
-                    document.body.style.setProperty('--secondary-color', '#c77101');
-                    if (siteLogo) siteLogo.src = 'icons/logo1.png';
-                    else console.warn('Site logo element not found when setting logo for service:', serviceKey);
-                }
+                this._applyServiceTheme(serviceKey, siteLogo);
 
                 if (!slug) {
-                    logoInfo.textContent = '';
-                    if (coverImg) coverImg.style.display = 'none';
-                    else console.warn('Cover image element not found when showing no slug error');
-                    if (desc) desc.textContent = 'Сперва откройте соответствующий тайтл';
-                    else console.warn('Description element found when showing no slug error');
-                    if (releaseEl) releaseEl.textContent = '';
-                    else console.warn('Release date element found when showing no slug error');
-                    btn.disabled = true;
-                    if (status) status.textContent = '';
-                    else console.warn('Status element not found when showing no slug error');
+                    this._showEmptyState(uiElements, 'Сперва откройте соответствующий тайтл', 'no slug error');
                     return;
                 }
 
@@ -486,125 +572,47 @@
                 this.currentService = service;
 
                 console.log('[PopupController] Fetching metadata for slug:', slug);
-                
+
                 const rawResp = await service.fetchMangaMetadata(slug);
                 console.log('[PopupController] Raw response:', rawResp);
-                
+
                 const meta = rawResp.data || rawResp;
                 const patched = global.MangaPatcher.patch(meta);
+                const chaptersCount = await this._loadChaptersAndPopulateSelects(
+                    service, slug, chapterFromUrl, chapterToUrl
+                );
 
-                let chaptersCount = null;
-                let chapters = [];
-                try {
-                    const chaptersData = await service.fetchChaptersList(slug);
-                    chapters = chaptersData.data || [];
-                    chaptersCount = chapters.length;
-                    
-                    if (chaptersCount > 0) {
-                        const fromSelect = document.getElementById('chapterFromSelect');
-                        const toSelect = document.getElementById('chapterToSelect');
-                        const chapterRangeContainer = document.getElementById('chapterRangeContainer');
-                        
-                        if (fromSelect && toSelect && chapterRangeContainer) {
-                            fromSelect.innerHTML = '';
-                            toSelect.innerHTML = '';
-                            
-                            chapters.forEach((ch, idx) => {
-                                const optionFrom = document.createElement('option');
-                                optionFrom.value = idx;
-                                optionFrom.textContent = `Том ${ch.volume}, Глава ${ch.number}`;
-                                fromSelect.appendChild(optionFrom);
-                                
-                                const optionTo = document.createElement('option');
-                                optionTo.value = idx;
-                                optionTo.textContent = `Том ${ch.volume}, Глава ${ch.number}`;
-                                toSelect.appendChild(optionTo);
-                            });
-                            
-                            if (chapterFromUrl !== null && chapterToUrl !== null) {
-                                fromSelect.value = chapterFromUrl;
-                                toSelect.value = chapterToUrl;
-                                console.log('[PopupController] Restored chapter range from URL:', chapterFromUrl, '-', chapterToUrl);
-                            } else {
-                                toSelect.selectedIndex = chapters.length - 1;
-                            }
-                            
-                            chapterRangeContainer.style.display = 'block';
-                        }
-                    }
-                } catch (e) {
-                    console.warn('[PopupController] Failed to fetch chapters count:', e);
-                }
-
-                const title = patched.name || slug;
-                const fullSummary = patched.summary || 'Описание отсутствует.';
-                const summary = this.truncateText(fullSummary, 100);
-
-                const cover = patched.cover || null;
-                if (!cover) console.warn('No cover information found in metadata');
-
-                if (cover) {
-                    coverImg.style.display = 'block';
-                    coverImg.src = cover;
-                } else {
-                    coverImg.style.display = 'none';
-                }
-
-                const authors = patched.authors.filter(Boolean);
-
-                const rating = patched.rating || null;
-                if (!rating) console.warn('No age restriction label found in metadata');
-
-                const firstLineParts = [];
-                if (chaptersCount !== null) firstLineParts.push('Глав: ' + chaptersCount);
-                if (rating) firstLineParts.push('Рейтинг: ' + rating);
-                else console.warn('No rating information found in metadata');
-
-                const secondLine = (authors && authors.length) ? ('Авторы: ' + authors.join(', ')) : '';
-
-                let logoText = '';
-                logoText += firstLineParts.join(' · ');
-                if (secondLine) logoText += '\n' + secondLine;
-                logoInfo.textContent = logoText;
-
-                desc.innerHTML = `<strong>${title}</strong><br><small>${summary}</small>`;
-                
-                const release = patched.releaseDate || '';
-                if (releaseEl) releaseEl.textContent = release ? ('Дата выхода: ' + release) : '';
-                else console.warn('Release date element not found when setting release date:', release);
-
-                btn.disabled = false;
-                if (status) status.textContent = 'Нажмите "Скачать" для загрузки книги';
-                else console.warn('Status element not found when setting ready to download message');
+                this._renderMeta({ patched, chaptersCount, slug, coverImg, desc, releaseEl, logoInfo });
+                this._setReadyState({ btn, status, fileUploadMode, hiddenFileInput });
 
                 if (customFileBtn) {
                     customFileBtn.onclick = async () => {
                         try {
                             const inSeparateWindow = await this.isInSeparateWindow();
-                            console.log('[PopupController] In separate window:', inSeparateWindow);
-                            
+                            console.log(`[PopupController] In separate window: ${inSeparateWindow}`);
+
                             if (inSeparateWindow) {
                                 if (status) status.textContent = 'Выберите файл для обновления';
-                                else console.warn('Status element not found when prompting for file selection in separate window');
+                                else console.warn(`Status element not found when prompting for file selection in separate window`);
                                 hiddenFileInput.click();
                             } else {
                                 const format = formatSelector ? formatSelector.value : 'fb2';
                                 const rateLimit = rateLimitInput ? parseInt(rateLimitInput.value) || 100 : 100;
-                                
+
                                 try {
+                                    const fileUploadParams = new URLSearchParams({
+                                        fileUpload: 'true', slug, service: serviceKey, format, rateLimit
+                                    });
+                                    const fileUploadUrl = `${browserAPI.runtime.getURL('popup.html')}?${fileUploadParams}`;
                                     const win = await browserAPI.windows.create({
-                                        url: browserAPI.runtime.getURL('popup.html') + 
-                                            '?fileUpload=true&slug=' + encodeURIComponent(slug) + 
-                                            '&service=' + encodeURIComponent(serviceKey) +
-                                            '&format=' + encodeURIComponent(format) +
-                                            '&rateLimit=' + encodeURIComponent(rateLimit),
+                                        url: fileUploadUrl,
                                         type: 'popup',
                                         width: 350,
                                         height: 650,
                                         focused: true,
                                         state: 'normal'
                                     });
-                                    
+
                                     if (win && win.id) {
                                         await new Promise(resolve => setTimeout(resolve, 500));
                                         browserAPI.windows.update(win.id, { focused: true });
@@ -625,20 +633,9 @@
                     };
                 } else console.warn('Custom file button not found when setting up file upload handler');
 
-                if (fileUploadMode && hiddenFileInput) {
-                    if (status) status.textContent = 'Выберите файл для обновления';
-                    else console.warn('Status element not found when prompting for file selection in file upload mode');
-                    setTimeout(() => {
-                        hiddenFileInput.click();
-                    }, 300);
-                }
-
                 if (autoDownload) setTimeout(() => this.startDownload(), 500);
             } catch (error) {
-                console.error('[PopupController] Failed to load metadata:', error);
-                if (desc) desc.textContent = `Ошибка: ${error.message}`;
-                if (status) status.textContent = '';
-                if (btn) btn.disabled = true;
+                this._handleLoadError(error, uiElements);
             }
         }
 
@@ -646,7 +643,7 @@
             if (!text) return text;
             const str = String(text).trim();
             if (str.length <= maxLength) return str;
-            return str.substring(0, maxLength) + '...';
+            return `${str.substring(0, maxLength)}...`;
         }
 
         setupEventListeners() {
@@ -658,27 +655,29 @@
             if (downloadBtn) {
                 downloadBtn.addEventListener('click', async () => {
                     const inSeparateWindow = await this.isInSeparateWindow();
-                    
+
                     if (!this.loadedFile && !inSeparateWindow) {
                         const formatSelector = document.getElementById('formatSelector');
                         const rateLimitInput = document.getElementById('rateLimitInput');
                         const fromSelect = document.getElementById('chapterFromSelect');
                         const toSelect = document.getElementById('chapterToSelect');
                         const chapterRangeContainer = document.getElementById('chapterRangeContainer');
-                        
+
                         const format = formatSelector ? formatSelector.value : 'fb2';
                         const rateLimit = rateLimitInput ? parseInt(rateLimitInput.value) || 100 : 100;
-                        
+
                         const maxSizeMB = document.getElementById('maxSizeInput')?.value || '200';
 
                         let urlParams = `?download=true&slug=${encodeURIComponent(this.currentSlug)}&service=${encodeURIComponent(this.currentServiceKey)}&format=${encodeURIComponent(format)}&rateLimit=${encodeURIComponent(rateLimit)}&maxSizeMB=${encodeURIComponent(maxSizeMB)}`;
 
-                        if (fromSelect && toSelect && chapterRangeContainer && chapterRangeContainer.style.display !== 'none') {
+                        if (fromSelect && toSelect &&
+                            chapterRangeContainer &&
+                            chapterRangeContainer.style.display !== 'none') {
                             const chapterFrom = fromSelect.value;
                             const chapterTo = toSelect.value;
                             urlParams += `&chapterFrom=${encodeURIComponent(chapterFrom)}&chapterTo=${encodeURIComponent(chapterTo)}`;
-                        } else console.warn('Chapter range selectors not found or not visible when constructing URL parameters for download');
-                        
+                        } else console.warn(`Chapter range selectors not found or not visible when constructing URL parameters for download`);
+
                         try {
                             const win = await browserAPI.windows.create({
                                 url: browserAPI.runtime.getURL('popup.html') + urlParams,
@@ -688,7 +687,7 @@
                                 focused: true,
                                 state: 'normal'
                             });
-                            
+
                             if (win && win.id) {
                                 await new Promise(resolve => setTimeout(resolve, 500));
                                 browserAPI.windows.update(win.id, { focused: true });
@@ -719,35 +718,36 @@
                     if (!this.currentDownloadId) {
                         console.error('[PopupController] No currentDownloadId:', this.currentDownloadId);
                         return;
-                    } else console.log('[PopupController] Attempting to move download to background with ID:', this.currentDownloadId);
-                    
+                    }
+                    console.log('[PopupController] Attempting to move download to background with ID:',
+                        this.currentDownloadId);
+
                     try {
                         const downloadState = this.downloadManager.getDownloadState(this.currentDownloadId);
-                        
+
                         if (!downloadState) {
                             console.error('[PopupController] No downloadState for ID:', this.currentDownloadId);
                             return;
-                        } else {
-                            this.shouldStop = true;
-                            this.downloadManager.stop(this.currentDownloadId);
-                            
-                            const response = await browserAPI.runtime.sendMessage({
-                                action: 'takeOverDownload',
-                                ...downloadState
-                            });
-                            
-                            if (response.ok) {
-                                const inSeparateWindow = await this.isInSeparateWindow();
-                                if (inSeparateWindow) {
-                                    window.close();
-                                } else {
-                                    this.resetUI();
-                                    const status = document.getElementById('status');
-                                    if (status) status.textContent = 'Загрузка продолжается в фоне';
-                                    else console.warn('Status element not found when updating status after moving to background');
-                                }
-                            } else this.shouldStop = false;
                         }
+                        this.shouldStop = true;
+                        this.downloadManager.stop(this.currentDownloadId);
+
+                        const response = await browserAPI.runtime.sendMessage({
+                            action: 'takeOverDownload',
+                            ...downloadState
+                        });
+
+                        if (response.ok) {
+                            const inSeparateWindow = await this.isInSeparateWindow();
+                            if (inSeparateWindow)
+                                window.close();
+                            else {
+                                this.resetUI();
+                                const status = document.getElementById('status');
+                                if (status) status.textContent = 'Загрузка продолжается в фоне';
+                                else console.warn(`Status element not found after moving to background`);
+                            }
+                        } else this.shouldStop = false;
                     } catch (e) {
                         console.error('[PopupController] Failed to move to background:', e);
                         this.shouldStop = false;
@@ -773,6 +773,49 @@
             });
         }
 
+        _buildChapterRange(fromSelect, toSelect, container) {
+            if (fromSelect && toSelect && container && container.style.display !== 'none')
+                return { from: parseInt(fromSelect.value), to: parseInt(toSelect.value) };
+            return null;
+        }
+
+        _setDownloadingUIState({ btn, formatSelector, rateLimitInput, hiddenFileInput,
+            customFileBtn, fileInputContainer, progress, controlsContainer, chapterRangeContainer, status }) {
+            btn.disabled = true;
+            btn.style.display = 'none';
+            if (formatSelector) formatSelector.disabled = true;
+            else console.warn('Format selector not found when disabling during download');
+            if (rateLimitInput) rateLimitInput.disabled = true;
+            else console.warn('Rate limit input not found when disabling during download');
+            if (hiddenFileInput) hiddenFileInput.disabled = true;
+            else console.warn('Hidden file input not found when disabling during download');
+            if (customFileBtn) customFileBtn.disabled = true;
+            else console.warn('Custom file button not found when disabling during download');
+            if (fileInputContainer) fileInputContainer.style.display = 'none';
+            else console.warn('File input container not found when disabling during download');
+            if (progress) progress.style.display = 'block';
+            else console.warn('Progress element not found when showing during download');
+            if (controlsContainer) controlsContainer.style.display = 'block';
+            else console.warn('Controls container not found when showing during download');
+            if (chapterRangeContainer) chapterRangeContainer.style.display = 'none';
+            else console.warn('Chapter range container not found when hiding during download');
+            const splitModeContainer = document.getElementById('splitModeContainer');
+            if (splitModeContainer) splitModeContainer.style.display = 'none';
+            else console.warn('Split mode container not found when hiding during download');
+            const statusText = this.loadedFile ? 'Запуск обновления...' : 'Запуск скачивания...';
+            if (status) status.textContent = statusText;
+            else console.warn('Status element not found when setting initial status for download start');
+        }
+
+        _handleDownloadResult(result, status) {
+            if (!('updated' in result)) return;
+            const message = result.updated
+                ? `Файл обновлён! Добавлено глав: ${result.addedChapters}`
+                : 'Файл уже актуален!';
+            if (status) status.textContent = message;
+            else console.warn('Status element not found when showing download result message');
+        }
+
         async startDownload() {
             if (!this.currentSlug || !this.currentServiceKey) {
                 this.showError('Не удалось определить тайтл');
@@ -795,49 +838,19 @@
             try {
                 if (rateLimitInput) {
                     const limit = parseInt(rateLimitInput.value) || 100;
-                    await browserAPI.runtime.sendMessage({
-                        action: 'setRateLimit',
-                        limit: limit
-                    });
+                    await browserAPI.runtime.sendMessage({ action: 'setRateLimit', limit });
                 } else console.warn('Rate limit input not found when setting rate limit');
-                
-                let chapterRange = null;
-                if (fromSelect && toSelect && chapterRangeContainer && chapterRangeContainer.style.display !== 'none') {
-                    chapterRange = {
-                        from: parseInt(fromSelect.value),
-                        to: parseInt(toSelect.value)
-                    };
-                }
-                
+
+                const chapterRange = this._buildChapterRange(fromSelect, toSelect, chapterRangeContainer);
+
                 this.isDownloading = true;
                 this.isPaused = false;
                 this.shouldStop = false;
-                
-                btn.disabled = true;
-                btn.style.display = 'none';
-                if (formatSelector) formatSelector.disabled = true;
-                else console.warn('Format selector not found when disabling during download');
-                if (rateLimitInput) rateLimitInput.disabled = true;
-                else console.warn('Rate limit input not found when disabling during download');
-                if (hiddenFileInput) hiddenFileInput.disabled = true;
-                else console.warn('Hidden file input not found when disabling during download');
-                if (customFileBtn) customFileBtn.disabled = true;
-                else console.warn('Custom file button not found when disabling during download');
-                if (fileInputContainer) fileInputContainer.style.display = 'none';
-                else console.warn('File input container not found when disabling during download');
-                if (progress) progress.style.display = 'block';
-                else console.warn('Progress element not found when showing during download');
-                if (controlsContainer) controlsContainer.style.display = 'block';
-                else console.warn('Controls container not found when showing during download');
-                if (chapterRangeContainer) chapterRangeContainer.style.display = 'none';
-                else console.warn('Chapter range container not found when hiding during download');
-                const splitModeContainer = document.getElementById('splitModeContainer');
-                if (splitModeContainer) splitModeContainer.style.display = 'none';
-                else console.warn('Split mode container not found when hiding during download');
 
-                const statusText = this.loadedFile ? 'Запуск обновления...' : 'Запуск скачивания...';
-                if (status) status.textContent = statusText;
-                else console.warn('Status element not found when setting initial status for download start');
+                this._setDownloadingUIState({
+                    btn, formatSelector, rateLimitInput, hiddenFileInput,
+                    customFileBtn, fileInputContainer, progress, controlsContainer, chapterRangeContainer, status
+                });
 
                 const format = formatSelector?.value || 'fb2';
                 const maxSizeMB = parseInt(document.getElementById('maxSizeInput')?.value) || 200;
@@ -845,10 +858,10 @@
                 const result = await this.downloadManager.startDownload({
                     slug: this.currentSlug,
                     serviceKey: this.currentServiceKey,
-                    format: format,
+                    format,
                     loadedFile: this.loadedFile,
-                    chapterRange: chapterRange,
-                    maxSizeMB: maxSizeMB,
+                    chapterRange,
+                    maxSizeMB,
                     controller: {
                         isPaused: () => this.isPaused,
                         shouldStop: () => this.shouldStop,
@@ -860,13 +873,7 @@
                     }
                 });
 
-                if (result.updated !== undefined) {
-                    const message = result.updated 
-                        ? `Файл обновлён! Добавлено глав: ${result.addedChapters}`
-                        : 'Файл уже актуален!';
-                    if (status) status.textContent = message;
-                    else console.warn('Status element not found when showing download result message');
-                }
+                this._handleDownloadResult(result, status);
             } catch (error) {
                 console.error('[PopupController] Download failed:', error);
                 this.showError(error.message);
@@ -899,7 +906,7 @@
             this.isPaused = false;
             this.shouldStop = false;
             this.loadedFile = null;
-            
+
             const btn = document.getElementById('downloadBtn');
             const formatSelector = document.getElementById('formatSelector');
             const rateLimitInput = document.getElementById('rateLimitInput');
@@ -907,7 +914,7 @@
             const controls = document.getElementById('downloadControls');
             const hiddenFileInput = document.getElementById('fileInput');
             const customFileBtn = document.getElementById('customFileBtn');
-            
+
             if (btn) {
                 btn.style.display = 'block';
                 btn.disabled = false;
@@ -929,7 +936,7 @@
             else console.warn('Progress element not found when resetting UI');
             if (controls) controls.style.display = 'none';
             else console.warn('Controls container not found when resetting UI');
-            
+
             const chapterRangeContainer = document.getElementById('chapterRangeContainer');
             if (chapterRangeContainer) chapterRangeContainer.style.display = 'none';
             else console.warn('Chapter range container not found when resetting UI');

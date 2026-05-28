@@ -6,7 +6,7 @@
         baseUrl: 'https://api.cdnlibs.org',
         imagesDomain: 'https://cover.imglib.info',
         siteId: '3',
-        
+
         fields: [
             'background', 'eng_name', 'otherNames', 'summary', 'releaseDate', 'type_id',
             'caution', 'views', 'close_view', 'rate_avg', 'rate', 'genres',

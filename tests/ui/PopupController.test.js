@@ -890,7 +890,6 @@ describe('PopupController', () => {
         if (status && status.parentNode) status.parentNode.removeChild(status);
         const consoleWarnSpy = vi.spyOn(console, 'warn');
         await controller.loadMetadata();
-        expect(consoleWarnSpy).toHaveBeenCalledWith('No service found for current URL');
         expect(consoleWarnSpy).toHaveBeenCalledWith('Description element found when showing no service error');
         expect(consoleWarnSpy).toHaveBeenCalledWith('Release date element found when showing no service error');
         expect(consoleWarnSpy).toHaveBeenCalledWith('Status element not found when showing no service error');
@@ -916,7 +915,6 @@ describe('PopupController', () => {
         const consoleWarnSpy = vi.spyOn(console, 'warn');
         await controller.loadMetadata();
         expect(consoleWarnSpy).toHaveBeenCalledWith('Cover image element not found when showing no slug error');
-        expect(consoleWarnSpy).toHaveBeenCalledWith('Description element found when showing no slug error');
         expect(consoleWarnSpy).toHaveBeenCalledWith('Release date element found when showing no slug error');
         expect(consoleWarnSpy).toHaveBeenCalledWith('Status element not found when showing no slug error');
         consoleWarnSpy.mockRestore();

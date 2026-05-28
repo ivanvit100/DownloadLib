@@ -26,7 +26,6 @@
                 format = 'fb2',
                 slug,
                 serviceKey,
-                onProgress,
                 controller,
                 loadedFile,
                 chapterRange,
@@ -37,11 +36,10 @@
             if (serviceKey) {
                 service = global.serviceRegistry.createService(serviceKey);
                 if (!service) throw new Error(`Unknown service: ${serviceKey}`);
-            } else if (url) {
+            } else if (url)
                 service = global.serviceRegistry.getServiceByUrl(url);
-            } else {
+            else
                 throw new Error('Either serviceKey or url must be provided');
-            }
 
             if (!service) throw new Error('Unsupported service');
 
@@ -75,55 +73,32 @@
                 this.updateStatus(downloadId, 'Загрузка метаданных...', 5);
                 const metadata = await service.fetchMangaMetadata(downloadState.slug);
                 console.log('[DownloadManager] Metadata:', metadata);
-                
+
                 const manga = metadata.data || metadata;
                 const patched = global.MangaPatcher.patch(manga);
                 downloadState.manga = patched;
                 downloadState.mangaId = patched.id || null;
 
-                let coverBase64 = '';
-                if (patched.cover) {
-                    const coverUrl = patched.cover;
-                    if (typeof coverUrl === 'string') {
-                        try {
-                            this.updateStatus(downloadId, 'Загружаем обложку...', 7);
-                            const coverHeaders = (service.config && service.config.imageHeaders) || {};
-                            const response = await fetch(coverUrl, { headers: coverHeaders });
-                            
-                            if (response.ok) {
-                                const blob = await response.blob();
-                                const reader = new FileReader();
-                                coverBase64 = await new Promise((resolve, reject) => {
-                                    reader.onloadend = () => resolve(reader.result);
-                                    reader.onerror = reject;
-                                    reader.readAsDataURL(blob);
-                                });
-                            } else console.error('[DownloadManager] Failed to fetch cover image:', response.status);
-                        } catch (e) {
-                            console.warn('[DownloadManager] Failed to load cover:', e);
-                        }
-                    } else console.error('[DownloadManager] Unknown cover format:', coverUrl);
-                }
-                
-                downloadState.coverBase64 = coverBase64;
-                
+                this.updateStatus(downloadId, 'Загружаем обложку...', 7);
+                downloadState.coverBase64 = await this._fetchCoverBase64(service, patched.cover);
+
                 this.updateStatus(downloadId, 'Загрузка списка глав...', 10);
                 const chaptersData = await service.fetchChaptersList(downloadState.slug);
                 let chapters = this.sortChapters(chaptersData.data || []);
 
-                if (chapterRange && chapterRange.from !== undefined && chapterRange.to !== undefined) {
+                if (chapterRange && 'from' in chapterRange && 'to' in chapterRange) {
                     chapters = chapters.slice(chapterRange.from, chapterRange.to + 1);
-                    console.log('[DownloadManager] Filtered chapters:', chapters.length, 'from', chapterRange.from, 'to', chapterRange.to);
+                    console.log(`[DownloadManager] Filtered chapters: ${chapters.length} from ${chapterRange.from} to ${chapterRange.to}`);
                 }
 
                 downloadState.chapters = chapters;
 
-                await this.downloadWithSizeLimit(downloadState, service, chapters, patched, coverBase64, format, maxSizeMB);
+                await this.downloadWithSizeLimit(downloadState,
+                    service, chapters, patched, downloadState.coverBase64, format, maxSizeMB);
 
                 this.updateStatus(downloadId, 'Готово!', 100);
                 this.eventBus.emit('download:completed', downloadState);
                 return { success: true, downloadId };
-
             } catch (error) {
                 console.error('[DownloadManager] Error:', error);
                 this.updateStatus(downloadId, `Ошибка: ${error.message}`, -1);
@@ -134,13 +109,35 @@
             }
         }
 
+        async _fetchCoverBase64(service, cover) {
+            if (!cover || typeof cover !== 'string') return '';
+            try {
+                const coverHeaders = (service.config && service.config.imageHeaders) || {};
+                const response = await fetch(cover, { headers: coverHeaders });
+                if (!response.ok) {
+                    console.error('[DownloadManager] Failed to fetch cover image:', response.status);
+                    return '';
+                }
+                const blob = await response.blob();
+                const reader = new FileReader();
+                return await new Promise((resolve, reject) => {
+                    reader.onloadend = () => resolve(reader.result);
+                    reader.onerror = reject;
+                    reader.readAsDataURL(blob);
+                });
+            } catch (e) {
+                console.warn('[DownloadManager] Failed to load cover:', e);
+                return '';
+            }
+        }
+
         estimateChapterSize(chapter) {
             if (!chapter || !Array.isArray(chapter.content)) return 0;
             let bytes = 0;
             for (const block of chapter.content) {
-                if (block.type === 'text' && block.text) {
+                if (block.type === 'text' && block.text)
                     bytes += block.text.length * 2;
-                } else if (block.type === 'image') {
+                else if (block.type === 'image') {
                     const b64 = (block.data && block.data.base64) ? block.data.base64 : '';
                     if (b64) bytes += Math.ceil(b64.length * 3 / 4);
                 }
@@ -174,11 +171,12 @@
                     const chapterSize = this.estimateChapterSize(chapterResult);
 
                     if (currentBatch.length > 0 && currentSize + chapterSize > maxSizeBytes) {
-                        partIndex++;
+                        partIndex += 1;
                         const exporter = global.ExporterRegistry.create(format);
                         const partSuffix = ` (Часть ${partIndex})`;
                         this.updateStatus(downloadId, `Сохранение части ${partIndex}...`, progress);
-                        const file = await exporter.export({ ...manga, name: manga.name + partSuffix }, currentBatch, coverBase64);
+                        const file = await exporter.export({ ...manga, name: manga.name + partSuffix },
+                            currentBatch, coverBase64);
                         await this.saveFile(file.blob, file.filename);
 
                         currentBatch = [chapterResult];
@@ -196,11 +194,12 @@
             }
 
             if (currentBatch.length > 0) {
-                partIndex++;
+                partIndex += 1;
                 const exporter = global.ExporterRegistry.create(format);
                 const partSuffix = partIndex > 1 ? ` (Часть ${partIndex})` : '';
                 this.updateStatus(downloadId, `Создание ${format.toUpperCase()}...`, 95);
-                const file = await exporter.export(partSuffix ? { ...manga, name: manga.name + partSuffix } : manga, currentBatch, coverBase64);
+                const file = await exporter.export(partSuffix ? { ...manga, name: manga.name + partSuffix } :
+                    manga, currentBatch, coverBase64);
                 await this.saveFile(file.blob, file.filename);
             }
         }
@@ -258,15 +257,14 @@
                 this.updateStatus(downloadId, 'Загрузка списка глав с сервера...', 5);
                 const chaptersData = await service.fetchChaptersList(slug);
                 const serverChapters = this.sortChapters(chaptersData.data || []);
-                
+
                 this.updateStatus(downloadId, 'Анализ существующего файла...', 10);
                 const exporter = global.ExporterRegistry.create(format);
-                
-                let existingData;
-                existingData = exporter.parse ?
+
+                const existingData = exporter.parse ?
                     await exporter.parse(loadedFile) :
                     await this.parseFile(loadedFile, format);
-                
+
                 console.log('[DownloadManager] Existing chapters:', existingData.chapters.length);
 
                 const chaptersToDownload = this.findMissingChapters(
@@ -312,14 +310,13 @@
 
                 this.updateStatus(downloadId, 'Файл обновлён!', 100);
                 this.eventBus.emit('download:completed', downloadState);
-                
-                return { 
-                    success: true, 
-                    downloadId, 
-                    updated: true,
-                    addedChapters: chaptersToDownload.length 
-                };
 
+                return {
+                    success: true,
+                    downloadId,
+                    updated: true,
+                    addedChapters: chaptersToDownload.length
+                };
             } catch (error) {
                 console.error('[DownloadManager] Update error:', error);
                 this.updateStatus(downloadId, `Ошибка обновления: ${error.message}`, -1);
@@ -336,14 +333,13 @@
             } else if (format === 'epub') {
                 const exporter = global.ExporterRegistry.create('epub');
                 return await exporter.parseEPUB(file);
-            } else if (format === 'pdf') {
+            } else if (format === 'pdf')
                 throw new Error('PDF парсинг пока не реализован');
-            }
-            
+
             throw new Error(`Unsupported format: ${format}`);
         }
 
-        async readFileAsText(file) {
+        readFileAsText(file) {
             return new Promise((resolve, reject) => {
                 const reader = new FileReader();
                 reader.onload = (e) => resolve(e.target.result);
@@ -354,20 +350,20 @@
 
         findMissingChapters(serverChapters, existingChapters) {
             const existingKeys = new Set();
-            
+
             for (const ch of existingChapters) {
                 const key = this.getChapterKey(ch);
                 existingKeys.add(key);
             }
 
             const missing = [];
-            
+
             for (const serverCh of serverChapters) {
                 const key = this.getChapterKey(serverCh);
-                
-                if (!existingKeys.has(key)) {
+
+                if (!existingKeys.has(key))
                     missing.push(serverCh);
-                } else {
+                else {
                     const existingCh = existingChapters.find(ch => this.getChapterKey(ch) === key);
                     if (existingCh && this.isChapterEmpty(existingCh)) missing.push(serverCh);
                 }
@@ -391,13 +387,13 @@
                     return text.trim() && !text.includes('[Ошибка загрузки главы');
                 } else if (block.type === 'image')
                     return block.data && (block.data.base64 || block.data.src);
-                else return false;
+                return false;
             });
 
             return !hasContent;
         }
 
-        async downloadSpecificChapters(service, downloadState, chaptersToDownload, totalChapters) {
+        async downloadSpecificChapters(service, downloadState, chaptersToDownload) {
             const results = [];
             const total = chaptersToDownload.length;
 
@@ -407,7 +403,7 @@
 
                 const chapter = chaptersToDownload[i];
                 const progress = Math.floor(((i / total) * 80) + 10);
-                
+
                 this.updateStatus(
                     downloadState.id,
                     `Загрузка главы ${i + 1}/${total}: ${chapter.name || chapter.number}`,
@@ -423,9 +419,9 @@
 
                     const rawContent = chapterData.data || chapterData;
                     const contentToExtract = rawContent.content || rawContent;
-                    
-                    const extractedContent = service.extractText 
-                        ? service.extractText(contentToExtract) 
+
+                    const extractedContent = service.extractText
+                        ? service.extractText(contentToExtract)
                         : contentToExtract;
 
                     const processedContent = service.processChapterContent
@@ -450,7 +446,6 @@
                     };
 
                     results.push(chapterResult);
-
                 } catch (error) {
                     console.error(`[DownloadManager] Failed to download chapter ${chapter.number}:`, error);
                     const errorChapter = {
@@ -462,7 +457,7 @@
                         volume: chapter.volume,
                         number: chapter.number
                     };
-                    
+
                     results.push(errorChapter);
                 }
                 await this.delay(500);
@@ -489,11 +484,11 @@
             for (const serverCh of serverChapters) {
                 const key = this.getChapterKey(serverCh);
 
-                if (newChaptersMap.has(key)) {
+                if (newChaptersMap.has(key))
                     result.push(newChaptersMap.get(key));
-                } else if (existingMap.has(key)) {
+                else if (existingMap.has(key))
                     result.push(existingMap.get(key));
-                } else {
+                else {
                     result.push({
                         title: serverCh.name || `Том ${serverCh.volume}, Глава ${serverCh.number}`,
                         content: [{
@@ -512,7 +507,7 @@
         getDownloadState(downloadId) {
             const state = this.activeDownloads.get(downloadId);
             if (!state) return null;
-            
+
             return {
                 slug: state.slug,
                 serviceKey: state.serviceKey,
@@ -538,79 +533,77 @@
             };
 
             try {
-            for (let i = 0; i < chapters.length; i++) {
-                await downloadState.controller.waitIfPaused();
-                if (downloadState.controller.shouldStop()) break;
+                for (let i = 0; i < chapters.length; i++) {
+                    await downloadState.controller.waitIfPaused();
+                    if (downloadState.controller.shouldStop()) break;
 
-                downloadState.currentChapterIndex = startIndex + i;
+                    downloadState.currentChapterIndex = startIndex + i;
 
-                const chapter = chapters[i];
-                const globalIndex = startIndex + i;
-                const progress = Math.floor((globalIndex / total) * 80) + 10;
-                
-                this.updateStatus(
-                    downloadState.id,
-                    `Глава ${globalIndex + 1}/${total}: ${chapter.name || chapter.number}`,
-                    progress
-                );
+                    const chapter = chapters[i];
+                    const globalIndex = startIndex + i;
+                    const progress = Math.floor((globalIndex / total) * 80) + 10;
 
-                try {
-                    const chapterData = await service.fetchChapter(
-                        downloadState.slug,
-                        chapter.number,
-                        chapter.volume || '1'
+                    this.updateStatus(
+                        downloadState.id,
+                        `Глава ${globalIndex + 1}/${total}: ${chapter.name || chapter.number}`,
+                        progress
                     );
 
-                    const rawContent = chapterData.data || chapterData;
-                    const contentToExtract = rawContent.content || rawContent;
-                    
-                    const extractedContent = service.extractText 
-                        ? service.extractText(contentToExtract) 
-                        : contentToExtract;
+                    try {
+                        const chapterData = await service.fetchChapter(
+                            downloadState.slug,
+                            chapter.number,
+                            chapter.volume || '1'
+                        );
 
-                    const processedContent = service.processChapterContent
-                        ? await service.processChapterContent(
-                            extractedContent,
-                            document.getElementById('status'),
-                            {
-                                chapterMeta: rawContent,
-                                chapterObj: chapter,
-                                mangaSlug: downloadState.slug,
-                                mangaId: downloadState.mangaId,
-                                splitLongImages: downloadState.format !== 'simple'
-                            }
-                          )
-                        : extractedContent;
+                        const rawContent = chapterData.data || chapterData;
+                        const contentToExtract = rawContent.content || rawContent;
 
-                    const chapterResult = {
-                        title: chapter.name || `Том ${chapter.volume}, Глава ${chapter.number}`,
-                        content: processedContent,
-                        volume: chapter.volume,
-                        number: chapter.number
-                    };
+                        const extractedContent = service.extractText
+                            ? service.extractText(contentToExtract)
+                            : contentToExtract;
 
-                    results.push(chapterResult);
-                    downloadState.chapterContents.push(chapterResult);
+                        const processedContent = service.processChapterContent
+                            ? await service.processChapterContent(
+                                extractedContent,
+                                document.getElementById('status'),
+                                {
+                                    chapterMeta: rawContent,
+                                    chapterObj: chapter,
+                                    mangaSlug: downloadState.slug,
+                                    mangaId: downloadState.mangaId,
+                                    splitLongImages: downloadState.format !== 'simple'
+                                }
+                            )
+                            : extractedContent;
 
-                } catch (error) {
-                    console.error(`[DownloadManager] Failed to download chapter ${chapter.number}:`, error);
-                    const errorChapter = {
-                        title: chapter.name || `Том ${chapter.volume}, Глава ${chapter.number}`,
-                        content: [{
-                            type: 'text',
-                            text: `[Ошибка загрузки главы: ${error.message}]`
-                        }],
-                        volume: chapter.volume,
-                        number: chapter.number
-                    };
-                    
-                    results.push(errorChapter);
-                    downloadState.chapterContents.push(errorChapter);
+                        const chapterResult = {
+                            title: chapter.name || `Том ${chapter.volume}, Глава ${chapter.number}`,
+                            content: processedContent,
+                            volume: chapter.volume,
+                            number: chapter.number
+                        };
+
+                        results.push(chapterResult);
+                        downloadState.chapterContents.push(chapterResult);
+                    } catch (error) {
+                        console.error(`[DownloadManager] Failed to download chapter ${chapter.number}:`, error);
+                        const errorChapter = {
+                            title: chapter.name || `Том ${chapter.volume}, Глава ${chapter.number}`,
+                            content: [{
+                                type: 'text',
+                                text: `[Ошибка загрузки главы: ${error.message}]`
+                            }],
+                            volume: chapter.volume,
+                            number: chapter.number
+                        };
+
+                        results.push(errorChapter);
+                        downloadState.chapterContents.push(errorChapter);
+                    }
+
+                    await this.delay(500);
                 }
-
-                await this.delay(500);
-            }
-
             } finally {
                 service._on429 = null;
             }
@@ -622,14 +615,17 @@
             let paused = false;
             let stopped = false;
 
+            const isPaused = () => paused;
+            const shouldStop = () => stopped;
+
             return {
-                pause: () => paused = true,
-                resume: () => paused = false,
-                stop: () => stopped = true,
-                isPaused: () => paused,
-                shouldStop: () => stopped,
+                pause: () => { paused = true; },
+                resume: () => { paused = false; },
+                stop: () => { stopped = true; },
+                isPaused,
+                shouldStop,
                 waitIfPaused: async () => {
-                    while (paused && !stopped)
+                    while (isPaused() && !shouldStop())
                         await new Promise(resolve => setTimeout(resolve, 100));
                 }
             };
@@ -654,8 +650,8 @@
         }
 
         extractSlug(url) {
-            const match = url.match(/\/(manga|book)\/([^\/\?]+)/);
-            return match ? match[2] : null;
+            const match = url.match(/\/(?:manga|book)\/([^/?]+)/);
+            return match ? match[1] : null;
         }
 
         generateId() {
@@ -667,16 +663,16 @@
         }
 
         async saveFile(blob, filename) {
-            if (global.FileUtils) {
+            if (global.FileUtils)
                 await global.FileUtils.downloadBlob(blob, filename);
-            } else {
+            else {
                 const url = URL.createObjectURL(blob);
                 const a = document.createElement('a');
                 a.href = url;
                 a.download = filename;
                 document.body.appendChild(a);
                 a.click();
-                
+
                 setTimeout(() => {
                     URL.revokeObjectURL(url);
                     a.remove();
