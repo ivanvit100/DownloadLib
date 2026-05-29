@@ -1213,4 +1213,38 @@ describe('EPUBExporter', () => {
         expect(html).toContain('<img src="images/img1.jpg" alt="Image" style="max-width: 100%; height: auto;"/>');
         expect(html).not.toContain('<img class="page-image" src="images/img1.jpg" alt="Image"/>');
     });
+
+    it('Writes dc:subject for each genre and tag', () => {
+        const opf = exporter.createOPF(
+            { name: 'T', authors: ['A'], genres: ['Экшен', 'Фэнтези'], tags: ['Магия'] }, '', ''
+        );
+        expect(opf).toContain('<dc:subject>Экшен</dc:subject>');
+        expect(opf).toContain('<dc:subject>Фэнтези</dc:subject>');
+        expect(opf).toContain('<dc:subject>Магия</dc:subject>');
+    });
+
+    it('Omits dc:subject when genres and tags are empty', () => {
+        const opf = exporter.createOPF({ name: 'T', authors: ['A'], genres: [], tags: [] }, '', '');
+        expect(opf).not.toContain('<dc:subject>');
+    });
+
+    it('Writes dc:date when releaseDate is set', () => {
+        const opf = exporter.createOPF({ name: 'T', authors: ['A'], releaseDate: '2021' }, '', '');
+        expect(opf).toContain('<dc:date>2021</dc:date>');
+    });
+
+    it('Omits dc:date when releaseDate is absent', () => {
+        const opf = exporter.createOPF({ name: 'T', authors: ['A'] }, '', '');
+        expect(opf).not.toContain('<dc:date>');
+    });
+
+    it('Writes meta age-rating when rating is set', () => {
+        const opf = exporter.createOPF({ name: 'T', authors: ['A'], rating: '18+' }, '', '');
+        expect(opf).toContain('<meta name="age-rating" content="18+"/>');
+    });
+
+    it('Omits meta age-rating when rating is absent', () => {
+        const opf = exporter.createOPF({ name: 'T', authors: ['A'] }, '', '');
+        expect(opf).not.toContain('age-rating');
+    });
 });

@@ -568,4 +568,83 @@ describe('FB2Exporter', () => {
         const parsed = exporter.parseFB2(fb2, 'file.fb2');
         expect(parsed.metadata.summary).toBe('Some description');
     });
+
+    it('Writes <date> and <publish-info> when releaseDate is set', () => {
+        const manga = { name: 'Test', authors: ['Author'], releaseDate: '2021' };
+        const result = Array.from(exporter.createFB2Stream(manga, [])).join('');
+        expect(result).toContain('<date value="2021">2021</date>');
+        expect(result).toContain('<publish-info>');
+        expect(result).toContain('<year>2021</year>');
+    });
+
+    it('Omits <date> and <publish-info> when releaseDate is absent', () => {
+        const manga = { name: 'Test', authors: ['Author'] };
+        const result = Array.from(exporter.createFB2Stream(manga, [])).join('');
+        expect(result).not.toContain('<date');
+        expect(result).not.toContain('<publish-info>');
+    });
+
+    it('Writes <keywords> from genres and tags', () => {
+        const manga = { name: 'Test', authors: ['Author'], genres: ['Экшен', 'Фэнтези'], tags: ['Магия'] };
+        const result = Array.from(exporter.createFB2Stream(manga, [])).join('');
+        expect(result).toContain('<keywords>Экшен, Фэнтези, Магия</keywords>');
+    });
+
+    it('Omits <keywords> when genres and tags are empty', () => {
+        const manga = { name: 'Test', authors: ['Author'], genres: [], tags: [] };
+        const result = Array.from(exporter.createFB2Stream(manga, [])).join('');
+        expect(result).not.toContain('<keywords>');
+    });
+
+    it('Writes <custom-info age-rating> when rating is set', () => {
+        const manga = { name: 'Test', authors: ['Author'], rating: '18+' };
+        const result = Array.from(exporter.createFB2Stream(manga, [])).join('');
+        expect(result).toContain('<custom-info info-type="age-rating">18+</custom-info>');
+    });
+
+    it('Omits <custom-info> when rating is absent', () => {
+        const manga = { name: 'Test', authors: ['Author'] };
+        const result = Array.from(exporter.createFB2Stream(manga, [])).join('');
+        expect(result).not.toContain('age-rating');
+    });
+
+    it('parseFB2 reads back releaseDate from <date value>', () => {
+        const fb2 = `<?xml version="1.0"?>
+        <FictionBook><description><title-info>
+          <book-title>T</book-title>
+          <date value="2020">2020</date>
+        </title-info></description><body></body></FictionBook>`;
+        const parsed = exporter.parseFB2(fb2, 'f.fb2');
+        expect(parsed.metadata.releaseDate).toBe('2020');
+    });
+
+    it('parseFB2 reads back releaseDate from <publish-info><year> when <date> absent', () => {
+        const fb2 = `<?xml version="1.0"?>
+        <FictionBook><description>
+          <title-info><book-title>T</book-title></title-info>
+          <publish-info><year>2019</year></publish-info>
+        </description><body></body></FictionBook>`;
+        const parsed = exporter.parseFB2(fb2, 'f.fb2');
+        expect(parsed.metadata.releaseDate).toBe('2019');
+    });
+
+    it('parseFB2 reads back genres from <keywords>', () => {
+        const fb2 = `<?xml version="1.0"?>
+        <FictionBook><description><title-info>
+          <book-title>T</book-title>
+          <keywords>Экшен, Фэнтези</keywords>
+        </title-info></description><body></body></FictionBook>`;
+        const parsed = exporter.parseFB2(fb2, 'f.fb2');
+        expect(parsed.metadata.genres).toEqual(['Экшен', 'Фэнтези']);
+    });
+
+    it('parseFB2 reads back rating from <custom-info>', () => {
+        const fb2 = `<?xml version="1.0"?>
+        <FictionBook><description>
+          <title-info><book-title>T</book-title></title-info>
+          <custom-info info-type="age-rating">18+</custom-info>
+        </description><body></body></FictionBook>`;
+        const parsed = exporter.parseFB2(fb2, 'f.fb2');
+        expect(parsed.metadata.rating).toBe('18+');
+    });
 });

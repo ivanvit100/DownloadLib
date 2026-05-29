@@ -13,6 +13,16 @@
     console.log('[PDFExporter] Loading...');
 
     class PDFExporter extends global.BaseExporter {
+        _buildPdfProperties(manga, title, authors) {
+            const props = { title, author: authors };
+            if (manga.summary) props.subject = manga.summary;
+            const genres = [...(manga.genres || []), ...(manga.tags || [])];
+            const keywordParts = [...genres];
+            if (manga.rating) keywordParts.push(`age-rating:${manga.rating}`);
+            if (keywordParts.length) props.keywords = keywordParts.join(', ');
+            return props;
+        }
+
         sanitizeFilename(filename) {
             return filename.replace(/[<>:"/\\|?*]/g, '_').substring(0, 200);
         }
@@ -192,11 +202,7 @@
                 worker.set({}).from(document.createElement('div')).toPdf().get('pdf').then(resolve);
             });
 
-            pdf.setProperties({
-                title,
-                author: authors,
-                ...(manga.summary && { subject: manga.summary })
-            });
+            pdf.setProperties(this._buildPdfProperties(manga, title, authors));
 
             const pageWidth = pdf.internal.pageSize.getWidth();
             const pageHeight = pdf.internal.pageSize.getHeight();

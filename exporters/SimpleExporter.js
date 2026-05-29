@@ -39,6 +39,10 @@
 
             lines.push(title);
             if (author) lines.push(author);
+            if (manga.releaseDate) lines.push(`Год выхода: ${manga.releaseDate}`);
+            if (manga.rating) lines.push(`Возрастное ограничение: ${manga.rating}`);
+            const genres = manga.genres || [];
+            if (genres.length) lines.push(`Жанры: ${genres.join(', ')}`);
             if (manga.summary) lines.push(manga.summary);
             lines.push('─'.repeat(60));
             lines.push('');

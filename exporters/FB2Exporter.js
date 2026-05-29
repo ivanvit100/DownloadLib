@@ -51,11 +51,7 @@
             }
         }
 
-        *createFB2Stream(manga, chapters, coverBase64) {
-            yield '<?xml version="1.0" encoding="utf-8"?>\n';
-            yield `<FictionBook xmlns="http://www.gribuser.ru/xml/fictionbook/2.0" xmlns:l="http://www.w3.org/1999/xlink">\n`;
-
-            yield '<description>\n';
+        *_yieldDescriptionBlock(manga, coverBase64) {
             yield '  <title-info>\n';
             yield `    <genre>prose</genre>\n`;
             yield this.createAuthors(manga.authors);
@@ -68,7 +64,28 @@
                 yield '    </coverpage>\n';
             }
             yield `    <lang>ru</lang>\n`;
+            if (manga.releaseDate)
+                yield `    <date value="${this.escapeXml(String(manga.releaseDate))}">${this.escapeXml(String(manga.releaseDate))}</date>\n`;
+            const keywords = [...(manga.genres || []), ...(manga.tags || [])];
+            if (keywords.length)
+                yield `    <keywords>${this.escapeXml(keywords.join(', '))}</keywords>\n`;
             yield '  </title-info>\n';
+            if (manga.releaseDate || manga.rating) {
+                yield '  <publish-info>\n';
+                if (manga.releaseDate)
+                    yield `    <year>${this.escapeXml(String(manga.releaseDate))}</year>\n`;
+                yield '  </publish-info>\n';
+            }
+            if (manga.rating)
+                yield `  <custom-info info-type="age-rating">${this.escapeXml(manga.rating)}</custom-info>\n`;
+        }
+
+        *createFB2Stream(manga, chapters, coverBase64) {
+            yield '<?xml version="1.0" encoding="utf-8"?>\n';
+            yield `<FictionBook xmlns="http://www.gribuser.ru/xml/fictionbook/2.0" xmlns:l="http://www.w3.org/1999/xlink">\n`;
+
+            yield '<description>\n';
+            yield* this._yieldDescriptionBlock(manga, coverBase64);
             yield '</description>\n';
 
             const binaries = [];
@@ -134,13 +151,7 @@
             };
         }
 
-        parseFB2(text, filename) {
-            const parser = new DOMParser();
-            const doc = parser.parseFromString(text, 'text/xml');
-
-            const titleInfo = doc.querySelector('title-info');
-            const bookTitle = titleInfo?.querySelector('book-title')?.textContent || filename;
-
+        _parseFB2Authors(titleInfo) {
             const authors = [];
             const authorNodes = titleInfo?.querySelectorAll('author') || [];
             authorNodes.forEach(author => {
@@ -148,9 +159,75 @@
                 const middleName = author.querySelector('middle-name')?.textContent || '';
                 const lastName = author.querySelector('last-name')?.textContent || '';
                 const name = [firstName, middleName, lastName].filter(Boolean).join(' ');
-                if (name) authors.push(name);
-                else authors.push('Неизвестно');
+                authors.push(name || 'Неизвестно');
             });
+            return authors;
+        }
+
+        _parseFB2ParagraphContent(p, doc) {
+            const imageEl = p.querySelector('image');
+            if (!imageEl) {
+                const pText = p.textContent.trim();
+                return { type: 'text', text: pText };
+            }
+            const href = imageEl.getAttributeNS('http://www.w3.org/1999/xlink', 'href')
+                || imageEl.getAttribute('l:href')
+                || '';
+            const binaryId = href.startsWith('#') ? href.slice(1) : href;
+            const binaryEl = doc.querySelector(`binary[id="${binaryId}"]`);
+            if (!binaryEl) return null;
+            const contentType = binaryEl.getAttribute('content-type') || 'image/jpeg';
+            const base64 = binaryEl.textContent.trim();
+            return { type: 'image', data: { base64, contentType } };
+        }
+
+        _parseFB2Sections(doc, hasCover) {
+            const chapters = [];
+            const sections = doc.querySelectorAll('body > section');
+            sections.forEach((section, idx) => {
+                const titleNode = section.querySelector('title');
+                const title = titleNode?.textContent?.trim() || `Глава ${idx + 1}`;
+                if (hasCover && title === 'Обложка') return;
+
+                const content = Array.from(section.querySelectorAll('p'))
+                    .filter(p => !p.closest('title'))
+                    .map(p => this._parseFB2ParagraphContent(p, doc))
+                    .filter(Boolean);
+
+                chapters.push({ title, content, number: idx + 1, volume: 1 });
+            });
+            return chapters;
+        }
+
+        _parseFB2ReleaseDate(titleInfo, doc) {
+            const dateEl = titleInfo ? titleInfo.querySelector('date') : null;
+            if (dateEl) {
+                const attr = dateEl.getAttribute('value');
+                if (attr) return attr;
+                const text = dateEl.textContent.trim();
+                if (text) return text;
+            }
+            const yearEl = doc.querySelector('publish-info > year');
+            return yearEl ? yearEl.textContent.trim() : '';
+        }
+
+        _parseFB2Metadata(titleInfo, doc) {
+            const summary = titleInfo?.querySelector('annotation')?.textContent?.trim() || '';
+            const releaseDate = this._parseFB2ReleaseDate(titleInfo, doc);
+            const keywordsText = titleInfo?.querySelector('keywords')?.textContent?.trim() || '';
+            const genres = keywordsText
+                ? keywordsText.split(',').map(s => s.trim()).filter(Boolean)
+                : [];
+            const rating = doc.querySelector('custom-info[info-type="age-rating"]')?.textContent?.trim() || '';
+            return { summary, releaseDate, genres, rating };
+        }
+
+        parseFB2(text, filename) {
+            const parser = new DOMParser();
+            const doc = parser.parseFromString(text, 'text/xml');
+            const titleInfo = doc.querySelector('title-info');
+            const hasCover = !!doc.querySelector('binary[id*="cover"]');
+            const bookTitle = titleInfo?.querySelector('book-title')?.textContent || filename;
 
             let cover = '';
             const binary = doc.querySelector('binary[id*="cover"]');
@@ -159,61 +236,15 @@
                 cover = `data:${contentType};base64,${binary.textContent.trim()}`;
             }
 
-            const chapters = [];
-            const sections = doc.querySelectorAll('body > section');
-            const hasCover = !!doc.querySelector('binary[id*="cover"]');
-
-            sections.forEach((section, idx) => {
-                const titleNode = section.querySelector('title');
-                const title = titleNode?.textContent?.trim() || `Глава ${idx + 1}`;
-
-                if (hasCover && title === 'Обложка') return;
-
-                const content = [];
-                const paragraphs = Array.from(section.querySelectorAll('p')).filter(
-                    p => !p.closest('title')
-                );
-
-                paragraphs.forEach(p => {
-                    const imageEl = p.querySelector('image');
-                    if (imageEl) {
-                        const href = imageEl.getAttributeNS('http://www.w3.org/1999/xlink', 'href')
-                            || imageEl.getAttribute('l:href')
-                            || '';
-                        const binaryId = href.startsWith('#') ? href.slice(1) : href;
-                        const binaryEl = doc.querySelector(`binary[id="${binaryId}"]`);
-                        if (binaryEl) {
-                            const contentType = binaryEl.getAttribute('content-type') || 'image/jpeg';
-                            const base64 = binaryEl.textContent.trim();
-                            content.push({ type: 'image', data: { base64, contentType } });
-                        }
-                    } else {
-                        const pText = p.textContent.trim();
-                        if (pText) content.push({ type: 'text', text: pText });
-                        else content.push({ type: 'text', text: '' });
-                    }
-                });
-
-                chapters.push({
-                    title,
-                    content,
-                    number: idx + 1,
-                    volume: 1
-                });
-            });
-
-            const annotation = titleInfo?.querySelector('annotation');
-            const summary = annotation?.textContent?.trim() || '';
-
             return {
                 metadata: {
                     name: bookTitle,
                     rus_name: bookTitle,
-                    authors,
-                    summary
+                    authors: this._parseFB2Authors(titleInfo),
+                    ...this._parseFB2Metadata(titleInfo, doc)
                 },
                 cover,
-                chapters
+                chapters: this._parseFB2Sections(doc, hasCover)
             };
         }
     }

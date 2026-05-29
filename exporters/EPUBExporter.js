@@ -160,6 +160,12 @@
                 ? `\n    <dc:description>${this.escapeXml(manga.summary)}</dc:description>` : '';
             const coverMeta = manifest && manifest.includes('id="cover-image"')
                 ? '\n    <meta name="cover" content="cover-image"/>' : '';
+            const genres = [...(manga.genres || []), ...(manga.tags || [])];
+            const subjects = genres.map(g => `\n    <dc:subject>${this.escapeXml(g)}</dc:subject>`).join('');
+            const dateMeta = manga.releaseDate
+                ? `\n    <dc:date>${this.escapeXml(String(manga.releaseDate))}</dc:date>` : '';
+            const ageMeta = manga.rating
+                ? `\n    <meta name="age-rating" content="${this.escapeXml(manga.rating)}"/>` : '';
 
             return `<?xml version="1.0" encoding="utf-8"?>
 <package xmlns="http://www.idpf.org/2007/opf" unique-identifier="BookId" version="2.0">
@@ -167,7 +173,7 @@
     <dc:identifier id="BookId">${identifier}</dc:identifier>
     <dc:title>${title}</dc:title>
     ${authors}
-    <dc:language>ru</dc:language>${description}${coverMeta}
+    <dc:language>ru</dc:language>${description}${subjects}${dateMeta}${ageMeta}${coverMeta}
   </metadata>
   <manifest>
     <item id="ncx" href="toc.ncx" media-type="application/x-dtbncx+xml"/>
@@ -245,6 +251,15 @@
                 const description = metadataNode.querySelector('dc\\:description, description')?.textContent;
                 if (description) metadata.summary = description;
                 else console.warn('[EPUBExporter] No description found in metadata');
+
+                const subjectNodes = metadataNode.querySelectorAll('dc\\:subject, subject');
+                metadata.genres = Array.from(subjectNodes).map(s => s.textContent.trim()).filter(Boolean);
+
+                const dateNode = metadataNode.querySelector('dc\\:date, date');
+                if (dateNode) metadata.releaseDate = dateNode.textContent.trim();
+
+                const ageMeta = metadataNode.querySelector('meta[name="age-rating"]');
+                if (ageMeta) metadata.rating = ageMeta.getAttribute('content') || '';
             }
 
             const manifest = opfDoc.querySelector('manifest');

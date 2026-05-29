@@ -243,4 +243,37 @@ describe('MOBIExporter', () => {
         expect(text).toContain('<h2></h2>');
         expect(text).toContain('<p>body</p>');
     });
+
+    it('Encodes genres as EXTH-105 subjects in binary', async () => {
+        const exporter = new MOBIExporter();
+        const manga = { name: 'Test', authors: ['A'], genres: ['Экшен', 'Фэнтези'], tags: [] };
+        const result = await exporter.export(manga, []);
+        const raw = await decodeBlobToText(result.blob);
+        expect(raw).toContain('Экшен');
+        expect(raw).toContain('Фэнтези');
+    });
+
+    it('Encodes tags as EXTH-105 subjects in binary', async () => {
+        const exporter = new MOBIExporter();
+        const manga = { name: 'Test', authors: ['A'], genres: [], tags: ['Магия'] };
+        const result = await exporter.export(manga, []);
+        const raw = await decodeBlobToText(result.blob);
+        expect(raw).toContain('Магия');
+    });
+
+    it('Encodes releaseDate as EXTH-106 in binary', async () => {
+        const exporter = new MOBIExporter();
+        const manga = { name: 'Test', authors: ['A'], releaseDate: '2021', genres: [], tags: [] };
+        const result = await exporter.export(manga, []);
+        const raw = await decodeBlobToText(result.blob);
+        expect(raw).toContain('2021');
+    });
+
+    it('Works without genres, tags and releaseDate', async () => {
+        const exporter = new MOBIExporter();
+        const manga = { name: 'Test', authors: ['A'] };
+        const result = await exporter.export(manga, []);
+        expect(result.blob).toBeTruthy();
+        expect(result.filename).toBe('Test.mobi');
+    });
 });

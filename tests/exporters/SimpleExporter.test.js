@@ -397,5 +397,45 @@ describe('SimpleExporter', () => {
             const result = await exporter.export(manga, chapters, null);
             expect(result.filename).toBe('manga.txt');
         });
+
+        it('Includes releaseDate in TXT header', async () => {
+            const manga = { name: 'Test', authors: ['A'], releaseDate: '2021', genres: [], summary: '' };
+            const chapters = [{ title: 'Ch1', content: [{ type: 'text', text: 'text' }] }];
+            const result = await exporter.export(manga, chapters);
+            const text = await blobToText(result.blob);
+            expect(text).toContain('Год выхода: 2021');
+        });
+
+        it('Includes rating in TXT header', async () => {
+            const manga = { name: 'Test', authors: ['A'], rating: '18+', genres: [], summary: '' };
+            const chapters = [{ title: 'Ch1', content: [{ type: 'text', text: 'text' }] }];
+            const result = await exporter.export(manga, chapters);
+            const text = await blobToText(result.blob);
+            expect(text).toContain('Возрастное ограничение: 18+');
+        });
+
+        it('Includes genres in TXT header', async () => {
+            const manga = { name: 'Test', authors: ['A'], genres: ['Экшен', 'Фэнтези'], summary: '' };
+            const chapters = [{ title: 'Ch1', content: [{ type: 'text', text: 'text' }] }];
+            const result = await exporter.export(manga, chapters);
+            const text = await blobToText(result.blob);
+            expect(text).toContain('Жанры: Экшен, Фэнтези');
+        });
+
+        it('Omits releaseDate line when releaseDate is absent', async () => {
+            const manga = { name: 'Test', authors: ['A'], genres: [], summary: '' };
+            const chapters = [{ title: 'Ch1', content: [{ type: 'text', text: 'text' }] }];
+            const result = await exporter.export(manga, chapters);
+            const text = await blobToText(result.blob);
+            expect(text).not.toContain('Год выхода:');
+        });
+
+        it('Omits genres line when genres is empty', async () => {
+            const manga = { name: 'Test', authors: ['A'], genres: [], summary: '' };
+            const chapters = [{ title: 'Ch1', content: [{ type: 'text', text: 'text' }] }];
+            const result = await exporter.export(manga, chapters);
+            const text = await blobToText(result.blob);
+            expect(text).not.toContain('Жанры:');
+        });
     });
 });

@@ -80,6 +80,40 @@
         }
     }
 
+    class GenresResolutionModule {
+        static patchNames(arr) {
+            if (!Array.isArray(arr) || arr.length === 0) return [];
+            return arr.map(item => {
+                if (typeof item === 'string') return item;
+                if (item !== null && typeof item === 'object')
+                    return item.name || item.rus_name || item.title || '';
+                return '';
+            }).filter(Boolean);
+        }
+
+        static patch(manga) {
+            return {
+                ...manga,
+                genres: this.patchNames(manga.genres),
+                tags: this.patchNames(manga.tags)
+            };
+        }
+    }
+
+    class ArtistsResolutionModule {
+        static patch(manga) {
+            const artists = Array.isArray(manga.artists)
+                ? manga.artists.map(a => {
+                    if (a !== null && typeof a === 'object')
+                        return a.name || a.rus_name || a.title || '';
+                    if (typeof a === 'string') return a;
+                    return '';
+                }).filter(Boolean)
+                : [];
+            return { ...manga, artists };
+        }
+    }
+
     class ReleaseDateResolutionModule {
         static patch(manga) {
             const raw = manga.releaseDate || manga.releaseDateString || manga.release_date
@@ -96,7 +130,9 @@
                 SummaryResolutionModule,
                 CoverResolutionModule,
                 AgeRatingResolutionModule,
-                ReleaseDateResolutionModule
+                ReleaseDateResolutionModule,
+                GenresResolutionModule,
+                ArtistsResolutionModule
             ];
 
             let result = pipeline;

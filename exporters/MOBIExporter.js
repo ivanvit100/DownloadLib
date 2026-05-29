@@ -96,13 +96,19 @@
         return chunks;
     }
 
-    function buildEXTH(titleBytes, authorBytes, descBytes) {
+    function buildEXTH(titleBytes, authorBytes, descBytes, subjectBytesArr, dateBytes) {
+        const subjects = subjectBytesArr || [];
         const w = new BufWriter();
 
         w.bytes([0x45, 0x58, 0x54, 0x48]);
         const lenPos = w.length;
         w.be32(0);
-        w.be32(descBytes ? 4 : 3);
+
+        let count = 3;
+        if (descBytes) count += 1;
+        count += subjects.length;
+        if (dateBytes) count += 1;
+        w.be32(count);
 
         w.be32(100);
         w.be32(8 + authorBytes.length);
@@ -112,6 +118,18 @@
             w.be32(103);
             w.be32(8 + descBytes.length);
             w.bytes(descBytes);
+        }
+
+        for (const subBytes of subjects) {
+            w.be32(105);
+            w.be32(8 + subBytes.length);
+            w.bytes(subBytes);
+        }
+
+        if (dateBytes) {
+            w.be32(106);
+            w.be32(8 + dateBytes.length);
+            w.bytes(dateBytes);
         }
 
         w.be32(503);
@@ -127,8 +145,11 @@
         return w.toUint8Array();
     }
 
-    function buildRecord0(titleBytes, authorBytes, descBytes, textLen, textRecCount, firstImageRec, flisRec, fcisRec) {
-        const exth = buildEXTH(titleBytes, authorBytes, descBytes);
+    function buildRecord0(
+        titleBytes, authorBytes, descBytes, subjectBytesArr, dateBytes,
+        textLen, textRecCount, firstImageRec, flisRec, fcisRec
+    ) {
+        const exth = buildEXTH(titleBytes, authorBytes, descBytes, subjectBytesArr, dateBytes);
         const MOBI_LEN = 232;
         const fullNameOff = 16 + MOBI_LEN + exth.length;
 
@@ -304,9 +325,12 @@
             const title  = manga.name || 'Без названия';
             const author = manga.authors.filter(Boolean).join(', ') || 'Неизвестно';
 
-            const titleBytes  = toUTF8(title);
-            const authorBytes = toUTF8(author);
-            const descBytes   = manga.summary ? toUTF8(manga.summary) : null;
+            const titleBytes      = toUTF8(title);
+            const authorBytes     = toUTF8(author);
+            const descBytes       = manga.summary ? toUTF8(manga.summary) : null;
+            const genres          = [...(manga.genres || []), ...(manga.tags || [])];
+            const subjectBytesArr = genres.map(g => toUTF8(g));
+            const dateBytes       = manga.releaseDate ? toUTF8(String(manga.releaseDate)) : null;
 
             const imageList = [];
 
@@ -331,7 +355,7 @@
             const records = [];
 
             records.push(buildRecord0(
-                titleBytes, authorBytes, descBytes,
+                titleBytes, authorBytes, descBytes, subjectBytesArr, dateBytes,
                 textLen, T,
                 firstImageRec, flisRec, fcisRec
             ));

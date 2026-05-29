@@ -333,6 +333,68 @@ describe('MangaPatcher', () => {
         });
     });
 
+    describe('GenresResolutionModule', () => {
+        it('Normalizes genres from object array', () => {
+            const patch = MangaPatcher.patch({ authors: [], genres: [{ name: 'Экшен' }, { name: 'Романтика' }] });
+            expect(patch.genres).toEqual(['Экшен', 'Романтика']);
+        });
+
+        it('Keeps string genres as is', () => {
+            const patch = MangaPatcher.patch({ authors: [], genres: ['Экшен', 'Фэнтези'] });
+            expect(patch.genres).toEqual(['Экшен', 'Фэнтези']);
+        });
+
+        it('Normalizes tags from object array', () => {
+            const patch = MangaPatcher.patch({ authors: [], tags: [{ name: 'Магия' }] });
+            expect(patch.tags).toEqual(['Магия']);
+        });
+
+        it('Returns [] for missing genres', () => {
+            const patch = MangaPatcher.patch({ authors: [] });
+            expect(patch.genres).toEqual([]);
+        });
+
+        it('Returns [] for empty genres array', () => {
+            const patch = MangaPatcher.patch({ authors: [], genres: [] });
+            expect(patch.genres).toEqual([]);
+        });
+
+        it('Filters out objects with no name', () => {
+            const patch = MangaPatcher.patch({ authors: [], genres: [{ name: 'Экшен' }, {}, null, 'Фэнтези'] });
+            expect(patch.genres).toEqual(['Экшен', 'Фэнтези']);
+        });
+
+        it('Falls back to rus_name then title in genre object', () => {
+            const patch = MangaPatcher.patch({ authors: [], genres: [
+                { rus_name: 'Ужасы' },
+                { title: 'Комедия' }
+            ]});
+            expect(patch.genres).toEqual(['Ужасы', 'Комедия']);
+        });
+    });
+
+    describe('ArtistsResolutionModule', () => {
+        it('Normalizes artists from object array', () => {
+            const patch = MangaPatcher.patch({ authors: [], artists: [{ name: 'Художник' }] });
+            expect(patch.artists).toEqual(['Художник']);
+        });
+
+        it('Keeps string artists as is', () => {
+            const patch = MangaPatcher.patch({ authors: [], artists: ['Иванов'] });
+            expect(patch.artists).toEqual(['Иванов']);
+        });
+
+        it('Returns [] for missing artists', () => {
+            const patch = MangaPatcher.patch({ authors: [] });
+            expect(patch.artists).toEqual([]);
+        });
+
+        it('Filters out objects with no name', () => {
+            const patch = MangaPatcher.patch({ authors: [], artists: [{ name: 'Петров' }, {}] });
+            expect(patch.artists).toEqual(['Петров']);
+        });
+    });
+
     describe('MangaPatcher', () => {
         it('Runs all modules in a single pass', () => {
             const patch = MangaPatcher.patch({
