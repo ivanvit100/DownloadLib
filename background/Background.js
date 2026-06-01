@@ -367,15 +367,24 @@ if (browserAPI && browserAPI.runtime && browserAPI.runtime.onMessage) {
                     const format = encodeURIComponent(message.format || 'fb2');
                     const urlParams = `?download=true&slug=${encodeURIComponent(slug)}&service=${encodeURIComponent(serviceKey)}&format=${format}&rateLimit=85&maxSizeMB=200`;
 
-                    const win = await browserAPI.windows.create({
-                        url: browserAPI.runtime.getURL('popup.html') + urlParams,
-                        type: 'popup',
-                        width: 350,
-                        height: 650,
-                        focused: true,
-                        state: 'normal'
-                    });
-                    if (win && win.id) browserAPI.windows.update(win.id, { focused: true });
+                    if(browserAPI.windows) {
+                        const win = await browserAPI.windows.create({
+                            url: browserAPI.runtime.getURL('popup.html') + urlParams,
+                            type: 'popup',
+                            width: 350,
+                            height: 650,
+                            focused: true,
+                            state: 'normal'
+                        });
+                        if (win && win.id) browserAPI.windows.update(win.id, { focused: true });
+                    }
+                    else if(browserAPI.tabs) {
+                        const tab = await browserAPI.tabs.create({
+                            url: browserAPI.runtime.getURL('popup.html') + urlParams,
+                            active: true
+                        });
+                        if (tab && tab.id) browserAPI.tabs.update(tab.id, { active: true });
+                    }
                     sendResponse({ ok: true });
                 } catch (e) {
                     sendResponse({ ok: false, error: String(e) });
