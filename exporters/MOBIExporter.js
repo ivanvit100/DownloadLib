@@ -376,6 +376,173 @@
                 mimeType: 'application/x-mobipocket-ebook'
             };
         }
+
+        parse(file) {
+            return new Promise((resolve, reject) => {
+                const reader = new FileReader();
+                reader.onloadend = () => {
+                    try { resolve(this._parseMOBI(reader.result, file.name)); }
+                    catch (e) { reject(e); }
+                };
+                reader.onerror = reject;
+                reader.readAsArrayBuffer(file);
+            });
+        }
+
+        _parseMOBIRecordOffsets(view) {
+            const numRecords = view.getUint16(77, false);
+            const offsets = [];
+            for (let i = 0; i < numRecords; i++)
+                offsets.push(view.getUint32(79 + i * 8, false));
+            return offsets;
+        }
+
+        _parseMOBIExth(bytes, view, dec, r0, buffer) {
+            const authors = [], genres = [];
+            let summary = '', releaseDate = '';
+            const exthStart = r0 + 248;
+            if (exthStart + 12 > buffer.byteLength) return { authors, summary, genres, releaseDate };
+            if (dec.decode(bytes.slice(exthStart, exthStart + 4)) !== 'EXTH')
+                return { authors, summary, genres, releaseDate };
+
+            const exthLen   = view.getUint32(exthStart + 4, false);
+            const exthCount = view.getUint32(exthStart + 8, false);
+            let pos = exthStart + 12;
+            for (let r = 0; r < exthCount && pos + 8 <= exthStart + exthLen; r++) {
+                const recType = view.getUint32(pos, false);
+                const recLen  = view.getUint32(pos + 4, false);
+                if (recLen < 8 || pos + recLen > exthStart + exthLen) break;
+                const data = dec.decode(bytes.slice(pos + 8, pos + recLen));
+                pos += recLen;
+                if (recType === 100)      authors.push(data);
+                else if (recType === 103) summary = data;
+                else if (recType === 105) genres.push(data);
+                else if (recType === 106) releaseDate = data;
+            }
+            return { authors, summary, genres, releaseDate };
+        }
+
+        _parseMOBI(buffer, filename) {
+            const bytes = new Uint8Array(buffer);
+            const view  = new DataView(buffer);
+            const dec   = new TextDecoder('utf-8', { fatal: false });
+
+            const recordOffsets = this._parseMOBIRecordOffsets(view);
+            const [r0] = recordOffsets;
+
+            const textRecCount = view.getUint16(r0 + 8, false);
+
+            if (dec.decode(bytes.slice(r0 + 16, r0 + 20)) !== 'MOBI')
+                throw new Error('[MOBIExporter] Not a MOBI file');
+
+            const fullNameOff   = view.getUint32(r0 + 84, false);
+            const fullNameLen   = view.getUint32(r0 + 88, false);
+            const firstImageRec = view.getUint32(r0 + 108, false);
+
+            let title = filename ? filename.replace(/\.mobi$/i, '') : 'Unknown';
+            if (fullNameLen > 0 && r0 + fullNameOff + fullNameLen <= buffer.byteLength)
+                title = dec.decode(bytes.slice(r0 + fullNameOff, r0 + fullNameOff + fullNameLen));
+
+            const { authors, summary, genres, releaseDate } =
+                this._parseMOBIExth(bytes, view, dec, r0, buffer);
+
+            const htmlParts = [];
+            for (let i = 1; i <= textRecCount && i < recordOffsets.length; i++) {
+                const start = recordOffsets[i];
+                const end   = (i + 1 < recordOffsets.length) ? recordOffsets[i + 1] : buffer.byteLength;
+                htmlParts.push(dec.decode(bytes.slice(start, end)));
+            }
+            const html = htmlParts.join('');
+
+            let cover = '';
+            if (firstImageRec !== 0xFFFFFFFF && firstImageRec < recordOffsets.length) {
+                const iStart = recordOffsets[firstImageRec];
+                const iEnd   = (firstImageRec + 1 < recordOffsets.length)
+                    ? recordOffsets[firstImageRec + 1] : buffer.byteLength;
+                cover = `data:image/jpeg;base64,${this._bytesToBase64(bytes.slice(iStart, iEnd))}`;
+            }
+
+            const chapters = this._parseMOBIHtml(
+                html, firstImageRec, recordOffsets, bytes, buffer.byteLength
+            );
+
+            return {
+                metadata: {
+                    name: title, rus_name: title, authors, summary,
+                    genres, tags: [], releaseDate, rating: ''
+                },
+                cover,
+                chapters
+            };
+        }
+
+        _parseMOBIHtml(html, firstImageRec, recordOffsets, bytes, bufferLen) {
+            const parser = new DOMParser();
+            const doc  = parser.parseFromString(html, 'text/html');
+            const body = doc.querySelector('body');
+            if (!body) return [];
+
+            const chapters = [];
+            let current = null;
+
+            for (const node of Array.from(body.childNodes)) {
+                const tag = node.tagName ? node.tagName.toLowerCase() : '';
+
+                if (tag === 'h2') {
+                    if (current) chapters.push(current);
+                    const t = node.textContent.trim();
+                    const vn = this._extractVolNum(t);
+                    current = {
+                        title: t,
+                        content: [],
+                        number: vn ? vn.number : String(chapters.length + 1),
+                        volume: vn ? vn.volume : '1'
+                    };
+                } else if (current && (tag === 'p' || tag === 'div')) {
+                    const img = node.querySelector('img[recindex]');
+                    if (img) {
+                        const recindex = parseInt(img.getAttribute('recindex') || '0', 10);
+                        if (recindex >= 1 && firstImageRec !== 0xFFFFFFFF) {
+                            const imageRecNum = firstImageRec + (recindex - 1);
+                            if (imageRecNum < recordOffsets.length) {
+                                const iStart = recordOffsets[imageRecNum];
+                                const iEnd   = (imageRecNum + 1 < recordOffsets.length)
+                                    ? recordOffsets[imageRecNum + 1] : bufferLen;
+                                current.content.push({
+                                    type: 'image',
+                                    data: {
+                                        base64: this._bytesToBase64(bytes.slice(iStart, iEnd)),
+                                        contentType: 'image/jpeg'
+                                    }
+                                });
+                            }
+                        }
+                    } else if (tag === 'p') {
+                        const text = node.textContent.replace(/\xa0/g, ' ').trim();
+                        if (text) current.content.push({ type: 'text', text });
+                    }
+                }
+            }
+
+            if (current) chapters.push(current);
+            return chapters;
+        }
+
+        _extractVolNum(title) {
+            const m = title.match(/Том\s+([^\s,]+)[,\s]+Глава\s+(\S+)/);
+            if (m) return { volume: m[1], number: m[2] };
+            const m2 = title.match(/Глава\s+(\S+)/);
+            if (m2) return { volume: '1', number: m2[1] };
+            return null;
+        }
+
+        _bytesToBase64(bytes) {
+            let binary = '';
+            const CHUNK = 0x8000;
+            for (let i = 0; i < bytes.length; i += CHUNK)
+                binary += String.fromCharCode.apply(null, bytes.subarray(i, i + CHUNK));
+            return btoa(binary);
+        }
     }
 
     global.MOBIExporter = MOBIExporter;

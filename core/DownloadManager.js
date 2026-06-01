@@ -52,6 +52,7 @@
                 serviceKey: serviceKey,
                 slug: slug || this.extractSlug(url),
                 format,
+                maxSizeMB,
                 status: 'initializing',
                 progress: 0,
                 controller: controller || this.createController(),
@@ -298,15 +299,41 @@
                     serverChapters
                 );
 
-                this.updateStatus(downloadId, `Создание обновлённого ${format.toUpperCase()}...`, 95);
                 const patch = global.MangaPatcher.patch(existingData.metadata);
-                const file = await exporter.export(
-                    patch,
-                    mergedChapters,
-                    existingData.cover
-                );
+                const maxSizeBytes = (downloadState.maxSizeMB || 200) * 1024 * 1024;
+                let partIndex = 0;
+                let currentBatch = [];
+                let currentSize = 0;
 
-                await this.saveFile(file.blob, file.filename);
+                for (const chapter of mergedChapters) {
+                    const chapterSize = this.estimateChapterSize(chapter);
+                    if (currentBatch.length > 0 && currentSize + chapterSize > maxSizeBytes) {
+                        partIndex += 1;
+                        const partSuffix = ` (Часть ${partIndex})`;
+                        this.updateStatus(downloadId, `Создание обновлённого ${format.toUpperCase()} - часть ${partIndex}...`, 93);
+                        const partFile = await exporter.export(
+                            { ...patch, name: patch.name + partSuffix }, currentBatch, existingData.cover
+                        );
+                        await this.saveFile(partFile.blob, partFile.filename);
+                        currentBatch = [chapter];
+                        currentSize = chapterSize;
+                    } else {
+                        currentBatch.push(chapter);
+                        currentSize += chapterSize;
+                    }
+                }
+
+                if (currentBatch.length > 0) {
+                    partIndex += 1;
+                    const partSuffix = partIndex > 1 ? ` (Часть ${partIndex})` : '';
+                    this.updateStatus(downloadId, `Создание обновлённого ${format.toUpperCase()}...`, 95);
+                    const lastFile = await exporter.export(
+                        partSuffix ? { ...patch, name: patch.name + partSuffix } : patch,
+                        currentBatch,
+                        existingData.cover
+                    );
+                    await this.saveFile(lastFile.blob, lastFile.filename);
+                }
 
                 this.updateStatus(downloadId, 'Файл обновлён!', 100);
                 this.eventBus.emit('download:completed', downloadState);
@@ -333,6 +360,12 @@
             } else if (format === 'epub') {
                 const exporter = global.ExporterRegistry.create('epub');
                 return await exporter.parseEPUB(file);
+            } else if (format === 'mobi') {
+                const exporter = global.ExporterRegistry.create('mobi');
+                return await exporter.parse(file);
+            } else if (format === 'simple') {
+                const exporter = global.ExporterRegistry.create('simple');
+                return await exporter.parse(file);
             } else if (format === 'pdf')
                 throw new Error('PDF парсинг пока не реализован');
 
@@ -349,16 +382,25 @@
         }
 
         findMissingChapters(serverChapters, existingChapters) {
-            const existingKeys = new Set();
+            if (existingChapters.length === 0) return [];
 
-            for (const ch of existingChapters) {
-                const key = this.getChapterKey(ch);
-                existingKeys.add(key);
+            const existingKeys = new Set();
+            for (const ch of existingChapters)
+                existingKeys.add(this.getChapterKey(ch));
+
+            let startIndex = -1;
+            for (let i = 0; i < serverChapters.length; i++) {
+                if (existingKeys.has(this.getChapterKey(serverChapters[i]))) {
+                    startIndex = i;
+                    break;
+                }
             }
 
-            const missing = [];
+            if (startIndex === -1) return [];
 
-            for (const serverCh of serverChapters) {
+            const missing = [];
+            for (let i = startIndex; i < serverChapters.length; i++) {
+                const serverCh = serverChapters[i];
                 const key = this.getChapterKey(serverCh);
 
                 if (!existingKeys.has(key))

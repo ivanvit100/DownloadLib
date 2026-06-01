@@ -108,6 +108,143 @@
             return { blob, filename: `${name}.zip`, mimeType: 'application/zip' };
         }
 
+        parse(file) {
+            if (file.name && file.name.toLowerCase().endsWith('.zip'))
+                return this.parseZip(file);
+            return this.parseTxt(file);
+        }
+
+        async parseTxt(file) {
+            const text = await this._readText(file);
+            const lines = text.split('\n');
+
+            let headerDone = false;
+            const headerLines = [];
+            const chapters = [];
+            let current = null;
+            let chapterIdx = 0;
+
+            for (const line of lines) {
+                const trimmed = line.trimEnd();
+                const m = trimmed.match(/^=== Глава \d+: (.*) ===$/);
+                if (m) {
+                    headerDone = true;
+                    if (current) chapters.push(current);
+                    chapterIdx += 1;
+                    const title = m[1].trim();
+                    const vn = this._extractVolNum(title);
+                    current = {
+                        title,
+                        content: [],
+                        number: vn ? vn.number : String(chapterIdx),
+                        volume: vn ? vn.volume : '1'
+                    };
+                } else if (!headerDone)
+                    headerLines.push(trimmed);
+                else if (current && trimmed) {
+                    const last = current.content[current.content.length - 1];
+                    if (last && last.type === 'text')
+                        last.text += `\n${trimmed}`;
+                    else
+                        current.content.push({ type: 'text', text: trimmed });
+                }
+            }
+            if (current) chapters.push(current);
+
+            const name = headerLines[0] || (file.name ? file.name.replace(/\.txt$/i, '') : 'Unknown');
+            const author = headerLines[1] &&
+                !headerLines[1].startsWith('Год') &&
+                !headerLines[1].startsWith('Жанры') &&
+                !headerLines[1].startsWith('Возраст') &&
+                !headerLines[1].startsWith('─') ? headerLines[1] : '';
+            const authors = author ? [author] : [];
+
+            return {
+                metadata: {
+                    name, rus_name: name, authors, summary: '',
+                    genres: [], tags: [], releaseDate: '', rating: ''
+                },
+                cover: '',
+                chapters
+            };
+        }
+
+        async parseZip(file) {
+            if (typeof global.JSZip === 'undefined')
+                throw new Error('[SimpleExporter] JSZip not loaded');
+
+            const zip = new global.JSZip();
+            const zipContent = await zip.loadAsync(file);
+
+            const imageFiles = Object.keys(zipContent.files)
+                .filter(f => f.match(/\.(jpe?g|png|webp|gif)$/i))
+                .sort();
+
+            const chaptersMap = new Map();
+            for (const filename of imageFiles) {
+                const m = /_volume_(.+?)_chapter_(.+?)_page_/.exec(filename);
+                const key = m ? `v${m[1]}_ch${m[2]}` : 'v1_ch1';
+                if (!chaptersMap.has(key))
+                    chaptersMap.set(key, { volume: m ? m[1] : '1', number: m ? m[2] : '1', images: [] });
+                chaptersMap.get(key).images.push(filename);
+            }
+
+            const chapters = [];
+            for (const [, info] of chaptersMap) {
+                const content = [];
+                for (const imgFilename of info.images) {
+                    const imgFile = zipContent.file(imgFilename);
+                    if (!imgFile) continue;
+                    const blob = await imgFile.async('blob');
+                    const base64url = await this._blobToBase64(blob);
+                    const [, b64] = base64url.split(',');
+                    content.push({ type: 'image', data: { base64: b64, contentType: blob.type || 'image/jpeg' } });
+                }
+
+                if (content.length > 0) {
+                    chapters.push({
+                        title: `Том ${info.volume}, Глава ${info.number}`,
+                        content,
+                        number: info.number,
+                        volume: info.volume
+                    });
+                }
+            }
+
+            const name = file.name ? file.name.replace(/\.zip$/i, '') : 'Unknown';
+            return {
+                metadata: { name, rus_name: name, authors: [], summary: '', genres: [], tags: [] },
+                cover: '',
+                chapters
+            };
+        }
+
+        _extractVolNum(title) {
+            const m = title.match(/Том\s+([^\s,]+)[,\s]+Глава\s+(\S+)/);
+            if (m) return { volume: m[1], number: m[2] };
+            const m2 = title.match(/Глава\s+(\S+)/);
+            if (m2) return { volume: '1', number: m2[1] };
+            return null;
+        }
+
+        _readText(file) {
+            return new Promise((resolve, reject) => {
+                const reader = new FileReader();
+                reader.onload = e => resolve(e.target.result);
+                reader.onerror = reject;
+                reader.readAsText(file, 'utf-8');
+            });
+        }
+
+        _blobToBase64(blob) {
+            return new Promise((resolve, reject) => {
+                const reader = new FileReader();
+                reader.onloadend = () => resolve(reader.result);
+                reader.onerror = reject;
+                reader.readAsDataURL(blob);
+            });
+        }
+
         mimeToExt(mime) {
             if (mime.includes('png'))  return 'png';
             if (mime.includes('webp')) return 'webp';

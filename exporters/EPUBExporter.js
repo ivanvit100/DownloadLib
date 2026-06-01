@@ -361,11 +361,12 @@
                 } else console.warn(`[EPUBExporter] No body found in chapter file: ${filename}`);
 
                 if (chapterContent.length > 0) {
+                    const vn = this._extractVolNum(title);
                     chapters.push({
                         title,
                         content: chapterContent,
-                        number: i + 1,
-                        volume: 1
+                        number: vn ? vn.number : i + 1,
+                        volume: vn ? vn.volume : 1
                     });
                 }
             }
@@ -375,6 +376,14 @@
                 cover,
                 chapters
             };
+        }
+
+        _extractVolNum(title) {
+            const m = title.match(/Том\s+([^\s,]+)[,\s]+Глава\s+(\S+)/);
+            if (m) return { volume: m[1], number: m[2] };
+            const m2 = title.match(/Глава\s+(\S+)/);
+            if (m2) return { volume: '1', number: m2[1] };
+            return null;
         }
 
         blobToBase64(blob) {

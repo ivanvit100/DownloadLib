@@ -181,6 +181,14 @@
             return { type: 'image', data: { base64, contentType } };
         }
 
+        _extractVolNum(title) {
+            const m = title.match(/Том\s+([^\s,]+)[,\s]+Глава\s+(\S+)/);
+            if (m) return { volume: m[1], number: m[2] };
+            const m2 = title.match(/Глава\s+(\S+)/);
+            if (m2) return { volume: '1', number: m2[1] };
+            return null;
+        }
+
         _parseFB2Sections(doc, hasCover) {
             const chapters = [];
             const sections = doc.querySelectorAll('body > section');
@@ -194,7 +202,13 @@
                     .map(p => this._parseFB2ParagraphContent(p, doc))
                     .filter(Boolean);
 
-                chapters.push({ title, content, number: idx + 1, volume: 1 });
+                const volNum = this._extractVolNum(title);
+                chapters.push({
+                    title,
+                    content,
+                    number: volNum ? volNum.number : idx + 1,
+                    volume: volNum ? volNum.volume : 1
+                });
             });
             return chapters;
         }

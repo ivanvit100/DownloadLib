@@ -190,6 +190,96 @@
             return { chapterText, chapterImages };
         }
 
+        _ensureNewPage(pdf, state) {
+            if (state.isFirst) {
+                state.isFirst = false;
+                return;
+            }
+            pdf.addPage();
+        }
+
+        async _addCoverToPdf(pdf, coverBase64, pageWidth, pageHeight, state) {
+            const coverDataUrl = await this.ensureDataUrl(coverBase64);
+            if (!coverDataUrl) {
+                console.warn('[PDFExporter] Invalid cover image data, skipping cover page');
+                return;
+            }
+            this._ensureNewPage(pdf, state);
+            const img = new Image();
+            img.src = coverDataUrl;
+            await new Promise((resolve) => {
+                img.onload = resolve;
+                img.onerror = resolve;
+            });
+            const imgRatio = img.width / img.height;
+            const maxW = pageWidth - 20;
+            const maxH = pageHeight - 20;
+            let w = maxW;
+            let h = w / imgRatio;
+            if (h > maxH) {
+                h = maxH;
+                w = h * imgRatio;
+            }
+            pdf.addImage(coverDataUrl, 'JPEG', (pageWidth - w) / 2, (pageHeight - h) / 2, w, h);
+            state.pageCount += 1;
+            img.src = '';
+        }
+
+        async _addChapterPages(pdf, ch, chIdx, pageWidth, pageHeight, state) {
+            const { chapterText, chapterImages } = this._parseChapterContent(ch);
+            const chapterTitle = ch.title || `Глава ${chIdx + 1}`;
+
+            if (!chapterText && !chapterImages.length) {
+                await this.delay(100);
+                return null;
+            }
+
+            const bookmarkPage = state.isFirst ? 1 : state.pageCount + 1;
+
+            if (chapterText) {
+                const textPages = this.splitTextIntoPages(chapterText, chapterTitle);
+                for (let i = 0; i < textPages.length; i++) {
+                    this._ensureNewPage(pdf, state);
+                    const titleForPage = i === 0 ? chapterTitle : null;
+                    const textCanvas = this.renderTextToCanvas(textPages[i], titleForPage);
+                    pdf.addImage(textCanvas, 'JPEG', 0, 0, pageWidth, pageHeight);
+                    state.pageCount += 1;
+                    if (state.pageCount % 10 === 0)
+                        await this.delay(50);
+                    else console.log(`[PDFExporter] Added text page ${state.pageCount} for chapter ${chIdx + 1}`);
+                }
+            }
+
+            for (const imageBlock of chapterImages) {
+                this._ensureNewPage(pdf, state);
+                const contentType = imageBlock.data.contentType || 'image/jpeg';
+                const dataUrl = `data:${contentType};base64,${imageBlock.data.base64}`;
+                const img = new Image();
+                img.src = dataUrl;
+                await new Promise((resolve) => {
+                    img.onload = resolve;
+                    img.onerror = resolve;
+                });
+                const imgRatio = img.width / img.height;
+                const maxW = pageWidth - 20;
+                const maxH = pageHeight - 20;
+                let w = maxW;
+                let h = w / imgRatio;
+                if (h > maxH) {
+                    h = maxH;
+                    w = h * imgRatio;
+                } else console.warn('[PDFExporter] Image fits within page without resizing');
+                pdf.addImage(dataUrl, 'JPEG', (pageWidth - w) / 2, (pageHeight - h) / 2, w, h);
+                state.pageCount += 1;
+                img.src = '';
+                if (state.pageCount % 5 === 0) await this.delay(50);
+                else console.log(`[PDFExporter] Added image page ${state.pageCount} for chapter ${chIdx + 1}`);
+            }
+
+            await this.delay(100);
+            return { title: chapterTitle, page: bookmarkPage };
+        }
+
         async export(manga, chapters, coverBase64) {
             if (typeof html2pdf === 'undefined')
                 throw new Error('html2pdf library not loaded');
@@ -206,98 +296,21 @@
 
             const pageWidth = pdf.internal.pageSize.getWidth();
             const pageHeight = pdf.internal.pageSize.getHeight();
-            let pageCount = 0;
-            let isFirst = true;
+            const state = { pageCount: 0, isFirst: true };
 
-            const ensurePageForNextContent = () => {
-                if (isFirst) {
-                    isFirst = false;
-                    return;
-                }
-                pdf.addPage();
-            };
+            if (coverBase64)
+                await this._addCoverToPdf(pdf, coverBase64, pageWidth, pageHeight, state);
 
-            if (coverBase64) {
-                const coverDataUrl = await this.ensureDataUrl(coverBase64);
-                if (coverDataUrl) {
-                    ensurePageForNextContent();
-
-                    const img = new Image();
-                    img.src = coverDataUrl;
-                    await new Promise((resolve) => {
-                        img.onload = resolve;
-                        img.onerror = resolve;
-                    });
-
-                    const imgRatio = img.width / img.height;
-                    const maxW = pageWidth - 20;
-                    const maxH = pageHeight - 20;
-                    let w = maxW;
-                    let h = w / imgRatio;
-                    if (h > maxH) {
-                        h = maxH;
-                        w = h * imgRatio;
-                    }
-                    pdf.addImage(coverDataUrl, 'JPEG', (pageWidth - w) / 2, (pageHeight - h) / 2, w, h);
-                    pageCount += 1;
-
-                    img.src = '';
-                } else console.warn('[PDFExporter] Invalid cover image data, skipping cover page');
-            }
+            const bookmarks = [];
 
             for (let chIdx = 0; chIdx < chapters.length; chIdx++) {
-                const ch = chapters[chIdx];
-                const { chapterText, chapterImages } = this._parseChapterContent(ch);
+                const bm = await this._addChapterPages(pdf, chapters[chIdx], chIdx, pageWidth, pageHeight, state);
+                if (bm) bookmarks.push(bm);
+            }
 
-                if (chapterText) {
-                    const chapterTitle = ch.title || `Глава ${chIdx + 1}`;
-                    const textPages = this.splitTextIntoPages(chapterText, chapterTitle);
-
-                    for (let i = 0; i < textPages.length; i++) {
-                        ensurePageForNextContent();
-
-                        const titleForPage = i === 0 ? chapterTitle : null;
-                        const textCanvas = this.renderTextToCanvas(textPages[i], titleForPage);
-                        pdf.addImage(textCanvas, 'JPEG', 0, 0, pageWidth, pageHeight);
-                        pageCount += 1;
-
-                        if (pageCount % 10 === 0)
-                            await this.delay(50);
-                        else console.log(`[PDFExporter] Added text page ${pageCount} for chapter ${chIdx + 1}`);
-                    }
-                }
-
-                for (const imageBlock of chapterImages) {
-                    ensurePageForNextContent();
-
-                    const contentType = imageBlock.data.contentType || 'image/jpeg';
-                    const dataUrl = `data:${contentType};base64,${imageBlock.data.base64}`;
-                    const img = new Image();
-                    img.src = dataUrl;
-                    await new Promise((resolve) => {
-                        img.onload = resolve;
-                        img.onerror = resolve;
-                    });
-
-                    const imgRatio = img.width / img.height;
-                    const maxW = pageWidth - 20;
-                    const maxH = pageHeight - 20;
-                    let w = maxW;
-                    let h = w / imgRatio;
-                    if (h > maxH) {
-                        h = maxH;
-                        w = h * imgRatio;
-                    } else console.warn('[PDFExporter] Image fits within page without resizing');
-                    pdf.addImage(dataUrl, 'JPEG', (pageWidth - w) / 2, (pageHeight - h) / 2, w, h);
-                    pageCount += 1;
-
-                    img.src = '';
-
-                    if (pageCount % 5 === 0) await this.delay(50);
-                    else console.log(`[PDFExporter] Added image page ${pageCount} for chapter ${chIdx + 1}`);
-                }
-
-                await this.delay(100);
+            if (pdf.outline && typeof pdf.outline.add === 'function') {
+                for (const bm of bookmarks)
+                    pdf.outline.add(null, bm.title, { pageNumber: bm.page });
             }
 
             const blob = pdf.output('blob');
