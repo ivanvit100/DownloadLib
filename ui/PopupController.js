@@ -624,11 +624,9 @@
                                             url: fileUploadUrl,
                                             active: true
                                         });
-                                        if (tab && tab.id) {
-                                            await new Promise(resolve => setTimeout(resolve, 500));
-                                            browserAPI.tabs.update(tab.id, { active: true });
-                                        } else console.warn('Tab created but no ID found:', tab);
+                                        if (!tab) console.warn('Tab created but no ID found:', tab);
                                     }
+                                    else console.error('No window/tab API available');
                                 } catch (createError) {
                                     console.error('Failed to create window:', createError);
                                     if (status) status.textContent = 'Не удалось открыть окно, используем текущее';
@@ -711,11 +709,9 @@
                                     url: browserAPI.runtime.getURL('popup.html') + urlParams,
                                     active: true
                                 });
-                                if (tab && tab.id) {
-                                    await new Promise(resolve => setTimeout(resolve, 500));
-                                    browserAPI.tabs.update(tab.id, { active: true });
-                                } else console.warn('Tab created but no ID found:', tab);
+                                if (!tab) console.warn('Tab created but no ID found:', tab);
                             }
+                            else console.error('No window/tab API available');
                         } catch (e) {
                             console.error('Failed to create window:', e);
                             await this.startDownload();

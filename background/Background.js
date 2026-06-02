@@ -376,16 +376,21 @@ if (browserAPI && browserAPI.runtime && browserAPI.runtime.onMessage) {
                             focused: true,
                             state: 'normal'
                         });
-                        if (win && win.id) browserAPI.windows.update(win.id, { focused: true });
+                        if (win) {
+                            if(win.id) browserAPI.windows.update(win.id, { focused: true });
+                            sendResponse({ ok: true });
+                        }
+                        else sendResponse({ ok: false, error: 'window create' });
                     }
                     else if(browserAPI.tabs) {
                         const tab = await browserAPI.tabs.create({
                             url: browserAPI.runtime.getURL('popup.html') + urlParams,
                             active: true
                         });
-                        if (tab && tab.id) browserAPI.tabs.update(tab.id, { active: true });
+                        if(tab) sendResponse({ ok: true });
+                        else sendResponse({ ok: false, error: 'tab create' });
                     }
-                    sendResponse({ ok: true });
+                    else sendResponse({ ok: false, error: 'No window/tab API available' });
                 } catch (e) {
                     sendResponse({ ok: false, error: String(e) });
                 }
