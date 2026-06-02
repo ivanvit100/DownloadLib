@@ -141,13 +141,13 @@
                 chunks.push(chunk);
 
             const content = chunks.join('');
-            const blob = new Blob([content], { type: 'application/xml' });
+            const blob = new Blob([content], { type: 'application/x-fictionbook+xml' });
             const filename = `${manga.name || 'manga'}.fb2`;
 
             return {
                 blob,
                 filename,
-                mimeType: 'application/xml'
+                mimeType: 'application/x-fictionbook+xml'
             };
         }
 
