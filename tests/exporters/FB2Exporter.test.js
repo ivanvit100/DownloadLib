@@ -87,7 +87,7 @@ describe('FB2Exporter', () => {
         expect(result).toHaveProperty('filename');
         expect(result).toHaveProperty('mimeType');
         expect(result.filename).toBe('Test.fb2');
-        expect(result.mimeType).toBe('application/xml');
+        expect(result.mimeType).toBe('application/x-fictionbook+xml');
     });
 
     it('Parse basic FB2', () => {

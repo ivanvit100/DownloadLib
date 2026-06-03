@@ -367,16 +367,30 @@ if (browserAPI && browserAPI.runtime && browserAPI.runtime.onMessage) {
                     const format = encodeURIComponent(message.format || 'fb2');
                     const urlParams = `?download=true&slug=${encodeURIComponent(slug)}&service=${encodeURIComponent(serviceKey)}&format=${format}&rateLimit=85&maxSizeMB=200`;
 
-                    const win = await browserAPI.windows.create({
-                        url: browserAPI.runtime.getURL('popup.html') + urlParams,
-                        type: 'popup',
-                        width: 350,
-                        height: 650,
-                        focused: true,
-                        state: 'normal'
-                    });
-                    if (win && win.id) browserAPI.windows.update(win.id, { focused: true });
-                    sendResponse({ ok: true });
+                    if(browserAPI.windows) {
+                        const win = await browserAPI.windows.create({
+                            url: browserAPI.runtime.getURL('popup.html') + urlParams,
+                            type: 'popup',
+                            width: 350,
+                            height: 650,
+                            focused: true,
+                            state: 'normal'
+                        });
+                        if (win) {
+                            if(win.id) browserAPI.windows.update(win.id, { focused: true });
+                            sendResponse({ ok: true });
+                        }
+                        else sendResponse({ ok: false, error: 'window create' });
+                    }
+                    else if(browserAPI.tabs) {
+                        const tab = await browserAPI.tabs.create({
+                            url: browserAPI.runtime.getURL('popup.html') + urlParams,
+                            active: true
+                        });
+                        if(tab) sendResponse({ ok: true });
+                        else sendResponse({ ok: false, error: 'tab create' });
+                    }
+                    else sendResponse({ ok: false, error: 'No window/tab API available' });
                 } catch (e) {
                     sendResponse({ ok: false, error: String(e) });
                 }
