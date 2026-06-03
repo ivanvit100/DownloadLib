@@ -329,6 +329,28 @@
             }
         }
 
+        async openInNewContext(url) {
+            if (browserAPI.windows) {
+                const win = await browserAPI.windows.create({
+                    url,
+                    type: 'popup',
+                    width: 350,
+                    height: 650,
+                    focused: true,
+                    state: 'normal'
+                });
+                if (win && win.id) {
+                    await new Promise(resolve => setTimeout(resolve, 500));
+                    browserAPI.windows.update(win.id, { focused: true });
+                } else console.warn('Window created but no ID found:', win);
+            }
+            else if (browserAPI.tabs) {
+                const tab = await browserAPI.tabs.create({ url, active: true });
+                if (!tab) console.warn('Tab created but no ID found:', tab);
+            }
+            else console.error('No window/tab API available');
+        }
+
         async updateActiveDownloadsInfo() {
             const activeDownloadsInfo = document.getElementById('activeDownloadsInfo');
             if (!activeDownloadsInfo) return;
@@ -604,29 +626,7 @@
                                         fileUpload: 'true', slug, service: serviceKey, format, rateLimit
                                     });
                                     const fileUploadUrl = `${browserAPI.runtime.getURL('popup.html')}?${fileUploadParams}`;
-                                    if(browserAPI.windows) {
-                                        const win = await browserAPI.windows.create({
-                                            url: fileUploadUrl,
-                                            type: 'popup',
-                                            width: 350,
-                                            height: 650,
-                                            focused: true,
-                                            state: 'normal'
-                                        });
-
-                                        if (win && win.id) {
-                                            await new Promise(resolve => setTimeout(resolve, 500));
-                                            browserAPI.windows.update(win.id, { focused: true });
-                                        } else console.warn('Window created but no ID found:', win);
-                                    }
-                                    else if(browserAPI.tabs) {
-                                        const tab = await browserAPI.tabs.create({
-                                            url: fileUploadUrl,
-                                            active: true
-                                        });
-                                        if (!tab) console.warn('Tab created but no ID found:', tab);
-                                    }
-                                    else console.error('No window/tab API available');
+                                    await this.openInNewContext(fileUploadUrl);
                                 } catch (createError) {
                                     console.error('Failed to create window:', createError);
                                     if (status) status.textContent = 'Не удалось открыть окно, используем текущее';
@@ -689,29 +689,7 @@
                         } else console.warn(`Chapter range selectors not found or not visible when constructing URL parameters for download`);
 
                         try {
-                            if (browserAPI.windows) {
-                                const win = await browserAPI.windows.create({
-                                    url: browserAPI.runtime.getURL('popup.html') + urlParams,
-                                    type: 'popup',
-                                    width: 350,
-                                    height: 650,
-                                    focused: true,
-                                    state: 'normal'
-                                });
-
-                                if (win && win.id) {
-                                    await new Promise(resolve => setTimeout(resolve, 500));
-                                    browserAPI.windows.update(win.id, { focused: true });
-                                } else console.warn('Window created but no ID found:', win);
-                            }
-                            else if(browserAPI.tabs) {
-                                const tab = await browserAPI.tabs.create({
-                                    url: browserAPI.runtime.getURL('popup.html') + urlParams,
-                                    active: true
-                                });
-                                if (!tab) console.warn('Tab created but no ID found:', tab);
-                            }
-                            else console.error('No window/tab API available');
+                            await this.openInNewContext(browserAPI.runtime.getURL('popup.html') + urlParams);
                         } catch (e) {
                             console.error('Failed to create window:', e);
                             await this.startDownload();
