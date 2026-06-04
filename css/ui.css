@@ -281,3 +281,28 @@ input[type="number"] {
 #chapterToSelect:hover, #chapterFromSelect:hover {
     border: 2px solid var(--secondary-color);
 }
+#translatorContainer {
+    text-align: center;
+    margin-top: 10px;
+    margin-bottom: 10px;
+    display: none;
+}
+#translatorContainer label {
+    color: #bdbdbd;
+    font-size: 14px;
+    margin-bottom: 2px;
+    display: block;
+}
+#translatorSelect {
+    padding: 8px 16px;
+    font-size: 14px;
+    width: 100%;
+    cursor: pointer;
+    border: 2px solid var(--primary-color);
+    background: #252527;
+    color: #bdbdbd;
+    transition: all 0.3s ease;
+}
+#translatorSelect:hover {
+    border: 2px solid var(--secondary-color);
+}

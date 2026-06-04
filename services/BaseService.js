@@ -75,11 +75,12 @@
             return text ? JSON.parse(text) : null;
         }
 
-        async fetchChapter(slug, number, volume = '1') {
+        async fetchChapter(slug, number, volume = '1', branchId = null) {
             const params = new URLSearchParams();
             if (number != null) params.set('number', String(number));
             else params.set('number', '1');
             params.set('volume', String(volume));
+            if (branchId != null) params.set('branch_id', String(branchId));
             const url = `${this.baseUrl}/api/manga/${slug}/chapter?${params.toString()}`;
             const response = await this.fetchWithRateLimitRetry(url, {
                 method: 'GET',

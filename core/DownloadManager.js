@@ -29,6 +29,7 @@
                 controller,
                 loadedFile,
                 chapterRange,
+                branchId = null,
                 maxSizeMB = 200
             } = options;
 
@@ -86,6 +87,13 @@
                 this.updateStatus(downloadId, 'Загрузка списка глав...', 10);
                 const chaptersData = await service.fetchChaptersList(downloadState.slug);
                 let chapters = this.sortChapters(chaptersData.data || []);
+
+                if (branchId != null) {
+                    chapters = chapters
+                        .filter(ch => ch.branches && ch.branches.some(b => b.branch_id === branchId))
+                        .map(ch => ({ ...ch, branchId }));
+                    console.log(`[DownloadManager] Filtered chapters by branch ${branchId}: ${chapters.length}`);
+                }
 
                 if (chapterRange && 'from' in chapterRange && 'to' in chapterRange) {
                     chapters = chapters.slice(chapterRange.from, chapterRange.to + 1);
@@ -207,11 +215,9 @@
 
         async downloadSingleChapter(service, downloadState, chapter) {
             try {
-                const chapterData = await service.fetchChapter(
-                    downloadState.slug,
-                    chapter.number,
-                    chapter.volume || '1'
-                );
+                const fetchArgs = [downloadState.slug, chapter.number, chapter.volume || '1'];
+                if (chapter.branchId != null) fetchArgs.push(chapter.branchId);
+                const chapterData = await service.fetchChapter(...fetchArgs);
 
                 const rawContent = chapterData.data || chapterData;
                 const contentToExtract = rawContent.content || rawContent;
@@ -453,11 +459,9 @@
                 );
 
                 try {
-                    const chapterData = await service.fetchChapter(
-                        downloadState.slug,
-                        chapter.number,
-                        chapter.volume || '1'
-                    );
+                    const fetchArgs = [downloadState.slug, chapter.number, chapter.volume || '1'];
+                    if (chapter.branchId != null) fetchArgs.push(chapter.branchId);
+                    const chapterData = await service.fetchChapter(...fetchArgs);
 
                     const rawContent = chapterData.data || chapterData;
                     const contentToExtract = rawContent.content || rawContent;
@@ -592,11 +596,9 @@
                     );
 
                     try {
-                        const chapterData = await service.fetchChapter(
-                            downloadState.slug,
-                            chapter.number,
-                            chapter.volume || '1'
-                        );
+                        const fetchArgs = [downloadState.slug, chapter.number, chapter.volume || '1'];
+                        if (chapter.branchId != null) fetchArgs.push(chapter.branchId);
+                        const chapterData = await service.fetchChapter(...fetchArgs);
 
                         const rawContent = chapterData.data || chapterData;
                         const contentToExtract = rawContent.content || rawContent;

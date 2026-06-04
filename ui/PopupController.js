@@ -34,6 +34,7 @@
             this.loadedFile = null;
             this.currentSlug = null;
             this.currentServiceKey = null;
+            this._allChapters = [];
             this.setupUI();
             this.setupEventListeners();
             this.subscribeToEvents();
@@ -307,6 +308,28 @@
                 rateLimitContainer.parentNode.insertBefore(chapterRangeContainer, rateLimitContainer.nextSibling);
             }
 
+            let translatorContainer = document.getElementById('translatorContainer');
+            if (!translatorContainer) {
+                translatorContainer = document.createElement('div');
+                translatorContainer.id = 'translatorContainer';
+                translatorContainer.style.display = 'none';
+
+                const translatorLabel = document.createElement('label');
+                translatorLabel.textContent = 'Перевод:';
+                translatorLabel.htmlFor = 'translatorSelect';
+
+                const translatorSelect = document.createElement('select');
+                translatorSelect.id = 'translatorSelect';
+
+                translatorContainer.appendChild(translatorLabel);
+                translatorContainer.appendChild(translatorSelect);
+
+                if (chapterRangeContainer)
+                    chapterRangeContainer.parentNode.insertBefore(translatorContainer, chapterRangeContainer);
+                else
+                    btn.parentNode.insertBefore(translatorContainer, btn);
+            } else console.warn('translatorContainer found in DOM');
+
             if (progress) progress.style.display = 'none';
 
             console.log('[PopupController] UI setup complete');
@@ -424,38 +447,42 @@
                 rateLimitInput.value = rateLimitFromUrl;
         }
 
-        async _loadChaptersAndPopulateSelects(service, slug, chapterFromUrl, chapterToUrl) {
+        async _loadChaptersAndPopulateSelects(service, slug, chapterFromUrl, chapterToUrl, branchIdFromUrl = null) {
             try {
                 const chaptersData = await service.fetchChaptersList(slug);
                 const chapters = chaptersData.data || [];
+                this._allChapters = chapters;
+
+                const hasMultipleBranches = chapters.some(ch => ch.branches && ch.branches.length > 1);
+                let activeBranchId = null;
+
+                if (hasMultipleBranches)
+                    activeBranchId = this._setupTranslatorSelector(chapters, branchIdFromUrl);
+                else {
+                    const translatorContainer = document.getElementById('translatorContainer');
+                    if (translatorContainer) translatorContainer.style.display = 'none';
+                }
+
+                const filteredChapters = activeBranchId != null
+                    ? this._getFilteredChapters(activeBranchId)
+                    : chapters;
+
                 const chaptersCount = chapters.length;
 
-                if (chaptersCount > 0) {
+                if (filteredChapters.length > 0) {
                     const fromSelect = document.getElementById('chapterFromSelect');
                     const toSelect = document.getElementById('chapterToSelect');
                     const chapterRangeContainer = document.getElementById('chapterRangeContainer');
 
                     if (fromSelect && toSelect && chapterRangeContainer) {
-                        fromSelect.innerHTML = '';
-                        toSelect.innerHTML = '';
-                        chapters.forEach((ch, idx) => {
-                            const optionFrom = document.createElement('option');
-                            optionFrom.value = idx;
-                            optionFrom.textContent = `Том ${ch.volume}, Глава ${ch.number}`;
-                            fromSelect.appendChild(optionFrom);
-
-                            const optionTo = document.createElement('option');
-                            optionTo.value = idx;
-                            optionTo.textContent = `Том ${ch.volume}, Глава ${ch.number}`;
-                            toSelect.appendChild(optionTo);
-                        });
+                        this._repopulateChapterSelects(filteredChapters, fromSelect, toSelect);
 
                         if (chapterFromUrl !== null && chapterToUrl !== null) {
                             fromSelect.value = chapterFromUrl;
                             toSelect.value = chapterToUrl;
                             console.log(`[PopupController] Restored chapter range from URL: ${chapterFromUrl} - ${chapterToUrl}`);
                         } else
-                            toSelect.selectedIndex = chapters.length - 1;
+                            toSelect.selectedIndex = filteredChapters.length - 1;
 
                         chapterRangeContainer.style.display = 'block';
                     }
@@ -465,6 +492,80 @@
                 console.warn('[PopupController] Failed to fetch chapters count:', e);
                 return null;
             }
+        }
+
+        _setupTranslatorSelector(chapters, branchIdFromUrl) {
+            const translatorContainer = document.getElementById('translatorContainer');
+            const translatorSelect = document.getElementById('translatorSelect');
+            if (!translatorContainer || !translatorSelect) return null;
+
+            const branchMap = new Map();
+            for (const ch of chapters) {
+                if (!ch.branches) continue;
+                for (const branch of ch.branches) {
+                    if (!branchMap.has(branch.branch_id)) {
+                        const teamName = (branch.teams && branch.teams[0] && branch.teams[0].name)
+                            ? branch.teams[0].name
+                            : `Перевод ${branch.branch_id}`;
+                        branchMap.set(branch.branch_id, teamName);
+                    }
+                }
+            }
+
+            if (branchMap.size <= 1) {
+                translatorContainer.style.display = 'none';
+                return branchMap.size === 1 ? [...branchMap.keys()][0] : null;
+            }
+
+            translatorSelect.innerHTML = '';
+            for (const [id, name] of branchMap) {
+                const opt = document.createElement('option');
+                opt.value = id;
+                opt.textContent = name;
+                translatorSelect.appendChild(opt);
+            }
+
+            const initialBranchId = branchIdFromUrl != null && branchMap.has(Number(branchIdFromUrl))
+                ? Number(branchIdFromUrl)
+                : [...branchMap.keys()][0];
+            translatorSelect.value = initialBranchId;
+
+            translatorSelect.onchange = () => {
+                const selectedBranchId = parseInt(translatorSelect.value);
+                const filtered = this._getFilteredChapters(selectedBranchId);
+                const fromSelect = document.getElementById('chapterFromSelect');
+                const toSelect = document.getElementById('chapterToSelect');
+                if (fromSelect && toSelect) {
+                    this._repopulateChapterSelects(filtered, fromSelect, toSelect);
+                    toSelect.selectedIndex = filtered.length - 1;
+                }
+            };
+
+            translatorContainer.style.display = 'block';
+            return initialBranchId;
+        }
+
+        _getFilteredChapters(branchId) {
+            return this._allChapters.filter(
+                ch => ch.branches && ch.branches.some(b => b.branch_id === branchId)
+            );
+        }
+
+        _repopulateChapterSelects(filteredChapters, fromSelect, toSelect) {
+            fromSelect.innerHTML = '';
+            toSelect.innerHTML = '';
+            filteredChapters.forEach((ch, idx) => {
+                const label = `Том ${ch.volume}, Глава ${ch.number}`;
+                const optFrom = document.createElement('option');
+                optFrom.value = idx;
+                optFrom.textContent = label;
+                fromSelect.appendChild(optFrom);
+
+                const optTo = document.createElement('option');
+                optTo.value = idx;
+                optTo.textContent = label;
+                toSelect.appendChild(optTo);
+            });
         }
 
         _renderMeta({ patched, chaptersCount, slug, coverImg, desc, releaseEl, logoInfo }) {
@@ -543,6 +644,9 @@
             const chapterFromUrl = urlParams.get('chapterFrom');
             const chapterToUrl = urlParams.get('chapterTo');
             const maxSizeMBFromUrl = urlParams.get('maxSizeMB');
+            const branchIdFromUrl = urlParams.get('branchId')
+                ? parseInt(urlParams.get('branchId'))
+                : null;
 
             const formatSelector = document.getElementById('formatSelector');
             const rateLimitInput = document.getElementById('rateLimitInput');
@@ -601,7 +705,7 @@
                 const meta = rawResp.data || rawResp;
                 const patched = global.MangaPatcher.patch(meta);
                 const chaptersCount = await this._loadChaptersAndPopulateSelects(
-                    service, slug, chapterFromUrl, chapterToUrl
+                    service, slug, chapterFromUrl, chapterToUrl, branchIdFromUrl
                 );
 
                 this._renderMeta({ patched, chaptersCount, slug, coverImg, desc, releaseEl, logoInfo });
@@ -687,6 +791,12 @@
                             const chapterTo = toSelect.value;
                             urlParams += `&chapterFrom=${encodeURIComponent(chapterFrom)}&chapterTo=${encodeURIComponent(chapterTo)}`;
                         } else console.warn(`Chapter range selectors not found or not visible when constructing URL parameters for download`);
+
+                        const translatorSelect = document.getElementById('translatorSelect');
+                        const translatorContainer = document.getElementById('translatorContainer');
+                        if (translatorSelect && translatorContainer &&
+                            translatorContainer.style.display !== 'none')
+                            urlParams += `&branchId=${encodeURIComponent(translatorSelect.value)}`;
 
                         try {
                             await this.openInNewContext(browserAPI.runtime.getURL('popup.html') + urlParams);
@@ -797,6 +907,9 @@
             else console.warn('Controls container not found when showing during download');
             if (chapterRangeContainer) chapterRangeContainer.style.display = 'none';
             else console.warn('Chapter range container not found when hiding during download');
+            const translatorContainerDl = document.getElementById('translatorContainer');
+            if (translatorContainerDl) translatorContainerDl.style.display = 'none';
+            else console.warn('Translator container not found when hiding during download');
             const splitModeContainer = document.getElementById('splitModeContainer');
             if (splitModeContainer) splitModeContainer.style.display = 'none';
             else console.warn('Split mode container not found when hiding during download');
@@ -841,6 +954,13 @@
 
                 const chapterRange = this._buildChapterRange(fromSelect, toSelect, chapterRangeContainer);
 
+                const translatorSelect = document.getElementById('translatorSelect');
+                const translatorContainer = document.getElementById('translatorContainer');
+                const branchId = (translatorSelect && translatorContainer &&
+                    translatorContainer.style.display !== 'none')
+                    ? parseInt(translatorSelect.value)
+                    : null;
+
                 this.isDownloading = true;
                 this.isPaused = false;
                 this.shouldStop = false;
@@ -859,6 +979,7 @@
                     format,
                     loadedFile: this.loadedFile,
                     chapterRange,
+                    branchId,
                     maxSizeMB,
                     controller: {
                         isPaused: () => this.isPaused,
@@ -938,6 +1059,9 @@
             const chapterRangeContainer = document.getElementById('chapterRangeContainer');
             if (chapterRangeContainer) chapterRangeContainer.style.display = 'none';
             else console.warn('Chapter range container not found when resetting UI');
+            const translatorContainerReset = document.getElementById('translatorContainer');
+            if (translatorContainerReset) translatorContainerReset.style.display = 'none';
+            else console.warn('Translator container not found when resetting UI');
             const splitModeContainer = document.getElementById('splitModeContainer');
             if (splitModeContainer) splitModeContainer.style.display = 'block';
             else console.warn('Split mode container not found when resetting UI');
