@@ -1139,4 +1139,61 @@ describe('PDFExporter', () => {
         expect(capturedProps.author).toBe('Неизвестно');
         expect(capturedProps.subject).toBeUndefined();
     });
+
+    it('Calls pdf.outline.add for each chapter bookmark when outline.add is a function', async () => {
+        const origCreateElement = mockCanvas();
+        const outlineAdd = vi.fn();
+        window.html2pdf = () => ({
+            set: () => ({
+                from: () => ({
+                    toPdf: () => ({
+                        get: () => Promise.resolve({
+                            internal: {
+                                pageSize: { getWidth: () => 100, getHeight: () => 100 }
+                            },
+                            addPage: vi.fn(),
+                            setProperties: vi.fn(),
+                            addImage: vi.fn(),
+                            outline: { add: outlineAdd },
+                            output: () => 'blob'
+                        })
+                    })
+                })
+            })
+        });
+        window.Image = class {
+            constructor() {
+                this.src = '';
+                this.width = 100;
+                this.height = 100;
+                setTimeout(() => { if (this.onload) this.onload(); }, 1);
+            }
+        };
+        const manga = { name: 'Test', authors: [''] };
+        const chapters = [
+            { title: 'Chapter 1', content: [{ type: 'text', text: 'Hello' }] },
+            { title: 'Chapter 2', content: [{ type: 'text', text: 'World' }] }
+        ];
+        await exporter.export(manga, chapters, undefined);
+        expect(outlineAdd).toHaveBeenCalledTimes(2);
+        expect(outlineAdd).toHaveBeenCalledWith(null, 'Chapter 1', { pageNumber: 1 });
+        document.createElement = origCreateElement;
+    });
+
+    it('_buildPdfProperties includes keywords with genres, tags and rating', () => {
+        const manga = { name: 'T', genres: ['Action', 'Fantasy'], tags: ['Isekai'], rating: '18+', summary: 'Desc' };
+        const props = exporter._buildPdfProperties(manga, 'T', ['Author']);
+        expect(props.subject).toBe('Desc');
+        expect(props.keywords).toBe('Action, Fantasy, Isekai, age-rating:18+');
+    });
+
+    it('Registers with ExporterRegistry when it is already defined on load', async () => {
+        vi.resetModules();
+        const register = vi.fn();
+        global.ExporterRegistry = { register };
+        await import('../../exporters/BaseExporter.js');
+        await import('../../exporters/PDFExporter.js');
+        expect(register).toHaveBeenCalledWith('pdf', expect.any(Function), { label: 'PDF' });
+        delete global.ExporterRegistry;
+    });
 });

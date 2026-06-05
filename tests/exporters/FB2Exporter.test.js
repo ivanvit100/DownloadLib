@@ -647,4 +647,109 @@ describe('FB2Exporter', () => {
         const parsed = exporter.parseFB2(fb2, 'f.fb2');
         expect(parsed.metadata.rating).toBe('18+');
     });
+
+    it('parseFB2 reads releaseDate from <date> textContent when value attribute is absent', () => {
+        const fb2 = `<?xml version="1.0"?>
+        <FictionBook><description><title-info>
+          <book-title>T</book-title>
+          <date>2022</date>
+        </title-info></description><body></body></FictionBook>`;
+        const parsed = exporter.parseFB2(fb2, 'f.fb2');
+        expect(parsed.metadata.releaseDate).toBe('2022');
+    });
+
+    it('parseFB2 falls through empty <date> to <year> element', () => {
+        const fb2 = `<?xml version="1.0"?>
+        <FictionBook><description>
+          <title-info><book-title>T</book-title><date></date></title-info>
+          <publish-info><year>2018</year></publish-info>
+        </description><body></body></FictionBook>`;
+        const parsed = exporter.parseFB2(fb2, 'f.fb2');
+        expect(parsed.metadata.releaseDate).toBe('2018');
+    });
+
+    it('parseFB2 uses default contentType image/jpeg for binary without content-type attr', () => {
+        const fb2 = `<?xml version="1.0" encoding="utf-8"?>
+        <FictionBook xmlns="http://www.gribuser.ru/xml/fictionbook/2.0" xmlns:l="http://www.w3.org/1999/xlink">
+          <description><title-info><book-title>T</book-title></title-info></description>
+          <binary id="img1">abc</binary>
+          <body>
+            <section>
+              <title><p>Ch 1</p></title>
+              <p><image l:href="#img1"/></p>
+            </section>
+          </body>
+        </FictionBook>`;
+        global.DOMParser = class {
+            parseFromString(str) {
+                const { JSDOM } = require('jsdom');
+                return new JSDOM(str, { contentType: 'text/xml' }).window.document;
+            }
+        };
+        const parsed = exporter.parseFB2(fb2, 'f.fb2');
+        expect(parsed.chapters[0].content[0]).toEqual({ type: 'image', data: { base64: 'abc', contentType: 'image/jpeg' } });
+    });
+
+    it('parseFB2 extracts volume and number from "Том X, Глава Y" section title', () => {
+        const fb2 = `<?xml version="1.0" encoding="utf-8"?>
+        <FictionBook xmlns="http://www.gribuser.ru/xml/fictionbook/2.0" xmlns:l="http://www.w3.org/1999/xlink">
+          <description><title-info><book-title>T</book-title></title-info></description>
+          <body>
+            <section><title><p>Том 2, Глава 5</p></title><p>Text</p></section>
+          </body>
+        </FictionBook>`;
+        global.DOMParser = class {
+            parseFromString(str) {
+                const { JSDOM } = require('jsdom');
+                return new JSDOM(str, { contentType: 'text/xml' }).window.document;
+            }
+        };
+        const parsed = exporter.parseFB2(fb2, 'f.fb2');
+        expect(parsed.chapters[0].volume).toBe('2');
+        expect(parsed.chapters[0].number).toBe('5');
+    });
+
+    it('Registers with ExporterRegistry when it is already defined on load', async () => {
+        vi.resetModules();
+        const register = vi.fn();
+        global.ExporterRegistry = { register };
+        await import('../../exporters/BaseExporter.js');
+        await import('../../exporters/FB2Exporter.js');
+        expect(register).toHaveBeenCalledWith('fb2', expect.any(Function), { label: 'FB2' });
+        delete global.ExporterRegistry;
+    });
+
+    describe('_parseFB2ParagraphContent', () => {
+        it('Falls back to getAttribute l:href when getAttributeNS returns null', () => {
+            const binaryEl = { getAttribute: () => null, textContent: 'base64data' };
+            const imageEl = {
+                getAttributeNS: () => null,
+                getAttribute: (attr) => attr === 'l:href' ? 'img1' : null
+            };
+            const p = { querySelector: () => imageEl };
+            const doc = { querySelector: () => binaryEl };
+            const result = exporter._parseFB2ParagraphContent(p, doc);
+            expect(result).toEqual({ type: 'image', data: { base64: 'base64data', contentType: 'image/jpeg' } });
+        });
+
+        it('Returns null when href resolves to empty string and binary is not found', () => {
+            const imageEl = { getAttributeNS: () => null, getAttribute: () => null };
+            const p = { querySelector: () => imageEl };
+            const doc = { querySelector: () => null };
+            const result = exporter._parseFB2ParagraphContent(p, doc);
+            expect(result).toBeNull();
+        });
+
+        it('Uses href without stripping # when href does not start with #', () => {
+            const binaryEl = { getAttribute: () => null, textContent: 'data' };
+            const imageEl = {
+                getAttributeNS: () => null,
+                getAttribute: (attr) => attr === 'l:href' ? 'img1' : null
+            };
+            const p = { querySelector: () => imageEl };
+            const doc = { querySelector: (sel) => sel.includes('img1') ? binaryEl : null };
+            const result = exporter._parseFB2ParagraphContent(p, doc);
+            expect(result.data.base64).toBe('data');
+        });
+    });
 });

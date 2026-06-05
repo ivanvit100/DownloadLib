@@ -1247,4 +1247,226 @@ describe('EPUBExporter', () => {
         const opf = exporter.createOPF({ name: 'T', authors: ['A'] }, '', '');
         expect(opf).not.toContain('age-rating');
     });
+
+    describe('_extractVolNum', () => {
+        it('Returns volume and number for "Том X, Глава Y" pattern', () => {
+            expect(exporter._extractVolNum('Том 1, Глава 5')).toEqual({ volume: '1', number: '5' });
+        });
+
+        it('Returns default volume 1 for "Глава Y" pattern', () => {
+            expect(exporter._extractVolNum('Глава 3')).toEqual({ volume: '1', number: '3' });
+        });
+
+        it('Returns null for unrecognized title', () => {
+            expect(exporter._extractVolNum('Chapter 1')).toBeNull();
+        });
+    });
+
+    it('Parses dc:date and meta[name="age-rating"] from OPF metadata', async () => {
+        class FakeZip {
+            async loadAsync() { return this; }
+            file(name) {
+                if (name === 'META-INF/container.xml') {
+                    return { async: async () => `<?xml version="1.0"?><container><rootfiles><rootfile full-path="OEBPS/content.opf"/></rootfiles></container>` };
+                }
+                if (name === 'OEBPS/content.opf') {
+                    return {
+                        async: async () => `
+                            <package xmlns:dc="http://purl.org/dc/elements/1.1/">
+                            <metadata>
+                                <dc:title>My Title</dc:title>
+                                <dc:date>2021</dc:date>
+                                <meta name="age-rating" content="18+"/>
+                                <dc:description>Desc</dc:description>
+                            </metadata>
+                            <manifest></manifest>
+                            <spine></spine>
+                            </package>
+                        `,
+                        name: 'OEBPS/content.opf'
+                    };
+                }
+                return undefined;
+            }
+            get files() { return {}; }
+        }
+        global.JSZip = FakeZip;
+        global.DOMParser = class {
+            parseFromString(str, type) {
+                const { JSDOM } = require('jsdom');
+                return new JSDOM(str, { contentType: type }).window.document;
+            }
+        };
+        const result = await exporter.parseEPUB({ name: 'file.epub' });
+        expect(result.metadata.releaseDate).toBe('2021');
+        expect(result.metadata.rating).toBe('18+');
+    });
+
+    it('Parses chapter with "Том X, Глава Y" title and extracts volume/number', async () => {
+        class FakeZip {
+            async loadAsync() { return this; }
+            file(name) {
+                if (name === 'META-INF/container.xml') {
+                    return { async: async () => `<?xml version="1.0"?><container><rootfiles><rootfile full-path="OEBPS/content.opf"/></rootfiles></container>` };
+                }
+                if (name === 'OEBPS/content.opf') {
+                    return {
+                        async: async () => `
+                            <package xmlns:dc="http://purl.org/dc/elements/1.1/">
+                            <metadata><dc:title>Book</dc:title><dc:description>d</dc:description></metadata>
+                            <manifest></manifest>
+                            <spine><itemref idref="chapter1"/></spine>
+                            </package>
+                        `,
+                        name: 'OEBPS/content.opf'
+                    };
+                }
+                if (name === 'OEBPS/chapter1.xhtml') {
+                    return {
+                        async: async () => `<html><body><h2>Том 2, Глава 5</h2><p>Text</p></body></html>`,
+                        name
+                    };
+                }
+                return undefined;
+            }
+            get files() {
+                return {
+                    'OEBPS/chapter1.xhtml': { async: async () => `<html><body><h2>Том 2, Глава 5</h2><p>Text</p></body></html>`, name: 'OEBPS/chapter1.xhtml' }
+                };
+            }
+        }
+        global.JSZip = FakeZip;
+        global.DOMParser = class {
+            parseFromString(str, type) {
+                const { JSDOM } = require('jsdom');
+                return new JSDOM(str, { contentType: type === 'text/xml' ? 'application/xml' : 'text/html' }).window.document;
+            }
+        };
+        const result = await exporter.parseEPUB({ name: 'file.epub' });
+        expect(result.chapters[0].volume).toBe('2');
+        expect(result.chapters[0].number).toBe('5');
+    });
+
+    it('Parses chapter with "Глава Y" title and extracts number with default volume', async () => {
+        class FakeZip {
+            async loadAsync() { return this; }
+            file(name) {
+                if (name === 'META-INF/container.xml') {
+                    return { async: async () => `<?xml version="1.0"?><container><rootfiles><rootfile full-path="OEBPS/content.opf"/></rootfiles></container>` };
+                }
+                if (name === 'OEBPS/content.opf') {
+                    return {
+                        async: async () => `
+                            <package xmlns:dc="http://purl.org/dc/elements/1.1/">
+                            <metadata><dc:title>Book</dc:title><dc:description>d</dc:description></metadata>
+                            <manifest></manifest>
+                            <spine><itemref idref="chapter1"/></spine>
+                            </package>
+                        `,
+                        name: 'OEBPS/content.opf'
+                    };
+                }
+                if (name === 'OEBPS/chapter1.xhtml') {
+                    return {
+                        async: async () => `<html><body><h2>Глава 7</h2><p>Text</p></body></html>`,
+                        name
+                    };
+                }
+                return undefined;
+            }
+            get files() {
+                return {
+                    'OEBPS/chapter1.xhtml': { async: async () => `<html><body><h2>Глава 7</h2><p>Text</p></body></html>`, name: 'OEBPS/chapter1.xhtml' }
+                };
+            }
+        }
+        global.JSZip = FakeZip;
+        global.DOMParser = class {
+            parseFromString(str, type) {
+                const { JSDOM } = require('jsdom');
+                return new JSDOM(str, { contentType: type === 'text/xml' ? 'application/xml' : 'text/html' }).window.document;
+            }
+        };
+        const result = await exporter.parseEPUB({ name: 'file.epub' });
+        expect(result.chapters[0].volume).toBe('1');
+        expect(result.chapters[0].number).toBe('7');
+    });
+
+    it('blobToBase64 rejects when FileReader fires onerror', async () => {
+        const origFileReader = globalThis.FileReader;
+        globalThis.FileReader = class {
+            readAsDataURL() {
+                Promise.resolve().then(() => { if (this.onerror) this.onerror(new Error('read error')); });
+            }
+        };
+        const blob = new Blob(['data']);
+        await expect(exporter.blobToBase64(blob)).rejects.toBeTruthy();
+        globalThis.FileReader = origFileReader;
+    });
+
+    it('Sets rating to empty string when age-rating meta has no content attribute', async () => {
+        class FakeZip {
+            async loadAsync() { return this; }
+            file(name) {
+                if (name === 'META-INF/container.xml') {
+                    return { async: async () => `<?xml version="1.0"?><container><rootfiles><rootfile full-path="content.opf"/></rootfiles></container>` };
+                }
+                if (name === 'content.opf') {
+                    return {
+                        async: async () => `<package xmlns:dc="http://purl.org/dc/elements/1.1/"><metadata><dc:title>T</dc:title><meta name="age-rating"/></metadata><manifest/><spine/></package>`,
+                        name: 'content.opf'
+                    };
+                }
+                return undefined;
+            }
+            get files() { return {}; }
+        }
+        global.JSZip = FakeZip;
+        global.DOMParser = class {
+            parseFromString(str, type) {
+                const { JSDOM } = require('jsdom');
+                return new JSDOM(str, { contentType: type === 'text/xml' ? 'application/xml' : 'text/html' }).window.document;
+            }
+        };
+        const result = await exporter.parseEPUB({ name: 'f.epub' });
+        expect(result.metadata.rating).toBe('');
+    });
+
+    it('Registers with ExporterRegistry when it is already defined on load', async () => {
+        vi.resetModules();
+        const register = vi.fn();
+        global.ExporterRegistry = { register };
+        await import('../../exporters/BaseExporter.js');
+        await import('../../exporters/EPUBExporter.js');
+        expect(register).toHaveBeenCalledWith('epub', expect.any(Function), { label: 'EPUB' });
+        delete global.ExporterRegistry;
+    });
+
+    it('Parses dc:subject nodes into metadata.genres', async () => {
+        class FakeZip {
+            async loadAsync() { return this; }
+            file(name) {
+                if (name === 'META-INF/container.xml') {
+                    return { async: async () => `<?xml version="1.0"?><container><rootfiles><rootfile full-path="content.opf"/></rootfiles></container>` };
+                }
+                if (name === 'content.opf') {
+                    return {
+                        async: async () => `<package xmlns:dc="http://purl.org/dc/elements/1.1/"><metadata><dc:title>T</dc:title><dc:subject>Action</dc:subject><dc:subject>Fantasy</dc:subject></metadata><manifest/><spine/></package>`,
+                        name: 'content.opf'
+                    };
+                }
+                return undefined;
+            }
+            get files() { return {}; }
+        }
+        global.JSZip = FakeZip;
+        global.DOMParser = class {
+            parseFromString(str, type) {
+                const { JSDOM } = require('jsdom');
+                return new JSDOM(str, { contentType: type === 'text/xml' ? 'application/xml' : 'text/html' }).window.document;
+            }
+        };
+        const result = await exporter.parseEPUB({ name: 'f.epub' });
+        expect(result.metadata.genres).toEqual(['Action', 'Fantasy']);
+    });
 });

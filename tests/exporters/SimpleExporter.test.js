@@ -438,4 +438,315 @@ describe('SimpleExporter', () => {
             expect(text).not.toContain('Жанры:');
         });
     });
+
+    describe('parse', () => {
+        it('Routes .zip files to parseZip', () => {
+            exporter.parseZip = vi.fn().mockResolvedValue({ metadata: {}, cover: '', chapters: [] });
+            const file = { name: 'test.zip' };
+            exporter.parse(file);
+            expect(exporter.parseZip).toHaveBeenCalledWith(file);
+        });
+
+        it('Routes .ZIP (uppercase) files to parseZip', () => {
+            exporter.parseZip = vi.fn().mockResolvedValue({ metadata: {}, cover: '', chapters: [] });
+            const file = { name: 'test.ZIP' };
+            exporter.parse(file);
+            expect(exporter.parseZip).toHaveBeenCalledWith(file);
+        });
+
+        it('Routes non-zip files to parseTxt', () => {
+            exporter.parseTxt = vi.fn().mockResolvedValue({ metadata: {}, cover: '', chapters: [] });
+            const file = { name: 'test.txt' };
+            exporter.parse(file);
+            expect(exporter.parseTxt).toHaveBeenCalledWith(file);
+        });
+
+        it('Routes files with no name to parseTxt', () => {
+            exporter.parseTxt = vi.fn().mockResolvedValue({ metadata: {}, cover: '', chapters: [] });
+            exporter.parse({});
+            expect(exporter.parseTxt).toHaveBeenCalled();
+        });
+    });
+
+    describe('_extractVolNum', () => {
+        it('Parses "Том X, Глава Y" pattern', () => {
+            expect(exporter._extractVolNum('Том 1, Глава 5')).toEqual({ volume: '1', number: '5' });
+        });
+
+        it('Parses "Том X Глава Y" pattern with space separator', () => {
+            expect(exporter._extractVolNum('Том 2 Глава 10')).toEqual({ volume: '2', number: '10' });
+        });
+
+        it('Parses "Глава Y" pattern with default volume 1', () => {
+            expect(exporter._extractVolNum('Глава 3')).toEqual({ volume: '1', number: '3' });
+        });
+
+        it('Returns null for unrecognized pattern', () => {
+            expect(exporter._extractVolNum('Chapter 1')).toBeNull();
+        });
+    });
+
+    describe('_readText', () => {
+        it('Reads text from a File', async () => {
+            const file = new File(['Hello World'], 'test.txt', { type: 'text/plain' });
+            const result = await exporter._readText(file);
+            expect(result).toBe('Hello World');
+        });
+
+        it('Reads UTF-8 text correctly', async () => {
+            const file = new File(['Привет мир'], 'test.txt', { type: 'text/plain' });
+            const result = await exporter._readText(file);
+            expect(result).toBe('Привет мир');
+        });
+    });
+
+    describe('_blobToBase64', () => {
+        it('Converts blob to base64 data URL', async () => {
+            const blob = new Blob(['ABC'], { type: 'text/plain' });
+            const result = await exporter._blobToBase64(blob);
+            expect(result).toMatch(/^data:text\/plain;base64,/);
+        });
+
+        it('Converts binary blob to base64 data URL', async () => {
+            const blob = new Blob([new Uint8Array([1, 2, 3])], { type: 'image/jpeg' });
+            const result = await exporter._blobToBase64(blob);
+            expect(result).toMatch(/^data:image\/jpeg;base64,/);
+        });
+    });
+
+    describe('parseTxt', () => {
+        const sep = '─'.repeat(60);
+
+        it('Parses title and author from header', async () => {
+            const content = `Book Title\nAuthor Name\n${sep}\n\n=== Глава 1: Intro ===\n\nText\n\n`;
+            const file = new File([content], 'book.txt', { type: 'text/plain' });
+            const result = await exporter.parseTxt(file);
+            expect(result.metadata.name).toBe('Book Title');
+            expect(result.metadata.authors).toContain('Author Name');
+        });
+
+        it('Parses chapter heading and content', async () => {
+            const content = `Title\n${sep}\n\n=== Глава 1: Intro ===\n\nSome text\n\n`;
+            const file = new File([content], 'book.txt');
+            const result = await exporter.parseTxt(file);
+            expect(result.chapters).toHaveLength(1);
+            expect(result.chapters[0].title).toBe('Intro');
+        });
+
+        it('Accumulates multiple lines into a single text block', async () => {
+            const content = `Title\n${sep}\n\n=== Глава 1: Ch1 ===\n\nLine1\nLine2\n\n`;
+            const file = new File([content], 'book.txt');
+            const result = await exporter.parseTxt(file);
+            expect(result.chapters[0].content[0].text).toContain('Line1');
+            expect(result.chapters[0].content[0].text).toContain('Line2');
+        });
+
+        it('Handles multiple chapters', async () => {
+            const content = `Title\n${sep}\n\n=== Глава 1: Ch1 ===\n\nText1\n\n=== Глава 2: Ch2 ===\n\nText2\n\n`;
+            const file = new File([content], 'book.txt');
+            const result = await exporter.parseTxt(file);
+            expect(result.chapters).toHaveLength(2);
+            expect(result.chapters[1].title).toBe('Ch2');
+        });
+
+        it('Extracts volume and number from "Том X, Глава Y" chapter title', async () => {
+            const content = `Title\n${sep}\n\n=== Глава 1: Том 2, Глава 5 ===\n\nText\n\n`;
+            const file = new File([content], 'book.txt');
+            const result = await exporter.parseTxt(file);
+            expect(result.chapters[0].volume).toBe('2');
+            expect(result.chapters[0].number).toBe('5');
+        });
+
+        it('Extracts number from "Глава Y" chapter title', async () => {
+            const content = `Title\n${sep}\n\n=== Глава 1: Глава 3 ===\n\nText\n\n`;
+            const file = new File([content], 'book.txt');
+            const result = await exporter.parseTxt(file);
+            expect(result.chapters[0].number).toBe('3');
+            expect(result.chapters[0].volume).toBe('1');
+        });
+
+        it('Uses chapter index as number when title has no pattern', async () => {
+            const content = `Title\n${sep}\n\n=== Глава 1: Random Title ===\n\nText\n\n`;
+            const file = new File([content], 'book.txt');
+            const result = await exporter.parseTxt(file);
+            expect(result.chapters[0].number).toBe('1');
+            expect(result.chapters[0].volume).toBe('1');
+        });
+
+        it('Uses filename as name when header is empty', async () => {
+            const content = `=== Глава 1: Ch1 ===\n\nText\n\n`;
+            const file = new File([content], 'mybook.txt');
+            const result = await exporter.parseTxt(file);
+            expect(result.metadata.name).toBe('mybook');
+        });
+
+        it('Ignores header line starting with "Год" as author', async () => {
+            const content = `Title\nГод выхода: 2020\n${sep}\n\n=== Глава 1: Ch1 ===\n\nText\n\n`;
+            const file = new File([content], 'book.txt');
+            const result = await exporter.parseTxt(file);
+            expect(result.metadata.authors).toEqual([]);
+        });
+
+        it('Ignores header line starting with "Жанры" as author', async () => {
+            const content = `Title\nЖанры: Экшен\n${sep}\n\n=== Глава 1: Ch1 ===\n\nText\n\n`;
+            const file = new File([content], 'book.txt');
+            const result = await exporter.parseTxt(file);
+            expect(result.metadata.authors).toEqual([]);
+        });
+
+        it('Ignores separator line as author', async () => {
+            const content = `Title\n${sep}\n\n=== Глава 1: Ch1 ===\n\nText\n\n`;
+            const file = new File([content], 'book.txt');
+            const result = await exporter.parseTxt(file);
+            expect(result.metadata.authors).toEqual([]);
+        });
+
+        it('Returns empty chapters and correct metadata structure', async () => {
+            const content = `Title\n${sep}\n\n`;
+            const file = new File([content], 'book.txt');
+            const result = await exporter.parseTxt(file);
+            expect(result).toHaveProperty('metadata');
+            expect(result).toHaveProperty('cover', '');
+            expect(result).toHaveProperty('chapters');
+            expect(result.metadata.genres).toEqual([]);
+            expect(result.metadata.tags).toEqual([]);
+        });
+    });
+
+    describe('parseZip', () => {
+        it('Throws when JSZip not loaded', async () => {
+            const saved = globalThis.JSZip;
+            delete globalThis.JSZip;
+            await expect(exporter.parseZip({ name: 'test.zip' })).rejects.toThrow('[SimpleExporter] JSZip not loaded');
+            if (saved !== undefined) globalThis.JSZip = saved;
+        });
+
+        it('Parses zip with patterned filename into chapters with volume/number', async () => {
+            const mockBlob = new Blob(['imgdata'], { type: 'image/jpeg' });
+            const mockImageFile = { async: vi.fn().mockResolvedValue(mockBlob) };
+            const zipContent = {
+                files: { 'book_volume_1_chapter_2_page_1.jpg': {} },
+                file: vi.fn().mockReturnValue(mockImageFile)
+            };
+            globalThis.JSZip = class { loadAsync = vi.fn().mockResolvedValue(zipContent); };
+            exporter._blobToBase64 = vi.fn().mockResolvedValue('data:image/jpeg;base64,aW1n');
+            const file = new File(['zip'], 'mybook.zip');
+            const result = await exporter.parseZip(file);
+            expect(result.chapters).toHaveLength(1);
+            expect(result.chapters[0].volume).toBe('1');
+            expect(result.chapters[0].number).toBe('2');
+            expect(result.chapters[0].content[0].type).toBe('image');
+            delete globalThis.JSZip;
+        });
+
+        it('Uses default volume/number when filename has no pattern', async () => {
+            const mockBlob = new Blob(['imgdata'], { type: 'image/jpeg' });
+            const mockImageFile = { async: vi.fn().mockResolvedValue(mockBlob) };
+            const zipContent = {
+                files: { 'random_image.jpg': {} },
+                file: vi.fn().mockReturnValue(mockImageFile)
+            };
+            globalThis.JSZip = class { loadAsync = vi.fn().mockResolvedValue(zipContent); };
+            exporter._blobToBase64 = vi.fn().mockResolvedValue('data:image/jpeg;base64,xxx');
+            const file = new File(['zip'], 'book.zip');
+            const result = await exporter.parseZip(file);
+            expect(result.chapters[0].volume).toBe('1');
+            expect(result.chapters[0].number).toBe('1');
+            delete globalThis.JSZip;
+        });
+
+        it('Skips image files that are null in zip', async () => {
+            const zipContent = {
+                files: { 'book_volume_1_chapter_1_page_1.jpg': {} },
+                file: vi.fn().mockReturnValue(null)
+            };
+            globalThis.JSZip = class { loadAsync = vi.fn().mockResolvedValue(zipContent); };
+            const file = new File(['zip'], 'book.zip');
+            const result = await exporter.parseZip(file);
+            expect(result.chapters).toHaveLength(0);
+            delete globalThis.JSZip;
+        });
+
+        it('Skips non-image files', async () => {
+            const zipContent = {
+                files: { 'readme.txt': {}, 'image.jpg': {} },
+                file: vi.fn().mockReturnValue({ async: vi.fn().mockResolvedValue(new Blob(['data'])) })
+            };
+            globalThis.JSZip = class { loadAsync = vi.fn().mockResolvedValue(zipContent); };
+            exporter._blobToBase64 = vi.fn().mockResolvedValue('data:image/jpeg;base64,xxx');
+            const file = new File(['zip'], 'book.zip');
+            const result = await exporter.parseZip(file);
+            expect(result.chapters[0].content).toHaveLength(1);
+            delete globalThis.JSZip;
+        });
+
+        it('Uses filename without extension as metadata name', async () => {
+            const zipContent = { files: {}, file: vi.fn() };
+            globalThis.JSZip = class { loadAsync = vi.fn().mockResolvedValue(zipContent); };
+            const file = new File(['zip'], 'mybook.zip');
+            const result = await exporter.parseZip(file);
+            expect(result.metadata.name).toBe('mybook');
+            expect(result.metadata.rus_name).toBe('mybook');
+            delete globalThis.JSZip;
+        });
+
+        it('Generates correct chapter title from volume and number', async () => {
+            const mockBlob = new Blob(['d'], { type: 'image/jpeg' });
+            const mockImageFile = { async: vi.fn().mockResolvedValue(mockBlob) };
+            const zipContent = {
+                files: { 'b_volume_3_chapter_7_page_1.jpg': {} },
+                file: vi.fn().mockReturnValue(mockImageFile)
+            };
+            globalThis.JSZip = class { loadAsync = vi.fn().mockResolvedValue(zipContent); };
+            exporter._blobToBase64 = vi.fn().mockResolvedValue('data:image/jpeg;base64,xxx');
+            const file = new File(['zip'], 'b.zip');
+            const result = await exporter.parseZip(file);
+            expect(result.chapters[0].title).toBe('Том 3, Глава 7');
+            delete globalThis.JSZip;
+        });
+
+        it('Adds multiple images to same chapter when they share volume/chapter key', async () => {
+            const mockBlob = new Blob(['d'], { type: 'image/jpeg' });
+            const mockImageFile = { async: vi.fn().mockResolvedValue(mockBlob) };
+            const zipContent = {
+                files: {
+                    'b_volume_1_chapter_1_page_1.jpg': {},
+                    'b_volume_1_chapter_1_page_2.jpg': {}
+                },
+                file: vi.fn().mockReturnValue(mockImageFile)
+            };
+            globalThis.JSZip = class { loadAsync = vi.fn().mockResolvedValue(zipContent); };
+            exporter._blobToBase64 = vi.fn().mockResolvedValue('data:image/jpeg;base64,xxx');
+            const file = new File(['zip'], 'b.zip');
+            const result = await exporter.parseZip(file);
+            expect(result.chapters).toHaveLength(1);
+            expect(result.chapters[0].content).toHaveLength(2);
+            delete globalThis.JSZip;
+        });
+
+        it('Falls back to Unknown when file has no name', async () => {
+            const zipContent = { files: {}, file: vi.fn() };
+            globalThis.JSZip = class { loadAsync = vi.fn().mockResolvedValue(zipContent); };
+            const file = new File(['zip'], '');
+            const result = await exporter.parseZip(file);
+            expect(result.metadata.name).toBe('Unknown');
+            delete globalThis.JSZip;
+        });
+    });
+
+    it('parseTxt falls back to Unknown when file has no name and no header', async () => {
+        const file = new File(['=== Глава 1: Title ===\nSome text\n'], '', { type: 'text/plain' });
+        const result = await exporter.parseTxt(file);
+        expect(result.metadata.name).toBe('Unknown');
+    });
+
+    it('Registers with ExporterRegistry when it is already defined on load', async () => {
+        vi.resetModules();
+        const register = vi.fn();
+        global.ExporterRegistry = { register };
+        await import('../../exporters/BaseExporter.js');
+        await import('../../exporters/SimpleExporter.js');
+        expect(register).toHaveBeenCalledWith('simple', expect.any(Function), { label: 'TXT/JPEG' });
+        delete global.ExporterRegistry;
+    });
 });

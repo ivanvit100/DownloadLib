@@ -58,4 +58,56 @@ describe('ExporterRegistry', () => {
             { value: 'simple', label: 'TXT/JPEG' },
         ]);
     });
+
+    it('_reset clears the registry', () => {
+        ExporterRegistry._reset();
+        expect(ExporterRegistry.getSupportedFormats()).toEqual([]);
+    });
+
+    it('getFormats uses format key as uppercase label when meta has no label', () => {
+        ExporterRegistry._reset();
+        ExporterRegistry.register('xyz', class {}, {});
+        const formats = ExporterRegistry.getFormats();
+        expect(formats).toEqual([{ value: 'xyz', label: 'XYZ' }]);
+    });
+
+    it('register uses default empty meta when third argument is omitted', () => {
+        ExporterRegistry._reset();
+        class DummyX {}
+        ExporterRegistry.register('x', DummyX);
+        expect(ExporterRegistry.getSupportedFormats()).toEqual(['x']);
+        const formats = ExporterRegistry.getFormats();
+        expect(formats).toEqual([{ value: 'x', label: 'X' }]);
+    });
+
+    it('Calls importScripts when importScripts is defined as a function', async () => {
+        vi.resetModules();
+        const called = [];
+        globalThis.importScripts = (...scripts) => { called.push(...scripts); };
+        await import('../../exporters/ExporterRegistry.js');
+        ExporterRegistry = global.ExporterRegistry;
+        expect(called.some(s => s.includes('BaseExporter.js'))).toBe(true);
+        delete globalThis.importScripts;
+        ExporterRegistry._reset();
+    });
+
+    it('Calls document.write when document.currentScript is not null', async () => {
+        vi.resetModules();
+        const written = [];
+        const origWrite = document.write?.bind(document);
+        document.write = (str) => { written.push(str); };
+        Object.defineProperty(document, 'currentScript', {
+            get: () => ({ tagName: 'SCRIPT' }),
+            configurable: true
+        });
+        await import('../../exporters/ExporterRegistry.js');
+        ExporterRegistry = global.ExporterRegistry;
+        expect(written.some(s => s.includes('BaseExporter.js'))).toBe(true);
+        if (origWrite) document.write = origWrite;
+        Object.defineProperty(document, 'currentScript', {
+            get: () => null,
+            configurable: true
+        });
+        ExporterRegistry._reset();
+    });
 });
