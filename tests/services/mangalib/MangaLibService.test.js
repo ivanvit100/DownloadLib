@@ -799,4 +799,21 @@ describe('MangaLibService', () => {
 
         warnSpy.mockRestore();
     });
+
+    it('Registers with serviceRegistry when it is already defined on load', async () => {
+        vi.resetModules();
+        const register = vi.fn();
+        global.serviceRegistry = { register };
+        global.mangalibConfig = {
+            name: 'MangaLib',
+            baseUrl: 'https://mangalib.me',
+            headers: {},
+            fields: [],
+            imagesDomain: 'https://imgslib.link'
+        };
+        await import('../../../services/BaseService.js');
+        await import('../../../services/mangalib/MangaLibService.js');
+        expect(register).toHaveBeenCalledWith(expect.any(Function));
+        delete global.serviceRegistry;
+    });
 });

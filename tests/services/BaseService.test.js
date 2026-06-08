@@ -41,6 +41,33 @@ describe('BaseService', () => {
         expect(() => BaseService.matches('url')).toThrow('matches must be implemented');
     });
 
+    it('extensionApi falls back to browser when getExtensionApi is not a function', () => {
+        delete global.getExtensionApi;
+        const svc = new BaseService(config);
+        const fakeBrowser = { runtime: {} };
+        global.browser = fakeBrowser;
+        expect(svc.extensionApi).toBe(fakeBrowser);
+        delete global.browser;
+    });
+
+    it('extensionApi falls back to chrome when browser is not defined', () => {
+        delete global.getExtensionApi;
+        delete global.browser;
+        const svc = new BaseService(config);
+        const fakeChrome = { runtime: {} };
+        global.chrome = fakeChrome;
+        expect(svc.extensionApi).toBe(fakeChrome);
+        delete global.chrome;
+    });
+
+    it('extensionApi returns null when neither getExtensionApi, browser nor chrome are defined', () => {
+        delete global.getExtensionApi;
+        delete global.browser;
+        delete global.chrome;
+        const svc = new BaseService(config);
+        expect(svc.extensionApi).toBeNull();
+    });
+
     it('Delay resolves after given ms', async () => {
         const svc = new BaseService(config);
         const spy = vi.spyOn(global, 'setTimeout');
@@ -215,5 +242,31 @@ describe('BaseService', () => {
         expect(fetchMock).toHaveBeenCalledTimes(3);
         delaySpy.mockRestore();
         delete global.fetch;
+    });
+
+    it('fetchMangaMetadata returns null when urls list is empty', async () => {
+        const svc = new BaseService({ name: 'T', baseUrl: 'https://test.com', fields: [] });
+        const origPush = Array.prototype.push;
+        Array.prototype.push = function() { return 0; };
+        try {
+            const result = await svc.fetchMangaMetadata('slug');
+            expect(result).toBeNull();
+        } finally {
+            Array.prototype.push = origPush;
+        }
+    });
+
+    it('fetchChapter includes branch_id param when branchId is provided', async () => {
+        const svc = new BaseService({ name: 'T', baseUrl: 'https://test.com', headers: {} });
+        const mockResponse = {
+            ok: true,
+            text: vi.fn().mockResolvedValue(JSON.stringify({ data: 'chapter' }))
+        };
+        vi.spyOn(svc, 'fetchWithRateLimitRetry').mockResolvedValue(mockResponse);
+        await svc.fetchChapter('slug', '1', '1', '123');
+        expect(svc.fetchWithRateLimitRetry).toHaveBeenCalledWith(
+            expect.stringContaining('branch_id=123'),
+            expect.any(Object)
+        );
     });
 });

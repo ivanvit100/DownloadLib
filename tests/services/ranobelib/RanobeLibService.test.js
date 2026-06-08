@@ -937,4 +937,20 @@ describe('RanobeLibService', () => {
         expect(calledUrl).toMatch(/^https:\/\/cdn\.example\.com\//);
         delete global.browser;
     });
+
+    it('Registers with serviceRegistry when it is already defined on load', async () => {
+        vi.resetModules();
+        const register = vi.fn();
+        global.serviceRegistry = { register };
+        global.ranolibConfig = {
+            name: 'RanobeLib',
+            baseUrl: 'https://ranobelib.me',
+            headers: {},
+            fields: []
+        };
+        await import('../../../services/BaseService.js');
+        await import('../../../services/ranobelib/RanobeLibService.js');
+        expect(register).toHaveBeenCalledWith(expect.any(Function));
+        delete global.serviceRegistry;
+    });
 });
