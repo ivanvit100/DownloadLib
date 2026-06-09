@@ -1051,6 +1051,64 @@ describe('Background', () => {
             await vi.waitFor(() => expect(sendResponse).toHaveBeenCalled());
             expect(sendResponse).toHaveBeenCalledWith({ ok: false, error: expect.stringContaining('window fail') });
         });
+
+        it('Handles openDownloadWindow when windows.create returns null', async () => {
+            globalThis.browser.windows = {
+                create: vi.fn().mockResolvedValue(null),
+                update: vi.fn(),
+            };
+            globalThis.browser.runtime.getURL = vi.fn().mockReturnValue('moz-extension://id/popup.html');
+
+            const sendResponse = vi.fn();
+            capturedMessageCb(
+                { action: 'openDownloadWindow', format: 'epub' },
+                { tab: { url: 'https://mangalib.me/manga/my-manga' } },
+                sendResponse,
+            );
+            await vi.waitFor(() => expect(sendResponse).toHaveBeenCalled());
+            expect(sendResponse).toHaveBeenCalledWith({ ok: false, error: 'window create' });
+        });
+
+        it('Handles openDownloadWindow using tabs.create when windows is unavailable', async () => {
+            globalThis.browser.runtime.getURL = vi.fn().mockReturnValue('moz-extension://id/popup.html');
+            globalThis.browser.tabs = { create: vi.fn().mockResolvedValue({ id: 5 }) };
+
+            const sendResponse = vi.fn();
+            capturedMessageCb(
+                { action: 'openDownloadWindow', format: 'epub' },
+                { tab: { url: 'https://mangalib.me/manga/my-manga' } },
+                sendResponse,
+            );
+            await vi.waitFor(() => expect(sendResponse).toHaveBeenCalled());
+            expect(sendResponse).toHaveBeenCalledWith({ ok: true });
+        });
+
+        it('Handles openDownloadWindow when tabs.create returns null', async () => {
+            globalThis.browser.runtime.getURL = vi.fn().mockReturnValue('moz-extension://id/popup.html');
+            globalThis.browser.tabs = { create: vi.fn().mockResolvedValue(null) };
+
+            const sendResponse = vi.fn();
+            capturedMessageCb(
+                { action: 'openDownloadWindow', format: 'epub' },
+                { tab: { url: 'https://mangalib.me/manga/my-manga' } },
+                sendResponse,
+            );
+            await vi.waitFor(() => expect(sendResponse).toHaveBeenCalled());
+            expect(sendResponse).toHaveBeenCalledWith({ ok: false, error: 'tab create' });
+        });
+
+        it('Handles openDownloadWindow when neither windows nor tabs API is available', async () => {
+            globalThis.browser.runtime.getURL = vi.fn().mockReturnValue('moz-extension://id/popup.html');
+
+            const sendResponse = vi.fn();
+            capturedMessageCb(
+                { action: 'openDownloadWindow', format: 'epub' },
+                { tab: { url: 'https://mangalib.me/manga/my-manga' } },
+                sendResponse,
+            );
+            await vi.waitFor(() => expect(sendResponse).toHaveBeenCalled());
+            expect(sendResponse).toHaveBeenCalledWith({ ok: false, error: 'No window/tab API available' });
+        });
     });
 
     describe('onBeforeRequest ad blocking', () => {

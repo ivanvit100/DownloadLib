@@ -393,6 +393,11 @@ describe('MangaPatcher', () => {
             const patch = MangaPatcher.patch({ authors: [], artists: [{ name: 'Петров' }, {}] });
             expect(patch.artists).toEqual(['Петров']);
         });
+
+        it('Returns empty string for null or numeric artist (hits return "" fallback)', () => {
+            const patch = MangaPatcher.patch({ authors: [], artists: [null, 42, 'ValidArtist'] });
+            expect(patch.artists).toEqual(['ValidArtist']);
+        });
     });
 
     describe('MangaPatcher', () => {

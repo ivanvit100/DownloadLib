@@ -1061,4 +1061,166 @@ describe('DownloadManager', () => {
         const result = await dm.downloadSingleChapter(service, ds, { number: '1', volume: '1' });
         expect(result.content[0].text).toBe('plain');
     });
+
+    it('Throws Unknown service when createService returns null', async () => {
+        globalThis.serviceRegistry.createService = vi.fn(() => null);
+        const dm = new DownloadManager();
+        await expect(dm.startDownload({ serviceKey: 'nonexistent' })).rejects.toThrow('Unknown service: nonexistent');
+    });
+
+    it('startDownload filters chapters by branchId when branchId is provided', async () => {
+        serviceMock.fetchChaptersList = vi.fn(async () => ({
+            data: [
+                { volume: '1', number: '1', branches: [{ branch_id: 42 }] },
+                { volume: '1', number: '2', branches: [{ branch_id: 99 }] }
+            ]
+        }));
+        const logSpy = vi.spyOn(console, 'log').mockImplementation(() => {});
+        const dm = new DownloadManager();
+        await dm.startDownload({ serviceKey: 'mangalib', url: 'https://site/manga/slug', branchId: 42 });
+        expect(serviceMock.fetchChapter).toHaveBeenCalledTimes(1);
+        expect(serviceMock.fetchChapter).toHaveBeenCalledWith('slug', '1', '1', 42);
+        logSpy.mockRestore();
+    });
+
+    it('_fetchCoverBase64 returns empty string when fetch throws', async () => {
+        const dm = new DownloadManager();
+        globalThis.fetch = vi.fn(async () => { throw new Error('Network error'); });
+        const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
+        const result = await dm._fetchCoverBase64({ config: {} }, 'https://cover.url');
+        expect(result).toBe('');
+        expect(warnSpy).toHaveBeenCalledWith('[DownloadManager] Failed to load cover:', expect.any(Error));
+        warnSpy.mockRestore();
+        delete globalThis.fetch;
+    });
+
+    it('downloadSingleChapter pushes branchId to fetchArgs when chapter.branchId is not null', async () => {
+        const dm = new DownloadManager();
+        const fetchSpy = vi.fn(async () => ({ data: { content: [] } }));
+        const service = {
+            fetchChapter: fetchSpy,
+            extractText: vi.fn(c => c),
+            processChapterContent: vi.fn(async c => c)
+        };
+        const ds = { slug: 'slug', format: 'fb2', mangaId: null };
+        await dm.downloadSingleChapter(service, ds, { number: '3', volume: '1', branchId: 77 });
+        expect(fetchSpy).toHaveBeenCalledWith('slug', '3', '1', 77);
+    });
+
+    it('downloadSpecificChapters pushes branchId to fetchArgs when chapter.branchId is not null', async () => {
+        const dm = new DownloadManager();
+        const ctrl = dm.createController();
+        const ds = { id: 'id', slug: 'slug', controller: ctrl, mangaId: null, format: 'fb2' };
+        const fetchSpy = vi.fn(async () => ({ data: { content: [] } }));
+        const service = {
+            fetchChapter: fetchSpy,
+            extractText: vi.fn(c => c),
+            processChapterContent: vi.fn(async c => c)
+        };
+        const chapters = [{ volume: '1', number: '5', branchId: 33 }];
+        await dm.downloadSpecificChapters(service, ds, chapters, 1);
+        expect(fetchSpy).toHaveBeenCalledWith('slug', '5', '1', 33);
+    });
+
+    it('downloadChapters pushes branchId to fetchArgs when chapter.branchId is not null', async () => {
+        const dm = new DownloadManager();
+        const ctrl = dm.createController();
+        const ds = { id: 'id', slug: 'slug', controller: ctrl, chapterContents: [], mangaId: null, format: 'fb2' };
+        const fetchSpy = vi.fn(async () => ({ data: { content: [] } }));
+        const service = {
+            fetchChapter: fetchSpy,
+            extractText: vi.fn(c => c),
+            processChapterContent: vi.fn(async c => c)
+        };
+        const chapters = [{ volume: '2', number: '7', branchId: 55 }];
+        await dm.downloadChapters(service, ds, chapters, () => {});
+        expect(fetchSpy).toHaveBeenCalledWith('slug', '7', '2', 55);
+    });
+
+    it('findMissingChapters returns empty array when no server chapter key matches existing', () => {
+        const dm = new DownloadManager();
+        const server = [createChapter('1', '1'), createChapter('1', '2')];
+        const exist = [Object.assign(createChapter('2', '5'), { content: [{ type: 'text', text: 'ok' }] })];
+        expect(dm.findMissingChapters(server, exist)).toEqual([]);
+    });
+
+    it('updateExistingFile downloads new chapters when chaptersToDownload is not empty', async () => {
+        const dm = new DownloadManager();
+        const ctrl = dm.createController();
+        const ds = { id: 'id', slug: 'slug', format: 'fb2', controller: ctrl };
+        const existingChapter = Object.assign(createChapter('1', '1'), {
+            content: [{ type: 'text', text: 'existing ok' }]
+        });
+        exporterMock.parse = vi.fn(async () => ({
+            chapters: [existingChapter],
+            metadata: { name: 'Manga', authors: [] },
+            cover: 'cover_base64'
+        }));
+        serviceMock.fetchChaptersList = vi.fn(async () => ({
+            data: [createChapter('1', '1'), createChapter('1', '2')]
+        }));
+        serviceMock.fetchChapter = vi.fn(async () => ({ data: { content: [{ type: 'text', text: 'new' }] } }));
+        const result = await dm.updateExistingFile(ds, serviceMock, {});
+        expect(result.success).toBe(true);
+        expect(result.updated).toBe(true);
+        expect(result.addedChapters).toBe(1);
+    });
+
+    it('updateExistingFile splits output when size exceeds limit', async () => {
+        const dm = new DownloadManager();
+        const ctrl = dm.createController();
+        const ds = { id: 'id', slug: 'slug', format: 'fb2', controller: ctrl, maxSizeMB: 0.000001 };
+        const existingChapter = Object.assign(createChapter('1', '1'), {
+            content: [{ type: 'text', text: 'existing ok' }]
+        });
+        exporterMock.parse = vi.fn(async () => ({
+            chapters: [existingChapter],
+            metadata: { name: 'Manga', authors: [] },
+            cover: 'cover_base64'
+        }));
+        serviceMock.fetchChaptersList = vi.fn(async () => ({
+            data: [createChapter('1', '1'), createChapter('1', '2')]
+        }));
+        serviceMock.fetchChapter = vi.fn(async () => ({ data: { content: [{ type: 'text', text: 'new content that is large' }] } }));
+        const result = await dm.updateExistingFile(ds, serviceMock, {});
+        expect(result.success).toBe(true);
+        expect(exporterMock.export).toHaveBeenCalledTimes(2);
+    });
+
+    it('updateExistingFile skips final export when mergedChapters is empty', async () => {
+        const dm = new DownloadManager();
+        const ctrl = dm.createController();
+        const ds = { id: 'id', slug: 'slug', format: 'fb2', controller: ctrl };
+        const existingChapter = Object.assign(createChapter('1', '1'), {
+            content: [{ type: 'text', text: 'ok' }]
+        });
+        exporterMock.parse = vi.fn(async () => ({
+            chapters: [existingChapter],
+            metadata: { name: 'M', authors: [] },
+            cover: 'c'
+        }));
+        serviceMock.fetchChaptersList = vi.fn(async () => ({
+            data: [createChapter('1', '1'), createChapter('1', '2')]
+        }));
+        vi.spyOn(dm, 'mergeChapters').mockReturnValue([]);
+        const result = await dm.updateExistingFile(ds, serviceMock, {});
+        expect(result.success).toBe(true);
+        expect(exporterMock.export).not.toHaveBeenCalled();
+    });
+
+    it('parseFile for mobi format', async () => {
+        const dm = new DownloadManager();
+        exporterMock.parse = vi.fn(async () => ({ chapters: [], metadata: {}, cover: '' }));
+        globalThis.ExporterRegistry = { create: vi.fn(() => exporterMock) };
+        const result = await dm.parseFile({}, 'mobi');
+        expect(result).toHaveProperty('chapters');
+    });
+
+    it('parseFile for simple format', async () => {
+        const dm = new DownloadManager();
+        exporterMock.parse = vi.fn(async () => ({ chapters: [], metadata: {}, cover: '' }));
+        globalThis.ExporterRegistry = { create: vi.fn(() => exporterMock) };
+        const result = await dm.parseFile({}, 'simple');
+        expect(result).toHaveProperty('chapters');
+    });
 });
