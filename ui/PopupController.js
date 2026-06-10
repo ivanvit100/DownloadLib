@@ -324,10 +324,7 @@
                 translatorContainer.appendChild(translatorLabel);
                 translatorContainer.appendChild(translatorSelect);
 
-                if (chapterRangeContainer)
-                    chapterRangeContainer.parentNode.insertBefore(translatorContainer, chapterRangeContainer);
-                else
-                    btn.parentNode.insertBefore(translatorContainer, btn);
+                chapterRangeContainer.parentNode.insertBefore(translatorContainer, chapterRangeContainer);
             } else console.warn('translatorContainer found in DOM');
 
             if (progress) progress.style.display = 'none';

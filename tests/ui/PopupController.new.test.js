@@ -938,4 +938,313 @@ describe('PopupController second test file', () => {
         controller.resetUI();
         expect(splitModeContainer.style.display).toBe('block');
     });
+
+    it('openInNewContext uses tabs.create when windows API is unavailable and tab is returned', async () => {
+        const controller = new PopupController();
+        delete global.browser.windows;
+        global.browser.tabs = { create: vi.fn(async () => ({ id: 5, active: true })) };
+
+        const warnSpy = vi.spyOn(console, 'warn');
+        await controller.openInNewContext('popup.html?test=1');
+
+        expect(global.browser.tabs.create).toHaveBeenCalledWith({ url: 'popup.html?test=1', active: true });
+        expect(warnSpy).not.toHaveBeenCalledWith('Tab created but no ID found:', expect.anything());
+    });
+
+    it('openInNewContext warns when tabs.create returns null', async () => {
+        const controller = new PopupController();
+        delete global.browser.windows;
+        global.browser.tabs = { create: vi.fn(async () => null) };
+
+        const warnSpy = vi.spyOn(console, 'warn');
+        await controller.openInNewContext('popup.html?test=1');
+
+        expect(warnSpy).toHaveBeenCalledWith('Tab created but no ID found:', null);
+    });
+
+    it('openInNewContext logs error when neither windows nor tabs API is available', async () => {
+        const controller = new PopupController();
+        delete global.browser.windows;
+        delete global.browser.tabs;
+
+        const errorSpy = vi.spyOn(console, 'error');
+        await controller.openInNewContext('popup.html?test=1');
+
+        expect(errorSpy).toHaveBeenCalledWith('No window/tab API available');
+    });
+
+    it('_setupTranslatorSelector returns null when translatorContainer is missing from DOM', () => {
+        const controller = new PopupController();
+        const tc = document.getElementById('translatorContainer');
+        if (tc) tc.parentNode.removeChild(tc);
+
+        const result = controller._setupTranslatorSelector([{ branches: [{ branch_id: 1 }] }], null);
+        expect(result).toBeNull();
+    });
+
+    it('_setupTranslatorSelector hides container and returns null when chapters have no branches', () => {
+        const controller = new PopupController();
+        const tc = document.getElementById('translatorContainer');
+        tc.style.display = 'block';
+
+        const result = controller._setupTranslatorSelector([{ volume: 1 }, { volume: 2 }], null);
+
+        expect(tc.style.display).toBe('none');
+        expect(result).toBeNull();
+    });
+
+    it('_setupTranslatorSelector hides container and returns branch id for single branch', () => {
+        const controller = new PopupController();
+        const tc = document.getElementById('translatorContainer');
+        tc.style.display = 'block';
+
+        const result = controller._setupTranslatorSelector([
+            { branches: [{ branch_id: 5, teams: [{ name: 'Solo Team' }] }] }
+        ], null);
+
+        expect(tc.style.display).toBe('none');
+        expect(result).toBe(5);
+    });
+
+    it('_setupTranslatorSelector shows selector with team names when multiple branches exist', () => {
+        const controller = new PopupController();
+        const chapters = [
+            { branches: [{ branch_id: 1, teams: [{ name: 'Team A' }] }, { branch_id: 2, teams: [{ name: 'Team B' }] }] },
+            { /* no branches */ }
+        ];
+
+        const result = controller._setupTranslatorSelector(chapters, null);
+
+        const tc = document.getElementById('translatorContainer');
+        expect(tc.style.display).toBe('block');
+        const ts = document.getElementById('translatorSelect');
+        expect(ts.options.length).toBe(2);
+        expect(ts.options[0].textContent).toBe('Team A');
+        expect(ts.options[1].textContent).toBe('Team B');
+        expect(result).toBe(1);
+    });
+
+    it('_setupTranslatorSelector uses default name when branch has no teams', () => {
+        const controller = new PopupController();
+        const chapters = [
+            { branches: [{ branch_id: 10 }, { branch_id: 20 }] }
+        ];
+
+        controller._setupTranslatorSelector(chapters, null);
+
+        const ts = document.getElementById('translatorSelect');
+        expect(ts.options[0].textContent).toBe('Перевод 10');
+        expect(ts.options[1].textContent).toBe('Перевод 20');
+    });
+
+    it('_setupTranslatorSelector uses branchIdFromUrl when it matches a known branch', () => {
+        const controller = new PopupController();
+        const chapters = [
+            { branches: [{ branch_id: 1, teams: [{ name: 'Team A' }] }, { branch_id: 2, teams: [{ name: 'Team B' }] }] }
+        ];
+
+        const result = controller._setupTranslatorSelector(chapters, '2');
+
+        expect(result).toBe(2);
+        const ts = document.getElementById('translatorSelect');
+        expect(Number(ts.value)).toBe(2);
+    });
+
+    it('_setupTranslatorSelector onchange repopulates chapter selects with filtered chapters', () => {
+        const controller = new PopupController();
+        const chapters = [
+            { volume: 1, number: 1, branches: [{ branch_id: 1, teams: [{ name: 'A' }] }, { branch_id: 2, teams: [{ name: 'B' }] }] },
+            { volume: 1, number: 2, branches: [{ branch_id: 2, teams: [{ name: 'B' }] }] }
+        ];
+        controller._allChapters = chapters;
+
+        controller._setupTranslatorSelector(chapters, null);
+
+        const repopulateSpy = vi.spyOn(controller, '_repopulateChapterSelects');
+        const ts = document.getElementById('translatorSelect');
+        ts.value = '2';
+        ts.dispatchEvent(new Event('change'));
+
+        expect(repopulateSpy).toHaveBeenCalled();
+    });
+
+    it('_setupTranslatorSelector onchange skips repopulate when chapter selects are removed from DOM', () => {
+        const controller = new PopupController();
+        const chapters = [
+            { volume: 1, number: 1, branches: [{ branch_id: 1, teams: [{ name: 'A' }] }, { branch_id: 2, teams: [{ name: 'B' }] }] }
+        ];
+        controller._allChapters = chapters;
+
+        controller._setupTranslatorSelector(chapters, null);
+
+        const fromSelect = document.getElementById('chapterFromSelect');
+        if (fromSelect) fromSelect.parentNode.removeChild(fromSelect);
+
+        const repopulateSpy = vi.spyOn(controller, '_repopulateChapterSelects');
+        const ts = document.getElementById('translatorSelect');
+        ts.value = '2';
+        ts.dispatchEvent(new Event('change'));
+
+        expect(repopulateSpy).not.toHaveBeenCalled();
+    });
+
+    it('_getFilteredChapters returns only chapters matching the given branchId', () => {
+        const controller = new PopupController();
+        controller._allChapters = [
+            { volume: 1, number: 1, branches: [{ branch_id: 1 }] },
+            { volume: 1, number: 2, branches: [{ branch_id: 2 }] },
+            { volume: 1, number: 3, branches: [{ branch_id: 1 }, { branch_id: 2 }] },
+            { volume: 2, number: 1 }
+        ];
+
+        const result = controller._getFilteredChapters(1);
+
+        expect(result).toHaveLength(2);
+        expect(result[0].number).toBe(1);
+        expect(result[1].number).toBe(3);
+    });
+
+    it('Appends branchId to URL params when translatorContainer is visible during download button click', async () => {
+        const controller = new PopupController();
+        controller.isInSeparateWindow = vi.fn().mockResolvedValue(false);
+        controller.loadedFile = null;
+
+        await new Promise(resolve => setTimeout(resolve, 100));
+
+        const tc = document.getElementById('translatorContainer');
+        tc.style.display = 'block';
+        const ts = document.getElementById('translatorSelect');
+        const opt = document.createElement('option');
+        opt.value = '42';
+        ts.appendChild(opt);
+        ts.value = '42';
+
+        const windowsCreateSpy = vi.spyOn(global.browser.windows, 'create').mockResolvedValue({ id: 123 });
+
+        document.getElementById('downloadBtn').click();
+
+        await new Promise(resolve => setTimeout(resolve, 100));
+
+        const urlArg = windowsCreateSpy.mock.calls[0]?.[0]?.url;
+        expect(urlArg).toContain('branchId=42');
+    });
+
+    it('Warns when translatorContainer is missing during download start', async () => {
+        const controller = new PopupController();
+        controller.currentSlug = 'slug';
+        controller.currentServiceKey = 'ranobelib';
+
+        await new Promise(resolve => setTimeout(resolve, 100));
+
+        const tc = document.getElementById('translatorContainer');
+        if (tc) tc.parentNode.removeChild(tc);
+
+        const warnSpy = vi.spyOn(console, 'warn');
+        await controller.startDownload();
+
+        expect(warnSpy).toHaveBeenCalledWith('Translator container not found when hiding during download');
+    });
+
+    it('Warns when translatorContainer is missing during UI reset', () => {
+        const controller = new PopupController();
+
+        const tc = document.getElementById('translatorContainer');
+        if (tc) tc.parentNode.removeChild(tc);
+
+        const warnSpy = vi.spyOn(console, 'warn');
+        controller.resetUI();
+
+        expect(warnSpy).toHaveBeenCalledWith('Translator container not found when resetting UI');
+    });
+
+    it('_loadChaptersAndPopulateSelects skips hiding translatorContainer when it is absent and no multiple branches', async () => {
+        const controller = new PopupController();
+        await new Promise(resolve => setTimeout(resolve, 100));
+
+        const tc = document.getElementById('translatorContainer');
+        if (tc) tc.parentNode.removeChild(tc);
+
+        const service = { fetchChaptersList: vi.fn(async () => ({ data: [{ volume: 1, number: 1 }] })) };
+        const result = await controller._loadChaptersAndPopulateSelects(service, 'slug', null, null);
+
+        expect(result).toBe(1);
+    });
+
+    it('_loadChaptersAndPopulateSelects calls _setupTranslatorSelector and filters chapters when multiple branches exist', async () => {
+        const controller = new PopupController();
+        await new Promise(resolve => setTimeout(resolve, 100));
+
+        const chapters = [
+            { volume: 1, number: 1, branches: [
+                { branch_id: 1, teams: [{ name: 'Team A' }] },
+                { branch_id: 2, teams: [{ name: 'Team B' }] }
+            ]},
+            { volume: 1, number: 2, branches: [{ branch_id: 1, teams: [{ name: 'Team A' }] }] }
+        ];
+        const service = { fetchChaptersList: vi.fn(async () => ({ data: chapters })) };
+
+        const count = await controller._loadChaptersAndPopulateSelects(service, 'slug', null, null);
+
+        expect(count).toBe(2);
+        const tc = document.getElementById('translatorContainer');
+        expect(tc.style.display).toBe('block');
+    });
+
+    it('_renderMeta handles empty authors array (covers false branches of secondLine ternaries)', async () => {
+        global.serviceRegistry.getServiceByUrl = vi.fn(() => ({
+            name: 'ranobelib',
+            fetchMangaMetadata: vi.fn(async () => ({
+                data: {
+                    rus_name: 'Title', summary: 'Summary', cover: 'cover.png',
+                    authors: [], artists: [],
+                    ageRestriction: { label: '18+' }, releaseDate: '2020'
+                }
+            })),
+            fetchChaptersList: vi.fn(async () => ({ data: [] }))
+        }));
+
+        const controller = new PopupController();
+        await controller.loadMetadata();
+
+        const logoInfo = document.getElementById('logoInfo');
+        expect(logoInfo.textContent).not.toContain('Авторы:');
+    });
+
+    it('loadMetadata parses integer branchId from URL params (covers true branch at branchIdFromUrl)', async () => {
+        Object.defineProperty(window, 'location', {
+            value: { search: '?branchId=2' },
+            configurable: true
+        });
+
+        const controller = new PopupController();
+        await controller.loadMetadata();
+
+        expect(document.getElementById('downloadBtn').disabled).toBe(false);
+    });
+
+    it('startDownload passes branchId to downloadManager when translatorContainer is visible', async () => {
+        const controller = new PopupController();
+        controller.currentSlug = 'slug';
+        controller.currentServiceKey = 'ranobelib';
+
+        await new Promise(resolve => setTimeout(resolve, 100));
+
+        const tc = document.getElementById('translatorContainer');
+        tc.style.display = 'block';
+        const ts = document.getElementById('translatorSelect');
+        const opt = document.createElement('option');
+        opt.value = '7';
+        ts.appendChild(opt);
+        ts.value = '7';
+
+        let capturedBranchId;
+        controller.downloadManager.startDownload = vi.fn(async (opts) => {
+            capturedBranchId = opts.branchId;
+            return {};
+        });
+
+        await controller.startDownload();
+
+        expect(capturedBranchId).toBe(7);
+    });
 });
