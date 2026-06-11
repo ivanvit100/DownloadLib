@@ -1,0 +1,272 @@
+<svg width="1462pt" height="885pt" viewBox="0.00 0.00 1462.00 885.00" xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink">
+<g id="graph0" class="graph" transform="scale(1 1) rotate(0) translate(4 881.2)">
+<title>DownloadLib</title>
+<polygon fill="white" stroke="none" points="-4,4 -4,-881.2 1458,-881.2 1458,4 -4,4"/>
+<g id="clust1" class="cluster">
+<title>cluster_core</title>
+<polygon fill="#e3f2fd" stroke="#aaaaaa" points="8,-335.8 8,-563.2 636,-563.2 636,-335.8 8,-335.8"/>
+<text xml:space="preserve" text-anchor="middle" x="322" y="-548.4" font-family="Helvetica,sans-Serif" font-size="12.00">Core</text>
+</g>
+<g id="clust2" class="cluster">
+<title>cluster_services</title>
+<polygon fill="#e8f5e9" stroke="#aaaaaa" points="1080,-8 1080,-410.2 1417,-410.2 1417,-8 1080,-8"/>
+<text xml:space="preserve" text-anchor="middle" x="1248.5" y="-395.4" font-family="Helvetica,sans-Serif" font-size="12.00">Services</text>
+</g>
+<g id="clust3" class="cluster">
+<title>cluster_exporters</title>
+<polygon fill="#fce4ec" stroke="#aaaaaa" points="644,-8 644,-410.2 1010,-410.2 1010,-8 644,-8"/>
+<text xml:space="preserve" text-anchor="middle" x="827" y="-395.4" font-family="Helvetica,sans-Serif" font-size="12.00">Exporters</text>
+</g>
+<g id="clust4" class="cluster">
+<title>cluster_ui</title>
+<polygon fill="#f3e5f5" stroke="#aaaaaa" points="512,-641.8 512,-869.2 674,-869.2 674,-641.8 512,-641.8"/>
+<text xml:space="preserve" text-anchor="middle" x="593" y="-854.4" font-family="Helvetica,sans-Serif" font-size="12.00">UI</text>
+</g>
+<g id="clust5" class="cluster">
+<title>cluster_bg</title>
+<polygon fill="#fff3e0" stroke="#aaaaaa" points="996,-488.8 996,-716.2 1446,-716.2 1446,-488.8 996,-488.8"/>
+<text xml:space="preserve" text-anchor="middle" x="1221" y="-701.4" font-family="Helvetica,sans-Serif" font-size="12.00">Background</text>
+</g>
+<!-- BA -->
+<g id="node1" class="node">
+<title>BA</title>
+<path fill="#bbdefb" stroke="black" d="M395.45,-532.8C395.45,-532.8 284.55,-532.8 284.55,-532.8 278.55,-532.8 272.55,-526.8 272.55,-520.8 272.55,-520.8 272.55,-508.8 272.55,-508.8 272.55,-502.8 278.55,-496.8 284.55,-496.8 284.55,-496.8 395.45,-496.8 395.45,-496.8 401.45,-496.8 407.45,-502.8 407.45,-508.8 407.45,-508.8 407.45,-520.8 407.45,-520.8 407.45,-526.8 401.45,-532.8 395.45,-532.8"/>
+<text xml:space="preserve" text-anchor="middle" x="340" y="-511.5" font-family="Helvetica,sans-Serif" font-size="11.00">core/BrowserApi.js</text>
+</g>
+<!-- EB -->
+<g id="node2" class="node">
+<title>EB</title>
+<path fill="#bbdefb" stroke="black" d="M136.87,-379.8C136.87,-379.8 35.13,-379.8 35.13,-379.8 29.13,-379.8 23.13,-373.8 23.13,-367.8 23.13,-367.8 23.13,-355.8 23.13,-355.8 23.13,-349.8 29.13,-343.8 35.13,-343.8 35.13,-343.8 136.87,-343.8 136.87,-343.8 142.87,-343.8 148.87,-349.8 148.87,-355.8 148.87,-355.8 148.87,-367.8 148.87,-367.8 148.87,-373.8 142.87,-379.8 136.87,-379.8"/>
+<text xml:space="preserve" text-anchor="middle" x="86" y="-358.5" font-family="Helvetica,sans-Serif" font-size="11.00">core/EventBus.js</text>
+</g>
+<!-- RL -->
+<g id="node3" class="node">
+<title>RL</title>
+<path fill="#bbdefb" stroke="black" d="M616.45,-532.8C616.45,-532.8 505.55,-532.8 505.55,-532.8 499.55,-532.8 493.55,-526.8 493.55,-520.8 493.55,-520.8 493.55,-508.8 493.55,-508.8 493.55,-502.8 499.55,-496.8 505.55,-496.8 505.55,-496.8 616.45,-496.8 616.45,-496.8 622.45,-496.8 628.45,-502.8 628.45,-508.8 628.45,-508.8 628.45,-520.8 628.45,-520.8 628.45,-526.8 622.45,-532.8 616.45,-532.8"/>
+<text xml:space="preserve" text-anchor="middle" x="561" y="-511.5" font-family="Helvetica,sans-Serif" font-size="11.00">core/RateLimiter.js</text>
+</g>
+<!-- DM -->
+<g id="node4" class="node">
+<title>DM</title>
+<path fill="#bbdefb" stroke="black" d="M174.49,-532.8C174.49,-532.8 27.51,-532.8 27.51,-532.8 21.51,-532.8 15.51,-526.8 15.51,-520.8 15.51,-520.8 15.51,-508.8 15.51,-508.8 15.51,-502.8 21.51,-496.8 27.51,-496.8 27.51,-496.8 174.49,-496.8 174.49,-496.8 180.49,-496.8 186.49,-502.8 186.49,-508.8 186.49,-508.8 186.49,-520.8 186.49,-520.8 186.49,-526.8 180.49,-532.8 174.49,-532.8"/>
+<text xml:space="preserve" text-anchor="middle" x="101" y="-511.5" font-family="Helvetica,sans-Serif" font-size="11.00">core/DownloadManager.js</text>
+</g>
+<!-- DM&#45;&gt;EB -->
+<g id="edge9" class="edge">
+<title>DM-&gt;EB</title>
+<path fill="none" stroke="#555555" d="M91.98,-496.67C67.6,-447.21 64.96,-435.02 77.29,-391.09"/>
+<polygon fill="#555555" stroke="#555555" points="80.6,-392.25 80.02,-381.67 73.88,-390.3 80.6,-392.25"/>
+</g>
+<!-- MP -->
+<g id="node5" class="node">
+<title>MP</title>
+<path fill="#bbdefb" stroke="black" d="M373.1,-379.8C373.1,-379.8 246.9,-379.8 246.9,-379.8 240.9,-379.8 234.9,-373.8 234.9,-367.8 234.9,-367.8 234.9,-355.8 234.9,-355.8 234.9,-349.8 240.9,-343.8 246.9,-343.8 246.9,-343.8 373.1,-343.8 373.1,-343.8 379.1,-343.8 385.1,-349.8 385.1,-355.8 385.1,-355.8 385.1,-367.8 385.1,-367.8 385.1,-373.8 379.1,-379.8 373.1,-379.8"/>
+<text xml:space="preserve" text-anchor="middle" x="310" y="-358.5" font-family="Helvetica,sans-Serif" font-size="11.00">core/MangaPatcher.js</text>
+</g>
+<!-- DM&#45;&gt;MP -->
+<g id="edge10" class="edge">
+<title>DM-&gt;MP</title>
+<path fill="none" stroke="#555555" d="M113.55,-496.67C149.69,-445.07 163.61,-434.02 262.29,-385.22"/>
+<polygon fill="#555555" stroke="#555555" points="263.65,-388.45 271.07,-380.89 260.55,-382.17 263.65,-388.45"/>
+</g>
+<!-- SR -->
+<g id="node6" class="node">
+<title>SR</title>
+<path fill="#c8e6c9" stroke="black" d="M1255.31,-379.8C1255.31,-379.8 1104.69,-379.8 1104.69,-379.8 1098.69,-379.8 1092.69,-373.8 1092.69,-367.8 1092.69,-367.8 1092.69,-355.8 1092.69,-355.8 1092.69,-349.8 1098.69,-343.8 1104.69,-343.8 1104.69,-343.8 1255.31,-343.8 1255.31,-343.8 1261.31,-343.8 1267.31,-349.8 1267.31,-355.8 1267.31,-355.8 1267.31,-367.8 1267.31,-367.8 1267.31,-373.8 1261.31,-379.8 1255.31,-379.8"/>
+<text xml:space="preserve" text-anchor="middle" x="1180" y="-358.5" font-family="Helvetica,sans-Serif" font-size="11.00">services/ServiceRegistry.js</text>
+</g>
+<!-- DM&#45;&gt;SR -->
+<g id="edge11" class="edge">
+<title>DM-&gt;SR</title>
+<path fill="none" stroke="#555555" d="M178.26,-496.31C415.82,-439.93 481.92,-431.69 1081.31,-371.67"/>
+<polygon fill="#555555" stroke="#555555" points="1081.3,-375.19 1090.9,-370.71 1080.6,-368.23 1081.3,-375.19"/>
+</g>
+<!-- ER -->
+<g id="node9" class="node">
+<title>ER</title>
+<path fill="#f8bbd0" stroke="black" d="M874.51,-379.8C874.51,-379.8 713.49,-379.8 713.49,-379.8 707.49,-379.8 701.49,-373.8 701.49,-367.8 701.49,-367.8 701.49,-355.8 701.49,-355.8 701.49,-349.8 707.49,-343.8 713.49,-343.8 713.49,-343.8 874.51,-343.8 874.51,-343.8 880.51,-343.8 886.51,-349.8 886.51,-355.8 886.51,-355.8 886.51,-367.8 886.51,-367.8 886.51,-373.8 880.51,-379.8 874.51,-379.8"/>
+<text xml:space="preserve" text-anchor="middle" x="794" y="-358.5" font-family="Helvetica,sans-Serif" font-size="11.00">exporters/ExporterRegistry.js</text>
+</g>
+<!-- DM&#45;&gt;ER -->
+<g id="edge12" class="edge">
+<title>DM-&gt;ER</title>
+<path fill="none" stroke="#555555" d="M150.41,-496.36C295.96,-442.5 340.87,-432.87 690.04,-378.07"/>
+<polygon fill="#555555" stroke="#555555" points="690.43,-381.55 699.76,-376.54 689.34,-374.64 690.43,-381.55"/>
+</g>
+<!-- BS -->
+<g id="node7" class="node">
+<title>BS</title>
+<path fill="#c8e6c9" stroke="black" d="M1282.67,-52C1282.67,-52 1147.33,-52 1147.33,-52 1141.33,-52 1135.33,-46 1135.33,-40 1135.33,-40 1135.33,-28 1135.33,-28 1135.33,-22 1141.33,-16 1147.33,-16 1147.33,-16 1282.67,-16 1282.67,-16 1288.67,-16 1294.67,-22 1294.67,-28 1294.67,-28 1294.67,-40 1294.67,-40 1294.67,-46 1288.67,-52 1282.67,-52"/>
+<text xml:space="preserve" text-anchor="middle" x="1215" y="-30.7" font-family="Helvetica,sans-Serif" font-size="11.00">services/BaseService.js</text>
+</g>
+<!-- SR&#45;&gt;BS -->
+<g id="edge1" class="edge">
+<title>SR-&gt;BS</title>
+<path fill="none" stroke="#888888" stroke-dasharray="5,2" d="M1187.23,-343.38C1250.55,-182.02 1254.6,-165.32 1223.94,-63.28"/>
+<polygon fill="#888888" stroke="#888888" points="1227.35,-62.46 1221.1,-53.9 1220.65,-64.49 1227.35,-62.46"/>
+<text xml:space="preserve" text-anchor="middle" x="1181.26" y="-190.3" font-family="Helvetica,sans-Serif" font-size="9.00">dyn</text>
+</g>
+<!-- SVC -->
+<g id="node8" class="node">
+<title>SVC</title>
+<path fill="#c8e6c9" stroke="black" stroke-dasharray="5,2" d="M1397.14,-217C1397.14,-217 1286.86,-217 1286.86,-217 1280.86,-217 1274.86,-211 1274.86,-205 1274.86,-205 1274.86,-181 1274.86,-181 1274.86,-175 1280.86,-169 1286.86,-169 1286.86,-169 1397.14,-169 1397.14,-169 1403.14,-169 1409.14,-175 1409.14,-181 1409.14,-181 1409.14,-205 1409.14,-205 1409.14,-211 1403.14,-217 1397.14,-217"/>
+<text xml:space="preserve" text-anchor="middle" x="1342" y="-196.3" font-family="Helvetica,sans-Serif" font-size="11.00">services/*/config.js</text>
+<text xml:space="preserve" text-anchor="middle" x="1342" y="-183.1" font-family="Helvetica,sans-Serif" font-size="11.00">+ XyzService.js</text>
+</g>
+<!-- SR&#45;&gt;SVC -->
+<g id="edge2" class="edge">
+<title>SR-&gt;SVC</title>
+<path fill="none" stroke="#888888" stroke-dasharray="5,2" d="M1203.44,-343.54C1284.84,-280.04 1303.02,-264.19 1323.98,-227.22"/>
+<polygon fill="#888888" stroke="#888888" points="1326.94,-229.11 1328.68,-218.66 1320.8,-225.74 1326.94,-229.11"/>
+<text xml:space="preserve" text-anchor="middle" x="1263.26" y="-277.7" font-family="Helvetica,sans-Serif" font-size="9.00">dyn</text>
+</g>
+<!-- SVC&#45;&gt;SR -->
+<g id="edge5" class="edge">
+<title>SVC-&gt;SR</title>
+<path fill="none" stroke="#888888" stroke-dasharray="5,2" d="M1203.71,-343.33C1284.94,-279.95 1303.07,-264.12 1324.03,-227.14"/>
+<polygon fill="#888888" stroke="#888888" points="1326.99,-229.02 1328.73,-218.57 1320.85,-225.65 1326.99,-229.02"/>
+<text xml:space="preserve" text-anchor="middle" x="1385.51" y="-277.7" font-family="Helvetica,sans-Serif" font-size="9.00">self-register</text>
+</g>
+<!-- SVC&#45;&gt;BS -->
+<g id="edge7" class="edge">
+<title>SVC-&gt;BS</title>
+<path fill="none" stroke="#555555" d="M1335.07,-168.8C1316.69,-105.73 1308.1,-91.5 1255.12,-58.29"/>
+<polygon fill="#555555" stroke="#555555" points="1257.1,-55.4 1246.76,-53.11 1253.42,-61.35 1257.1,-55.4"/>
+</g>
+<!-- BE -->
+<g id="node10" class="node">
+<title>BE</title>
+<path fill="#f8bbd0" stroke="black" d="M857.88,-52C857.88,-52 712.12,-52 712.12,-52 706.12,-52 700.12,-46 700.12,-40 700.12,-40 700.12,-28 700.12,-28 700.12,-22 706.12,-16 712.12,-16 712.12,-16 857.88,-16 857.88,-16 863.88,-16 869.88,-22 869.88,-28 869.88,-28 869.88,-40 869.88,-40 869.88,-46 863.88,-52 857.88,-52"/>
+<text xml:space="preserve" text-anchor="middle" x="785" y="-30.7" font-family="Helvetica,sans-Serif" font-size="11.00">exporters/BaseExporter.js</text>
+</g>
+<!-- ER&#45;&gt;BE -->
+<g id="edge3" class="edge">
+<title>ER-&gt;BE</title>
+<path fill="none" stroke="#888888" stroke-dasharray="5,2" d="M794.97,-343.34C804.76,-157.37 805.38,-134.73 791.03,-63.21"/>
+<polygon fill="#888888" stroke="#888888" points="794.53,-62.86 789.11,-53.76 787.67,-64.26 794.53,-62.86"/>
+<text xml:space="preserve" text-anchor="middle" x="745.26" y="-190.3" font-family="Helvetica,sans-Serif" font-size="9.00">dyn</text>
+</g>
+<!-- EXP -->
+<g id="node11" class="node">
+<title>EXP</title>
+<path fill="#f8bbd0" stroke="black" stroke-dasharray="5,2" d="M989.51,-211C989.51,-211 850.49,-211 850.49,-211 844.49,-211 838.49,-205 838.49,-199 838.49,-199 838.49,-187 838.49,-187 838.49,-181 844.49,-175 850.49,-175 850.49,-175 989.51,-175 989.51,-175 995.51,-175 1001.51,-181 1001.51,-187 1001.51,-187 1001.51,-199 1001.51,-199 1001.51,-205 995.51,-211 989.51,-211"/>
+<text xml:space="preserve" text-anchor="middle" x="920" y="-189.7" font-family="Helvetica,sans-Serif" font-size="11.00">exporters/XyzExporter.js</text>
+</g>
+<!-- ER&#45;&gt;EXP -->
+<g id="edge4" class="edge">
+<title>ER-&gt;EXP</title>
+<path fill="none" stroke="#888888" stroke-dasharray="5,2" d="M807.89,-343.6C866.57,-266.72 880.88,-247.85 900.46,-220.5"/>
+<polygon fill="#888888" stroke="#888888" points="903.23,-222.65 906.19,-212.47 897.53,-218.58 903.23,-222.65"/>
+<text xml:space="preserve" text-anchor="middle" x="837.26" y="-277.7" font-family="Helvetica,sans-Serif" font-size="9.00">dyn</text>
+</g>
+<!-- EXP&#45;&gt;ER -->
+<g id="edge6" class="edge">
+<title>EXP-&gt;ER</title>
+<path fill="none" stroke="#888888" stroke-dasharray="5,2" d="M807.98,-343.48C866.59,-266.68 880.89,-247.83 900.47,-220.49"/>
+<polygon fill="#888888" stroke="#888888" points="903.24,-222.63 906.2,-212.46 897.54,-218.57 903.24,-222.63"/>
+<text xml:space="preserve" text-anchor="middle" x="959.51" y="-277.7" font-family="Helvetica,sans-Serif" font-size="9.00">self-register</text>
+</g>
+<!-- EXP&#45;&gt;BE -->
+<g id="edge8" class="edge">
+<title>EXP-&gt;BE</title>
+<path fill="none" stroke="#555555" d="M911.84,-174.61C878.38,-99.42 867.64,-79.5 831.34,-58"/>
+<polygon fill="#555555" stroke="#555555" points="833.28,-55.08 822.85,-53.21 829.84,-61.17 833.28,-55.08"/>
+</g>
+<!-- PC -->
+<g id="node12" class="node">
+<title>PC</title>
+<path fill="#e1bee7" stroke="black" d="M653.65,-685.8C653.65,-685.8 532.35,-685.8 532.35,-685.8 526.35,-685.8 520.35,-679.8 520.35,-673.8 520.35,-673.8 520.35,-661.8 520.35,-661.8 520.35,-655.8 526.35,-649.8 532.35,-649.8 532.35,-649.8 653.65,-649.8 653.65,-649.8 659.65,-649.8 665.65,-655.8 665.65,-661.8 665.65,-661.8 665.65,-673.8 665.65,-673.8 665.65,-679.8 659.65,-685.8 653.65,-685.8"/>
+<text xml:space="preserve" text-anchor="middle" x="593" y="-664.5" font-family="Helvetica,sans-Serif" font-size="11.00">ui/PopupController.js</text>
+</g>
+<!-- PC&#45;&gt;DM -->
+<g id="edge13" class="edge">
+<title>PC-&gt;DM</title>
+<path fill="none" stroke="#555555" d="M520.24,-659.65C273.51,-631.66 243.56,-622.46 133.98,-539.9"/>
+<polygon fill="#555555" stroke="#555555" points="136.19,-537.18 126.1,-533.94 131.97,-542.76 136.19,-537.18"/>
+</g>
+<!-- PC&#45;&gt;MP -->
+<g id="edge16" class="edge">
+<title>PC-&gt;MP</title>
+<path fill="none" stroke="#555555" d="M561.76,-649.37C382.75,-543.54 369.21,-529.79 320.17,-390.83"/>
+<polygon fill="#555555" stroke="#555555" points="323.54,-389.86 316.92,-381.59 316.93,-392.18 323.54,-389.86"/>
+</g>
+<!-- PC&#45;&gt;SR -->
+<g id="edge15" class="edge">
+<title>PC-&gt;SR</title>
+<path fill="none" stroke="#555555" d="M666,-650.8C990.2,-574.9 1015.12,-560.04 1157.38,-389.06"/>
+<polygon fill="#555555" stroke="#555555" points="1160.02,-391.36 1163.72,-381.43 1154.64,-386.89 1160.02,-391.36"/>
+</g>
+<!-- PC&#45;&gt;ER -->
+<g id="edge14" class="edge">
+<title>PC-&gt;ER</title>
+<path fill="none" stroke="#555555" d="M608.08,-649.52C662.08,-583.85 672.95,-566.67 777.53,-389.69"/>
+<polygon fill="#555555" stroke="#555555" points="780.39,-391.73 782.46,-381.34 774.36,-388.17 780.39,-391.73"/>
+</g>
+<!-- APP -->
+<g id="node13" class="node">
+<title>APP</title>
+<path fill="#e1bee7" stroke="black" d="M617.28,-838.8C617.28,-838.8 568.72,-838.8 568.72,-838.8 562.72,-838.8 556.72,-832.8 556.72,-826.8 556.72,-826.8 556.72,-814.8 556.72,-814.8 556.72,-808.8 562.72,-802.8 568.72,-802.8 568.72,-802.8 617.28,-802.8 617.28,-802.8 623.28,-802.8 629.28,-808.8 629.28,-814.8 629.28,-814.8 629.28,-826.8 629.28,-826.8 629.28,-832.8 623.28,-838.8 617.28,-838.8"/>
+<text xml:space="preserve" text-anchor="middle" x="593" y="-817.5" font-family="Helvetica,sans-Serif" font-size="11.00">app.js</text>
+</g>
+<!-- APP&#45;&gt;PC -->
+<g id="edge23" class="edge">
+<title>APP-&gt;PC</title>
+<path fill="none" stroke="#555555" d="M588.44,-802.36C581.88,-774.05 582.25,-760.63 589.58,-697.11"/>
+<polygon fill="#555555" stroke="#555555" points="593.01,-697.86 590.69,-687.53 586.06,-697.06 593.01,-697.86"/>
+</g>
+<!-- BGD -->
+<g id="node14" class="node">
+<title>BGD</title>
+<path fill="#ffe0b2" stroke="black" d="M1284.18,-532.8C1284.18,-532.8 1085.82,-532.8 1085.82,-532.8 1079.82,-532.8 1073.82,-526.8 1073.82,-520.8 1073.82,-520.8 1073.82,-508.8 1073.82,-508.8 1073.82,-502.8 1079.82,-496.8 1085.82,-496.8 1085.82,-496.8 1284.18,-496.8 1284.18,-496.8 1290.18,-496.8 1296.18,-502.8 1296.18,-508.8 1296.18,-508.8 1296.18,-520.8 1296.18,-520.8 1296.18,-526.8 1290.18,-532.8 1284.18,-532.8"/>
+<text xml:space="preserve" text-anchor="middle" x="1185" y="-511.5" font-family="Helvetica,sans-Serif" font-size="11.00">background/BackgroundDownload.js</text>
+</g>
+<!-- BGD&#45;&gt;MP -->
+<g id="edge19" class="edge">
+<title>BGD-&gt;MP</title>
+<path fill="none" stroke="#555555" d="M1124.18,-496.36C931.7,-438.47 878.75,-430.23 396.59,-372.21"/>
+<polygon fill="#555555" stroke="#555555" points="397.34,-368.77 386.99,-371.05 396.5,-375.72 397.34,-368.77"/>
+</g>
+<!-- BGD&#45;&gt;SR -->
+<g id="edge17" class="edge">
+<title>BGD-&gt;SR</title>
+<path fill="none" stroke="#555555" d="M1191.62,-496.67C1209.49,-447.11 1210.49,-434.96 1192.37,-390.81"/>
+<polygon fill="#555555" stroke="#555555" points="1195.61,-389.48 1188.52,-381.61 1189.16,-392.19 1195.61,-389.48"/>
+</g>
+<!-- BGD&#45;&gt;ER -->
+<g id="edge18" class="edge">
+<title>BGD-&gt;ER</title>
+<path fill="none" stroke="#555555" d="M1158.19,-496.46C1081.25,-444.33 1055.07,-433.63 872.53,-383.32"/>
+<polygon fill="#555555" stroke="#555555" points="873.47,-379.95 862.9,-380.67 871.61,-386.7 873.47,-379.95"/>
+</g>
+<!-- BG -->
+<g id="node15" class="node">
+<title>BG</title>
+<path fill="#ffe0b2" stroke="black" d="M1165.72,-685.8C1165.72,-685.8 1016.28,-685.8 1016.28,-685.8 1010.28,-685.8 1004.28,-679.8 1004.28,-673.8 1004.28,-673.8 1004.28,-661.8 1004.28,-661.8 1004.28,-655.8 1010.28,-649.8 1016.28,-649.8 1016.28,-649.8 1165.72,-649.8 1165.72,-649.8 1171.72,-649.8 1177.72,-655.8 1177.72,-661.8 1177.72,-661.8 1177.72,-673.8 1177.72,-673.8 1177.72,-679.8 1171.72,-685.8 1165.72,-685.8"/>
+<text xml:space="preserve" text-anchor="middle" x="1091" y="-664.5" font-family="Helvetica,sans-Serif" font-size="11.00">background/Background.js</text>
+</g>
+<!-- BG&#45;&gt;BA -->
+<g id="edge22" class="edge">
+<title>BG-&gt;BA</title>
+<path fill="none" stroke="#555555" d="M1004.12,-684.78C713.62,-740.35 677.07,-726.8 378.45,-539.01"/>
+<polygon fill="#555555" stroke="#555555" points="380.69,-536.29 370.37,-533.93 376.97,-542.21 380.69,-536.29"/>
+</g>
+<!-- BG&#45;&gt;RL -->
+<g id="edge20" class="edge">
+<title>BG-&gt;RL</title>
+<path fill="none" stroke="#555555" d="M1003.88,-673.76C884.57,-678.95 837.89,-658.6 606.32,-538.36"/>
+<polygon fill="#555555" stroke="#555555" points="608.06,-535.32 597.57,-533.82 604.83,-541.53 608.06,-535.32"/>
+</g>
+<!-- BG&#45;&gt;BGD -->
+<g id="edge21" class="edge">
+<title>BG-&gt;BGD</title>
+<path fill="none" stroke="#555555" d="M1113.94,-649.51C1163.75,-609.33 1171.62,-597.51 1180.45,-544.24"/>
+<polygon fill="#555555" stroke="#555555" points="1183.88,-544.94 1182,-534.51 1176.97,-543.83 1183.88,-544.94"/>
+</g>
+<!-- RA -->
+<g id="node16" class="node">
+<title>RA</title>
+<path fill="#ffe0b2" stroke="black" d="M1426.33,-685.8C1426.33,-685.8 1275.67,-685.8 1275.67,-685.8 1269.67,-685.8 1263.67,-679.8 1263.67,-673.8 1263.67,-673.8 1263.67,-661.8 1263.67,-661.8 1263.67,-655.8 1269.67,-649.8 1275.67,-649.8 1275.67,-649.8 1426.33,-649.8 1426.33,-649.8 1432.33,-649.8 1438.33,-655.8 1438.33,-661.8 1438.33,-661.8 1438.33,-673.8 1438.33,-673.8 1438.33,-679.8 1432.33,-685.8 1426.33,-685.8"/>
+<text xml:space="preserve" text-anchor="middle" x="1351" y="-664.5" font-family="Helvetica,sans-Serif" font-size="11.00">background/RemoveAds.js</text>
+</g>
+</g>
+</svg>
