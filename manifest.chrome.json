@@ -44,7 +44,7 @@
         "rule_resources": [{
             "id": "manga_headers",
             "enabled": true,
-            "path": "rules.json"
+            "path": "rules.chrome.json"
         }]
     },
 

@@ -1,0 +1,15 @@
+[
+    {
+        "id": 1,
+        "priority": 1,
+        "action": {
+          "type": "redirect",
+          "redirect": {
+              "regexSubstitution": "\\1://api.cdnlibs.org/\\2"
+          }
+        },
+        "condition": {
+            "regexFilter": "^(.*)://cover\\.cdnlibs\\.org/?(.*)"
+        }
+    }
+]
