@@ -5,11 +5,11 @@
         "action": {
           "type": "redirect",
           "redirect": {
-              "regexSubstitution": "https://api.cdnlibs.org/\\1"
+              "regexSubstitution": "https://api.cdnlibs.org/uploads/\\1"
           }
         },
         "condition": {
-            "regexFilter": "^https://cover\\.cdnlibs\\.org/(.*)"
+            "regexFilter": "^https://cover\\.cdnlibs\\.org/uploads/(.*)"
         }
     }
 ]
