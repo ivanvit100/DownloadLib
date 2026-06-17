@@ -131,6 +131,7 @@ describe('Background', () => {
                 {
                     urls: [
                         'https://api.cdnlibs.org/*',
+                        'https://cover.cdnlibs.org/*',
                         'https://*.mixlib.me/*',
                         'https://*.imglib.info/*',
                         'https://*.imgslib.link/*',
