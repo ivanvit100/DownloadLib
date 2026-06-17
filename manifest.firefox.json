@@ -33,7 +33,9 @@
         "storage",
         "webRequest",
         "webRequestBlocking",
-        "scripting"
+        "scripting",
+        "declarativeNetRequest",
+        "declarativeNetRequestWithHostAccess"
     ],
 
     "host_permissions": [
@@ -41,10 +43,20 @@
         "https://mangalib.org/*",
         "https://ranobelib.me/*",
         "https://api.cdnlibs.org/*",
+        "https://cover.cdnlibs.org/*",
         "https://img3.mixlib.me/*",
+        "https://img2.imgslib.link/*",
         "https://cover.imglib.info/*",
         "https://*/*"
     ],
+
+    "declarative_net_request": {
+        "rule_resources": [{
+            "id": "manga_headers",
+            "enabled": true,
+            "path": "rules.firefox.json"
+        }]
+    },
 
     "content_security_policy": {
         "extension_pages": "script-src 'self' 'wasm-unsafe-eval'; object-src 'self'"

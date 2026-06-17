@@ -1,0 +1,25 @@
+[
+    {
+        "id": 1,
+        "priority": 1,
+        "action": {
+            "type": "modifyHeaders",
+            "requestHeaders": [
+                {
+                    "header": "Referer",
+                    "operation": "set",
+                    "value": "https://ranobelib.me/"
+                },
+                {
+                    "header": "Accept",
+                    "operation": "set",
+                    "value": "image/webp,image/apng,image/*,*/*;q=0.8"
+                }
+            ]
+        },
+        "condition": {
+            "urlFilter": "*cover.cdnlibs.org*",
+            "resourceTypes": ["image", "xmlhttprequest"]
+        }
+    }
+]
