@@ -549,10 +549,10 @@ describe('MOBIExporter', () => {
             const buffer = new ArrayBuffer(totalLen);
             const arr = new Uint8Array(buffer);
             const dv = new DataView(buffer);
-            dv.setUint16(77, N, false);
-            dv.setUint32(79, dataStart, false);
-            if (N >= 2) dv.setUint32(87, dataStart + mobiHeaderLen, false);
-            if (N >= 3) dv.setUint32(95, dataStart + mobiHeaderLen + textContent.length, false);
+            dv.setUint16(76, N, false);
+            dv.setUint32(78, dataStart, false);
+            if (N >= 2) dv.setUint32(86, dataStart + mobiHeaderLen, false);
+            if (N >= 3) dv.setUint32(94, dataStart + mobiHeaderLen + textContent.length, false);
             const r0 = dataStart;
             arr[r0+16]=0x4D; arr[r0+17]=0x4F; arr[r0+18]=0x42; arr[r0+19]=0x49;
             dv.setUint16(r0+8, 1, false);

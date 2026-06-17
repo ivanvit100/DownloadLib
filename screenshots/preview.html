@@ -1,0 +1,263 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=1280">
+<title>Banner — DownloadLib</title>
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body {
+    width: 1280px; height: 640px; overflow: hidden;
+    background: #252527;
+    font-family: Arial, 'Helvetica Neue', Helvetica, sans-serif;
+    color: #d4d4d4; position: relative;
+  }
+
+  .bg-grid {
+    position: absolute; inset: 0; pointer-events: none;
+    background-image:
+      linear-gradient(rgba(255,145,0,0.04) 1px, transparent 1px),
+      linear-gradient(90deg, rgba(255,145,0,0.04) 1px, transparent 1px);
+    background-size: 48px 48px;
+  }
+  .strip { position: absolute; top: -200px; height: 1100px; pointer-events: none; transform: rotate(15deg); }
+  .s1 { left: 730px; width: 4px;  background: rgba(255,145,0,0.13); }
+  .s2 { left: 752px; width: 1px;  background: rgba(255,145,0,0.07); }
+  .s3 { left: 800px; width: 2px;  background: rgba(255,145,0,0.06); }
+  .s4 { left: 860px; width: 1px;  background: rgba(255,145,0,0.05); }
+  .s5 { left: 950px; width: 3px;  background: rgba(255,145,0,0.08); }
+  .s6 { left: 975px; width: 1px;  background: rgba(255,145,0,0.04); }
+  .s7 { left: 1060px; width: 2px; background: rgba(255,145,0,0.06); }
+  .s8 { left: 1120px; width: 4px; background: rgba(255,145,0,0.10); }
+  .s9 { left: 1148px; width: 1px; background: rgba(255,145,0,0.05); }
+
+  .glow-left {
+    position: absolute; top: 50%; left: -80px; transform: translateY(-50%);
+    width: 420px; height: 520px; pointer-events: none;
+    background: radial-gradient(ellipse, rgba(255,145,0,0.08) 0%, transparent 70%);
+  }
+  .line-top, .line-bottom {
+    position: absolute; left: 0; right: 0; height: 3px;
+    background: linear-gradient(90deg, #ff9100 0%, rgba(255,145,0,0.3) 50%, transparent 100%);
+  }
+  .line-top { top: 0; } .line-bottom { bottom: 0; }
+
+  .corner { position: absolute; }
+  .corner::before, .corner::after { content: ''; position: absolute; background: #ff9100; }
+  .c-tl { top: 14px; left: 14px; }
+  .c-tl::before { top:0; left:0; width:36px; height:4px; }
+  .c-tl::after  { top:0; left:0; width:4px;  height:36px; }
+  .c-br { bottom: 14px; right: 14px; }
+  .c-br::before { bottom:0; right:0; width:36px; height:4px; }
+  .c-br::after  { bottom:0; right:0; width:4px;  height:36px; }
+
+  .divider {
+    position: absolute; left: 680px; top: 50px; bottom: 50px; width: 1px;
+    background: linear-gradient(180deg, transparent, rgba(255,145,0,0.22) 30%, rgba(255,145,0,0.22) 70%, transparent);
+  }
+
+  /* ── LAYOUT ── */
+  .layout { position: relative; z-index: 2; width: 100%; height: 100%; display: flex; align-items: center; }
+
+  /* ── LEFT ── */
+  .left { width: 660px; padding: 0 64px; display: flex; flex-direction: column; }
+
+  .logo-wrap {
+    display: inline-block; align-self: flex-start;
+    position: relative; padding: 10px 22px; margin-bottom: 24px;
+  }
+  .logo-wrap::before {
+    content: ''; position: absolute; top: 0; left: 0;
+    width: 28px; height: 28px;
+    border-top: 7px solid #ff9100; border-left: 7px solid #ff9100;
+  }
+  .logo-wrap::after {
+    content: ''; position: absolute; bottom: 0; right: 0;
+    width: 28px; height: 28px;
+    border-bottom: 7px solid #ff9100; border-right: 7px solid #ff9100;
+  }
+  .logo-text {
+    font-family: Arial, 'Helvetica Neue', Helvetica, sans-serif;
+    font-weight: bold; font-size: 90px; line-height: 1;
+    color: #ffffff; white-space: nowrap; letter-spacing: -1px;
+  }
+
+  .tagline { font-size: 20px; color: #888; line-height: 1.55; margin-bottom: 22px; }
+  .tagline strong { color: #cccccc; font-weight: bold; }
+
+  .sites { display: flex; align-items: center; gap: 10px; margin-bottom: 20px; }
+  .site-pill {
+    font-size: 15px; font-weight: bold; color: #ff9100;
+    border: 2px solid #ff9100; border-radius: 3px; padding: 4px 14px;
+  }
+  .site-sep { width: 5px; height: 5px; border-radius: 50%; background: #555; }
+
+  .formats { display: flex; gap: 7px; flex-wrap: wrap; }
+  .fmt {
+    font-size: 13px; font-weight: bold; color: #ff9100;
+    border: 1.5px solid rgba(255,145,0,0.5); border-radius: 3px;
+    padding: 3px 11px; letter-spacing: 0.06em;
+  }
+
+  /* ── RIGHT ── */
+  .right { flex: 1; padding: 0 44px 0 54px; display: flex; flex-direction: column; }
+
+  .right-title {
+    font-size: 12px; font-weight: bold; letter-spacing: 0.2em;
+    text-transform: uppercase; color: rgba(255,145,0,0.6);
+    margin-bottom: 18px;
+  }
+
+  .feat-grid {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 12px 20px;
+  }
+
+  .feat-card {
+    display: flex; align-items: flex-start; gap: 12px;
+    background: rgba(255,255,255,0.09);
+    border: 1px solid rgba(255,145,0,0.12);
+    border-radius: 5px; padding: 12px 14px;
+  }
+
+  .feat-icon {
+    width: 34px; height: 34px; flex-shrink: 0;
+    border: 1.5px solid rgba(255,145,0,0.4);
+    border-radius: 4px;
+    display: flex; align-items: center; justify-content: center;
+  }
+  .feat-icon svg { width: 18px; height: 18px; stroke: #ff9100; fill: none; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; }
+
+  .feat-body { flex: 1; min-width: 0; }
+  .feat-title { font-size: 14px; font-weight: bold; color: #e8e8e8; margin-bottom: 3px; line-height: 1.2; }
+  .slogan {
+    position: absolute;
+    bottom: 22px; left: 86px;
+    font-size: 13px;
+    color: #6e6e73;
+    letter-spacing: 0.03em;
+    z-index: 3;
+    pointer-events: none;
+  }
+</style>
+</head>
+<body>
+
+<div class="bg-grid"></div>
+<div class="strip s1"></div><div class="strip s2"></div><div class="strip s3"></div>
+<div class="strip s4"></div><div class="strip s5"></div><div class="strip s6"></div>
+<div class="strip s7"></div><div class="strip s8"></div><div class="strip s9"></div>
+<div class="glow-left"></div>
+<div class="line-top"></div>
+<div class="line-bottom"></div>
+<div class="corner c-tl"></div>
+<div class="corner c-br"></div>
+<div class="divider"></div>
+
+<div class="layout">
+
+  <!-- LEFT -->
+  <div class="left">
+    <div class="logo-wrap"><span class="logo-text">DloadLIB</span></div>
+
+    <div class="tagline">
+      Сохраняй любимые тайтлы офлайн —<br>
+      <strong>прямо из браузера</strong>, без лишних шагов
+    </div>
+
+    <div class="sites">
+      <div class="site-pill">MangaLib</div>
+      <div class="site-sep"></div>
+      <div class="site-pill">RanobeLib</div>
+    </div>
+
+    <div class="formats">
+      <div class="fmt">FB2</div>
+      <div class="fmt">EPUB</div>
+      <div class="fmt">MOBI</div>
+      <div class="fmt">PDF</div>
+      <div class="fmt">TXT</div>
+      <div class="fmt">JPEG</div>
+    </div>
+  </div>
+
+  <!-- RIGHT: 6 feature cards in 2 cols -->
+  <div class="right">
+    <div class="right-title">Возможности</div>
+    <div class="feat-grid">
+
+      <!-- 1 — Выборочная загрузка -->
+      <div class="feat-card">
+        <div class="feat-icon">
+          <svg viewBox="0 0 24 24"><polyline points="8 17 12 21 16 17"/><line x1="12" y1="12" x2="12" y2="21"/><path d="M20.88 18.09A5 5 0 0 0 18 9h-1.26A8 8 0 1 0 3 16.29"/></svg>
+        </div>
+        <div class="feat-body">
+          <div class="feat-title">Выборочная загрузка</div>
+          <div class="feat-desc">Задайте диапазон томов и глав для скачивания</div>
+        </div>
+      </div>
+
+      <!-- 2 — Обновление книг -->
+      <div class="feat-card">
+        <div class="feat-icon">
+          <svg viewBox="0 0 24 24"><polyline points="23 4 23 10 17 10"/><polyline points="1 20 1 14 7 14"/><path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15"/></svg>
+        </div>
+        <div class="feat-body">
+          <div class="feat-title">Обновление книг</div>
+          <div class="feat-desc">Дополнение скачанного файла новыми главами</div>
+        </div>
+      </div>
+
+      <!-- 3 — Настройка лимитов -->
+      <div class="feat-card">
+        <div class="feat-icon">
+          <svg viewBox="0 0 24 24"><line x1="4" y1="6" x2="20" y2="6"/><line x1="4" y1="12" x2="20" y2="12"/><line x1="4" y1="18" x2="20" y2="18"/><circle cx="9"  cy="6"  r="2.5" fill="#252527" stroke="#ff9100"/><circle cx="16" cy="12" r="2.5" fill="#252527" stroke="#ff9100"/><circle cx="11" cy="18" r="2.5" fill="#252527" stroke="#ff9100"/></svg>
+        </div>
+        <div class="feat-body">
+          <div class="feat-title">Гибкая настройка</div>
+          <div class="feat-desc">Лимит запросов в минуту и размер частей файла</div>
+        </div>
+      </div>
+
+      <!-- 4 — Фоновая загрузка -->
+      <div class="feat-card">
+        <div class="feat-icon">
+          <svg viewBox="0 0 24 24"><rect x="2" y="7" width="20" height="14" rx="2"/><path d="M16 3H8"/><line x1="10" y1="14" x2="10" y2="17"/><line x1="14" y1="14" x2="14" y2="17"/></svg>
+        </div>
+        <div class="feat-body">
+          <div class="feat-title">Фоновая загрузка</div>
+          <div class="feat-desc">Пауза, продолжение и загрузка в фоновом режиме</div>
+        </div>
+      </div>
+
+      <!-- 5 — Кнопка на сайте -->
+      <div class="feat-card">
+        <div class="feat-icon">
+          <svg viewBox="0 0 24 24"><rect x="2" y="3" width="20" height="14" rx="2"/><line x1="8" y1="21" x2="16" y2="21"/><line x1="12" y1="17" x2="12" y2="21"/><polyline points="9 10 12 13 15 10" stroke-width="2"/><line x1="12" y1="7" x2="12" y2="13"/></svg>
+        </div>
+        <div class="feat-body">
+          <div class="feat-title">Кнопка на сайте</div>
+          <div class="feat-desc">Быстрое скачивание прямо со страницы тайтла</div>
+        </div>
+      </div>
+
+      <!-- 6 — Adblock -->
+      <div class="feat-card">
+        <div class="feat-icon">
+          <svg viewBox="0 0 24 24"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/><line x1="9" y1="12" x2="15" y2="12" stroke-width="2.5"/></svg>
+        </div>
+        <div class="feat-body">
+          <div class="feat-title">Удаление рекламы</div>
+          <div class="feat-desc">Автоматически скрывает рекламу на страницах тайтлов</div>
+        </div>
+      </div>
+
+    </div>
+  </div>
+
+</div>
+<div class="slogan">DownloadLib — ваш удобный способ сохранить любимую мангу!</div>
+
+</body>
+</html>

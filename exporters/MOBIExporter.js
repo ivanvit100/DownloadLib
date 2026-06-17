@@ -248,25 +248,25 @@
         pos += 16;
         pos += 8;
 
-        out[pos += 1] = 0x42; out[pos += 1] = 0x4F; out[pos += 1] = 0x4F; out[pos += 1] = 0x4B;
-        out[pos += 1] = 0x4D; out[pos += 1] = 0x4F; out[pos += 1] = 0x42; out[pos += 1] = 0x49;
-        out[pos += 1] = 0x12; out[pos += 1] = 0x34; out[pos += 1] = 0x56; out[pos += 1] = 0x78;
+        out[pos] = 0x42; pos += 1; out[pos] = 0x4F; pos += 1; out[pos] = 0x4F; pos += 1; out[pos] = 0x4B; pos += 1;
+        out[pos] = 0x4D; pos += 1; out[pos] = 0x4F; pos += 1; out[pos] = 0x42; pos += 1; out[pos] = 0x49; pos += 1;
+        out[pos] = 0x12; pos += 1; out[pos] = 0x34; pos += 1; out[pos] = 0x56; pos += 1; out[pos] = 0x78; pos += 1;
 
         pos += 4;
 
-        out[pos+= 1] = (N >> 8) & 0xFF;
-        out[pos+= 1] =  N       & 0xFF;
+        out[pos] = (N >> 8) & 0xFF; pos += 1;
+        out[pos] =  N       & 0xFF; pos += 1;
 
         for (let i = 0; i < N; i++) {
             const o = offsets[i];
-            out[pos += 1] = (o >>> 24) & 0xFF;
-            out[pos += 1] = (o >>> 16) & 0xFF;
-            out[pos += 1] = (o >>>  8) & 0xFF;
-            out[pos += 1] =  o         & 0xFF;
-            out[pos += 1] = 0;
-            out[pos += 1] = (i >> 16) & 0xFF;
-            out[pos += 1] = (i >>  8) & 0xFF;
-            out[pos += 1] =  i        & 0xFF;
+            out[pos] = (o >>> 24) & 0xFF; pos += 1;
+            out[pos] = (o >>> 16) & 0xFF; pos += 1;
+            out[pos] = (o >>>  8) & 0xFF; pos += 1;
+            out[pos] =  o         & 0xFF; pos += 1;
+            out[pos] = 0;                 pos += 1;
+            out[pos] = (i >> 16)  & 0xFF; pos += 1;
+            out[pos] = (i >>  8)  & 0xFF; pos += 1;
+            out[pos] =  i         & 0xFF; pos += 1;
         }
 
         pos += 2;
@@ -390,10 +390,10 @@
         }
 
         _parseMOBIRecordOffsets(view) {
-            const numRecords = view.getUint16(77, false);
+            const numRecords = view.getUint16(76, false);
             const offsets = [];
             for (let i = 0; i < numRecords; i++)
-                offsets.push(view.getUint32(79 + i * 8, false));
+                offsets.push(view.getUint32(78 + i * 8, false));
             return offsets;
         }
 
