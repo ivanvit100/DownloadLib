@@ -38,6 +38,7 @@ function isImageRequest(url) {
     return url.includes('mixlib.me') ||
            url.includes('imglib.info') ||
            url.includes('imgslib.link') ||
+           url.includes('cover.cdnlibs.org') ||
            url.includes('/covers/') ||
            url.includes('/uploads/');
 }
@@ -46,6 +47,7 @@ function detectServiceByUrl(url) {
     if (url.includes('ranobelib.me')) return 'ranobelib';
     if (url.includes('mangalib.me') || url.includes('mangalib.org')) return 'mangalib';
     if (url.includes('mixlib.me') || url.includes('imglib.info') || url.includes('imgslib.link')) return 'mangalib';
+    if (url.includes('cover.cdnlibs.org')) return 'mangalib';
     return null;
 }
 
@@ -71,15 +73,8 @@ function detectServiceByReferer(details) {
     if (referer.includes('ranobelib.me')) return 'ranobelib';
     if (referer.includes('mangalib.me') || referer.includes('mangalib.org')) return 'mangalib';
 
-    if (isImageRequest(details.url)) {
-        if (details.url.includes('mixlib.me') ||
-            details.url.includes('imglib.info') ||
-            details.url.includes('imgslib.link'))
-            return 'mangalib';
-        if (details.url.includes('ranobelib.me'))
-            return 'ranobelib';
-        return null;
-    }
+    if (isImageRequest(details.url))
+        return detectServiceByUrl(details.url);
 
     return null;
 }
@@ -97,6 +92,7 @@ function isFromExtension(details) {
 
 const FIREFOX_WEBREQUEST_URLS = [
     'https://api.cdnlibs.org/*',
+    'https://cover.cdnlibs.org/*',
     'https://*.mixlib.me/*',
     'https://*.imglib.info/*',
     'https://*.imgslib.link/*',
