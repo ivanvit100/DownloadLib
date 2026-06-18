@@ -19,20 +19,7 @@
             console.log('[DownloadManager] Instance created');
         }
 
-        async startDownload(options) {
-            console.log('[DownloadManager] Starting download with options:', options);
-            const {
-                url,
-                format = 'fb2',
-                slug,
-                serviceKey,
-                controller,
-                loadedFile,
-                chapterRange,
-                branchId = null,
-                maxSizeMB = 200
-            } = options;
-
+        _resolveService(serviceKey, url, authToken) {
             let service;
             if (serviceKey) {
                 service = global.serviceRegistry.createService(serviceKey);
@@ -44,20 +31,26 @@
 
             if (!service) throw new Error('Unsupported service');
 
-            console.log('[DownloadManager] Using service:', service.name);
+            if (authToken)
+                service.config.headers = { ...service.config.headers, 'Authorization': `Bearer ${authToken}` };
 
+            return service;
+        }
+
+        _createDownloadState(options, service) {
+            const { url, format = 'fb2', slug, serviceKey, controller, loadedFile, maxSizeMB = 200 } = options;
             const downloadId = this.generateId();
-            const downloadState = {
+            return {
                 id: downloadId,
                 service: service.name,
-                serviceKey: serviceKey,
+                serviceKey,
                 slug: slug || this.extractSlug(url),
                 format,
                 maxSizeMB,
                 status: 'initializing',
                 progress: 0,
                 controller: controller || this.createController(),
-                loadedFile: loadedFile,
+                loadedFile,
                 manga: null,
                 mangaId: null,
                 coverBase64: null,
@@ -65,6 +58,37 @@
                 chapters: [],
                 currentChapterIndex: 0
             };
+        }
+
+        async _fetchAndFilterChapters(service, downloadState, branchId, chapterRange) {
+            const chaptersData = await service.fetchChaptersList(downloadState.slug);
+            let chapters = this.sortChapters(chaptersData.data || []);
+
+            if (branchId != null) {
+                chapters = chapters
+                    .filter(ch => ch.branches && ch.branches.some(b => b.branch_id === branchId))
+                    .map(ch => ({ ...ch, branchId }));
+                console.log(`[DownloadManager] Filtered chapters by branch ${branchId}: ${chapters.length}`);
+            }
+
+            if (chapterRange && 'from' in chapterRange && 'to' in chapterRange) {
+                chapters = chapters.slice(chapterRange.from, chapterRange.to + 1);
+                console.log(`[DownloadManager] Filtered chapters: ${chapters.length} from ${chapterRange.from} to ${chapterRange.to}`);
+            }
+
+            return chapters;
+        }
+
+        async startDownload(options) {
+            console.log('[DownloadManager] Starting download with options:', options);
+            const { url, format = 'fb2', chapterRange, branchId = null, maxSizeMB = 200,
+                authToken = null, loadedFile, serviceKey } = options;
+
+            const service = this._resolveService(serviceKey, url, authToken);
+            console.log('[DownloadManager] Using service:', service.name);
+
+            const downloadState = this._createDownloadState(options, service);
+            const { id: downloadId } = downloadState;
 
             this.activeDownloads.set(downloadId, downloadState);
             this.eventBus.emit('download:started', downloadState);
@@ -76,8 +100,7 @@
                 const metadata = await service.fetchMangaMetadata(downloadState.slug);
                 console.log('[DownloadManager] Metadata:', metadata);
 
-                const manga = metadata.data || metadata;
-                const patched = global.MangaPatcher.patch(manga);
+                const patched = global.MangaPatcher.patch(metadata.data || metadata);
                 downloadState.manga = patched;
                 downloadState.mangaId = patched.id || null;
 
@@ -85,21 +108,7 @@
                 downloadState.coverBase64 = await this._fetchCoverBase64(service, patched.cover);
 
                 this.updateStatus(downloadId, 'Загрузка списка глав...', 10);
-                const chaptersData = await service.fetchChaptersList(downloadState.slug);
-                let chapters = this.sortChapters(chaptersData.data || []);
-
-                if (branchId != null) {
-                    chapters = chapters
-                        .filter(ch => ch.branches && ch.branches.some(b => b.branch_id === branchId))
-                        .map(ch => ({ ...ch, branchId }));
-                    console.log(`[DownloadManager] Filtered chapters by branch ${branchId}: ${chapters.length}`);
-                }
-
-                if (chapterRange && 'from' in chapterRange && 'to' in chapterRange) {
-                    chapters = chapters.slice(chapterRange.from, chapterRange.to + 1);
-                    console.log(`[DownloadManager] Filtered chapters: ${chapters.length} from ${chapterRange.from} to ${chapterRange.to}`);
-                }
-
+                const chapters = await this._fetchAndFilterChapters(service, downloadState, branchId, chapterRange);
                 downloadState.chapters = chapters;
 
                 await this.downloadWithSizeLimit(downloadState,

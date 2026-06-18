@@ -238,12 +238,6 @@ describe('PopupController', () => {
         expect(result).toBe(true);
     });
 
-    it('Updates active downloads info', async () => {
-        const controller = new PopupController();
-        await controller.updateActiveDownloadsInfo();
-        expect(document.getElementById('activeDownloadsInfo').style.display).toBe('block');
-    });
-
     it('Loads metadata and fills UI', async () => {
         const controller = new PopupController();
         await controller.loadMetadata();
@@ -318,33 +312,21 @@ describe('PopupController', () => {
         consoleErrorSpy.mockRestore();
     });
 
-	it('Update active downloads info in constructor', async () => {
+	it('Uses getExtensionApi when available', async () => {
         vi.resetModules();
         setupDOM();
-        global.DownloadManager = class { constructor() { this.eventBus = { on: vi.fn() }; } };
-        global.browser = {
-            runtime: { sendMessage: vi.fn(async () => ({ ok: true, downloads: [] })), getURL: vi.fn() },
-            windows: { getCurrent: vi.fn(), create: vi.fn(), update: vi.fn() },
-            tabs: { query: vi.fn() }
+        const extensionApi = {
+            runtime: { sendMessage: vi.fn(async () => ({})), getURL: vi.fn(() => 'popup.html') },
+            windows: { getCurrent: vi.fn(async () => ({ type: 'normal' })), create: vi.fn(), update: vi.fn() },
+            tabs: { query: vi.fn(async () => ([{ url: 'https://ranobelib.me/manga/slug' }])) }
         };
+        global.getExtensionApi = vi.fn(() => extensionApi);
+        global.browser = undefined;
         global.chrome = undefined;
-
-        let called = false;
-        const origSetInterval = global.setInterval;
-        global.setInterval = (fn, ms) => { fn(); return 1; };
-
-        const PopupModule = await import('../../ui/PopupController.js?nocache=' + Math.random());
-        const PopupControllerClass = global.PopupController;
-
-        PopupControllerClass.prototype.updateActiveDownloadsInfo = function() {
-            called = true;
-        };
-
-        new PopupControllerClass();
-
-        expect(called).toBe(true);
-
-        global.setInterval = origSetInterval;
+        global.DownloadManager = class { constructor() { this.eventBus = { on: vi.fn() }; } };
+        await import('../../ui/PopupController.js?nocache=' + Math.random());
+        expect(global.getExtensionApi).toHaveBeenCalled();
+        delete global.getExtensionApi;
     });
 
 	it('Handles download:started event in constructor', async () => {
@@ -722,35 +704,6 @@ describe('PopupController', () => {
         expect(consoleWarnSpy).toHaveBeenCalledWith('Failed to detect window type:', expect.any(Error));
         consoleWarnSpy.mockRestore();
         global.browser.windows.getCurrent = origGetCurrent;
-    });
-
-    it('Logs no background downloads currently active', async () => {
-        const controller = new PopupController();
-        global.browser.runtime.sendMessage = vi.fn(async () => ({ ok: true, downloads: [] }));
-        controller.isDownloading = true;
-        const activeDownloadsInfo = document.getElementById('activeDownloadsInfo');
-        const consoleLogSpy = vi.spyOn(console, 'log');
-        await controller.updateActiveDownloadsInfo();
-        expect(consoleLogSpy).toHaveBeenCalledWith('No background downloads currently active');
-        consoleLogSpy.mockRestore();
-    });
-
-    it('Warns if failed to get active downloads', async () => {
-        const controller = new PopupController();
-        global.browser.runtime.sendMessage = vi.fn(async () => ({ ok: false, downloads: null }));
-        const consoleWarnSpy = vi.spyOn(console, 'warn');
-        await controller.updateActiveDownloadsInfo();
-        expect(consoleWarnSpy).toHaveBeenCalledWith('Failed to get active downloads or no downloads found:', { ok: false, downloads: null });
-        consoleWarnSpy.mockRestore();
-    });
-
-    it('Logs error if exception thrown', async () => {
-        const controller = new PopupController();
-        const consoleErrorSpy = vi.spyOn(console, 'error');
-        global.browser.runtime.sendMessage = vi.fn(() => { throw new Error('fail'); });
-        await controller.updateActiveDownloadsInfo();
-        expect(consoleErrorSpy).toHaveBeenCalledWith('[PopupController] Failed to get active downloads:', expect.any(Error));
-        consoleErrorSpy.mockRestore();
     });
 
     it('Sets formatSelector value from url param', async () => {
@@ -1984,26 +1937,6 @@ describe('PopupController', () => {
         stopBtn.click();
         expect(stopDownloadSpy).toHaveBeenCalled();
         stopDownloadSpy.mockRestore();
-    });
-
-    it('Logs error and returns early if currentDownloadId is missing when background button clicked', async () => {
-        const controller = new PopupController();
-        controller.currentDownloadId = null;
-        const backgroundBtn = document.getElementById('backgroundBtn');
-        const consoleErrorSpy = vi.spyOn(console, 'error');
-        backgroundBtn.click();
-        expect(consoleErrorSpy).toHaveBeenCalledWith('[PopupController] No currentDownloadId:', null);
-        consoleErrorSpy.mockRestore();
-    });
-
-    it('Logs attempt to move download to background', async () => {
-        const controller = new PopupController();
-        controller.currentDownloadId = 42;
-        const backgroundBtn = document.getElementById('backgroundBtn');
-        const consoleLogSpy = vi.spyOn(console, 'log');
-        backgroundBtn.click();
-        expect(consoleLogSpy).toHaveBeenCalledWith('[PopupController] Attempting to move download to background with ID:', 42);
-        consoleLogSpy.mockRestore();
     });
 
     it('maxSizeInput event listener persists value to localStorage', () => {

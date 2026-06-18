@@ -195,20 +195,14 @@ input[type="number"] {
 #pauseBtn {
     padding: 8px 16px;
     cursor: pointer;
-    width: calc(50% - 4px);
+    width: 100%;
     transition: all 0.3s ease;
 }
-#backgroundBtn {
-    padding: 8px 16px;
-    cursor: pointer;
-    width: calc(50% - 4px);
-    transition: all 0.3s ease;
-}
-#pauseBtn, #backgroundBtn, #customFileBtn {
+#pauseBtn, #customFileBtn {
     border: 2px solid var(--primary-color) !important;
     background: #252527 !important;
 }
-#pauseBtn:hover, #backgroundBtn:hover, #customFileBtn:hover {
+#pauseBtn:hover, #customFileBtn:hover {
     border: 2px solid var(--secondary-color) !important;
     background: #252527 !important;
 }

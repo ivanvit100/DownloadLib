@@ -3,11 +3,6 @@ import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 let mockTrackRequest;
 let mockSetLimit;
 let mockGetStats;
-let mockTakeOverDownload;
-let mockGetActiveDownloads;
-let mockPause;
-let mockResume;
-let mockStop;
 let mockAddListenerBeforeSendHeaders;
 let mockAddListenerOnMessage;
 let mockAddListenerOnBeforeRequest;
@@ -43,20 +38,6 @@ function setupGlobals(mode) {
     };
     globalThis.ranolibConfig = {
         headers: { 'Accept': 'text/html', 'X-Custom': 'ranobelib' },
-    };
-
-    mockTakeOverDownload = vi.fn().mockResolvedValue({ downloadId: 'bg_1' });
-    mockGetActiveDownloads = vi.fn().mockReturnValue([]);
-    mockPause = vi.fn();
-    mockResume = vi.fn();
-    mockStop = vi.fn();
-
-    globalThis.backgroundDownload = {
-        takeOverDownload: mockTakeOverDownload,
-        getActiveDownloads: mockGetActiveDownloads,
-        pause: mockPause,
-        resume: mockResume,
-        stop: mockStop,
     };
 
     capturedBeforeSendHeadersCb = null;
@@ -725,6 +706,21 @@ describe('Background', () => {
             expect(sendResponse).toHaveBeenCalledWith({ ok: false, error: expect.stringContaining('network error') });
         });
 
+        it('Detects mangalib service for cover.cdnlibs.org url in fetchImage', async () => {
+            const blob = new Blob(['img'], { type: 'image/jpeg' });
+            globalThis.fetch = vi.fn().mockResolvedValue({
+                ok: true,
+                blob: vi.fn().mockResolvedValue(blob),
+            });
+
+            const sendResponse = vi.fn();
+            capturedMessageCb({ action: 'fetchImage', url: 'https://cover.cdnlibs.org/manga/cover.jpg' }, {}, sendResponse);
+
+            await vi.waitFor(() => expect(sendResponse).toHaveBeenCalled());
+            expect(mockTrackRequest).toHaveBeenCalledWith('mangalib');
+            expect(sendResponse).toHaveBeenCalledWith(expect.objectContaining({ ok: true }));
+        });
+
         it('Handles fetchImage with FileReader error', async () => {
             const blob = new Blob(['img'], { type: 'image/jpeg' });
             globalThis.fetch = vi.fn().mockResolvedValue({
@@ -850,80 +846,6 @@ describe('Background', () => {
 
             await vi.waitFor(() => expect(sendResponse).toHaveBeenCalled());
             expect(sendResponse).toHaveBeenCalledWith({ ok: false, error: expect.stringContaining('timeout') });
-        });
-
-        it('Handles takeOverDownload success', async () => {
-            const sendResponse = vi.fn();
-            capturedMessageCb(
-                {
-                    action: 'takeOverDownload',
-                    slug: 'my-manga',
-                    serviceKey: 'mangalib',
-                    format: 'epub',
-                    manga: { title: 'T' },
-                    coverBase64: 'b64',
-                    chapterContents: [],
-                    chapters: [],
-                    currentChapterIndex: 0,
-                    currentStatus: 'ok',
-                    currentProgress: 50,
-                    loadedFile: null,
-                },
-                {},
-                sendResponse,
-            );
-
-            await vi.waitFor(() => expect(sendResponse).toHaveBeenCalled());
-            expect(mockTakeOverDownload).toHaveBeenCalledWith(
-                expect.objectContaining({ slug: 'my-manga', serviceKey: 'mangalib' }),
-            );
-            expect(sendResponse).toHaveBeenCalledWith({ ok: true, downloadId: 'bg_1' });
-        });
-
-        it('Handles takeOverDownload error', async () => {
-            mockTakeOverDownload.mockRejectedValueOnce(new Error('take fail'));
-
-            const sendResponse = vi.fn();
-            capturedMessageCb(
-                { action: 'takeOverDownload', slug: 's', serviceKey: 'mangalib', format: 'epub', manga: {}, chapters: [] },
-                {},
-                sendResponse,
-            );
-
-            await vi.waitFor(() => expect(sendResponse).toHaveBeenCalled());
-            expect(sendResponse).toHaveBeenCalledWith({ ok: false, error: expect.stringContaining('take fail') });
-        });
-
-        it('Handles getActiveDownloads action', () => {
-            mockGetActiveDownloads.mockReturnValue([{ id: 'd1' }]);
-            const sendResponse = vi.fn();
-            const result = capturedMessageCb({ action: 'getActiveDownloads' }, {}, sendResponse);
-            expect(sendResponse).toHaveBeenCalledWith({ ok: true, downloads: [{ id: 'd1' }] });
-            expect(result).toBe(true);
-        });
-
-        it('Handles pauseBackgroundDownload action', () => {
-            const sendResponse = vi.fn();
-            const result = capturedMessageCb({ action: 'pauseBackgroundDownload', downloadId: 'd1' }, {}, sendResponse);
-            expect(mockPause).toHaveBeenCalledWith('d1');
-            expect(sendResponse).toHaveBeenCalledWith({ ok: true });
-            expect(result).toBe(true);
-        });
-
-        it('Handles resumeBackgroundDownload action', () => {
-            const sendResponse = vi.fn();
-            const result = capturedMessageCb({ action: 'resumeBackgroundDownload', downloadId: 'd1' }, {}, sendResponse);
-            expect(mockResume).toHaveBeenCalledWith('d1');
-            expect(sendResponse).toHaveBeenCalledWith({ ok: true });
-            expect(result).toBe(true);
-        });
-
-        it('Handles stopBackgroundDownload action', () => {
-            const sendResponse = vi.fn();
-            const result = capturedMessageCb({ action: 'stopBackgroundDownload', downloadId: 'd1' }, {}, sendResponse);
-            expect(mockStop).toHaveBeenCalledWith('d1');
-            expect(sendResponse).toHaveBeenCalledWith({ ok: true });
-            expect(result).toBe(true);
         });
 
         it('Uses full reader result when split produces no base64 part', async () => {

@@ -103,7 +103,26 @@ describe('MangaLibService', () => {
         expect(global.fetch).toHaveBeenCalledTimes(2);
         expect(global.fetch.mock.calls[0][0]).toContain('fields[]=id');
         expect(global.fetch.mock.calls[1][0]).toBe('https://mangalib.me/api/manga/slug');
-        expect(warnSpy).toHaveBeenCalledWith('[MangaLib] Metadata endpoint rejected, retrying with fallback URL');
+        expect(warnSpy).toHaveBeenCalledWith('[MangaLib] Metadata endpoint rejected (403), retrying with fallback URL');
+
+        warnSpy.mockRestore();
+        delete global.fetch;
+    });
+
+    it('Fetch manga metadata retries numeric id on 404 for slug with digits prefix', async () => {
+        const svc = new MangaLibService();
+        const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
+
+        global.fetch = vi.fn()
+            .mockResolvedValueOnce({ ok: false, status: 404, text: vi.fn().mockResolvedValue('not found') })
+            .mockResolvedValueOnce({ ok: false, status: 404, text: vi.fn().mockResolvedValue('not found') })
+            .mockResolvedValueOnce({ ok: true, text: vi.fn().mockResolvedValue(JSON.stringify({ data: { id: 127506 } })) });
+
+        const result = await svc.fetchMangaMetadata('127506--kiss-de-fusaide-barenaide');
+
+        expect(result).toEqual({ data: { id: 127506 } });
+        expect(global.fetch).toHaveBeenCalledTimes(3);
+        expect(global.fetch.mock.calls[2][0]).toBe('https://mangalib.me/api/manga/127506');
 
         warnSpy.mockRestore();
         delete global.fetch;

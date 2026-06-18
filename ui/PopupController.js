@@ -34,13 +34,12 @@
             this.loadedFile = null;
             this.currentSlug = null;
             this.currentServiceKey = null;
+            this.authToken = null;
             this._allChapters = [];
             this.setupUI();
             this.setupEventListeners();
             this.subscribeToEvents();
             this.loadMetadata();
-
-            setInterval(() => this.updateActiveDownloadsInfo(), 2000);
 
             this.downloadManager.eventBus.on('download:started', (state) => {
                 this.currentDownloadId = state.id;
@@ -133,15 +132,6 @@
                 btn.parentNode.insertBefore(rateLimitContainer, btn);
             } else console.warn('rateLimitInput found in DOM');
 
-            let activeDownloadsInfo = document.getElementById('activeDownloadsInfo');
-            if (!activeDownloadsInfo) {
-                activeDownloadsInfo = document.createElement('div');
-                activeDownloadsInfo.id = 'activeDownloadsInfo';
-
-                const rateLimitContainer = rateLimitInput.parentNode;
-                rateLimitContainer.parentNode.insertBefore(activeDownloadsInfo, rateLimitContainer.nextSibling);
-            }
-
             let fileInputContainer = document.getElementById('fileInputContainer');
             if (!fileInputContainer) {
                 fileInputContainer = document.createElement('div');
@@ -205,10 +195,6 @@
                 pauseBtn.id = 'pauseBtn';
                 pauseBtn.textContent = 'Пауза';
 
-                const backgroundBtn = document.createElement('button');
-                backgroundBtn.id = 'backgroundBtn';
-                backgroundBtn.textContent = 'Фоном';
-
                 const stopBtn = document.createElement('button');
                 stopBtn.id = 'stopBtn';
                 stopBtn.textContent = 'Завершить';
@@ -216,7 +202,6 @@
                 const btnRow = document.createElement('div');
                 btnRow.id = 'btnRow';
                 btnRow.appendChild(pauseBtn);
-                btnRow.appendChild(backgroundBtn);
 
                 controlsContainer.appendChild(btnRow);
                 controlsContainer.appendChild(stopBtn);
@@ -369,41 +354,6 @@
                 if (!tab) console.warn('Tab created but no ID found:', tab);
             }
             else console.error('No window/tab API available');
-        }
-
-        async updateActiveDownloadsInfo() {
-            const activeDownloadsInfo = document.getElementById('activeDownloadsInfo');
-            if (!activeDownloadsInfo) return;
-
-            try {
-                const response = await browserAPI.runtime.sendMessage({ action: 'getActiveDownloads' });
-
-                if (response.ok && response.downloads) {
-                    const bgDownloads = response.downloads;
-                    const fgDownloads = this.isDownloading ? 1 : 0;
-                    const total = bgDownloads.length + fgDownloads;
-
-                    if (total > 0) {
-                        const parts = [];
-                        if (fgDownloads > 0) parts.push(`${fgDownloads} обычная`);
-                        if (bgDownloads.length > 0) parts.push(`${bgDownloads.length} фоновая`);
-                        else console.log('No background downloads currently active');
-
-                        activeDownloadsInfo.textContent = `Активных загрузок: ${parts.join(' + ')}`;
-                        activeDownloadsInfo.style.display = 'block';
-
-                        if (bgDownloads.length > 0) {
-                            const details = bgDownloads.map(d =>
-                                `${d.slug}: ${d.status} (${d.progress}%)`
-                            ).join('\n');
-                            activeDownloadsInfo.title = details;
-                        } else console.log('No background downloads to show in tooltip');
-                    } else
-                        activeDownloadsInfo.style.display = 'none';
-                } else console.warn('Failed to get active downloads or no downloads found:', response);
-            } catch (e) {
-                console.error('[PopupController] Failed to get active downloads:', e);
-            }
         }
 
         _applyServiceTheme(serviceKey, siteLogo) {
@@ -617,9 +567,78 @@
             if (btn) btn.disabled = true;
         }
 
-        async loadMetadata() {
-            await this.updateActiveDownloadsInfo();
+        async _getAuthToken(serviceKey, tabId = null) {
+            try {
+                const cached = await browserAPI.runtime.sendMessage({ action: 'getAuthToken', serviceKey });
+                if (cached && cached.token) return cached.token;
+            } catch (e) {
+                console.warn('[PopupController] Failed to get cached auth token:', e);
+            }
 
+            if (tabId != null && browserAPI.scripting) {
+                try {
+                    const results = await browserAPI.scripting.executeScript({
+                        target: { tabId },
+                        func: () => {
+                            const RE = /^eyJ[\w\-+=/]+\.eyJ[\w\-+=/]+\.[\w\-+=/]+$/;
+
+                            function findJwt(val) {
+                                if (typeof val !== 'string' || !val) return null;
+                                if (RE.test(val)) return val;
+                                const bare = val.startsWith('Bearer ') ? val.slice(7) : null;
+                                if (bare && RE.test(bare)) return bare;
+                                try { return scanObj(JSON.parse(val)); } catch { return null; }
+                            }
+
+                            function scanObj(o) {
+                                if (!o || typeof o !== 'object') return null;
+                                for (const v of Object.values(o)) {
+                                    const f = typeof v === 'string'
+                                        ? findJwt(v)
+                                        : scanObj(typeof v === 'object' && v ? v : null);
+                                    if (f) return f;
+                                }
+                                return null;
+                            }
+
+                            for (const s of [localStorage, sessionStorage]) {
+                                for (let i = 0; i < s.length; i++) {
+                                    const f = findJwt(s.getItem(s.key(i)));
+                                    if (f) return f;
+                                }
+                            }
+                            return null;
+                        }
+                    });
+                    if (results && results[0] && results[0].result) {
+                        const token = results[0].result;
+                        browserAPI.runtime.sendMessage({ action: 'cacheAuthToken', serviceKey, token }).catch(() => {});
+                        return token;
+                    }
+                } catch (e) {
+                    console.warn('[PopupController] Failed to extract auth token via executeScript:', e);
+                }
+            }
+
+            return null;
+        }
+
+        async _applyAuthToken(serviceKey, activeTabId, service) {
+            this.authToken = null;
+            try {
+                const token = await this._getAuthToken(serviceKey, activeTabId);
+                if (token) {
+                    this.authToken = token;
+                    service.config.headers = { ...service.config.headers, 'Authorization': `Bearer ${token}` };
+                    console.log('[PopupController] Auth token applied');
+                }
+            } catch (e) {
+                console.warn('[PopupController] Could not get auth token:', e);
+            }
+        }
+
+        async loadMetadata() {
+            await Promise.resolve();
             const status = document.getElementById('status');
             const btn = document.getElementById('downloadBtn');
             const logoInfo = document.getElementById('logoInfo');
@@ -654,6 +673,7 @@
 
             try {
                 let currentUrl, slug, serviceKey, service;
+                let activeTabId = null;
 
                 if ((autoDownload || fileUploadMode) && slugFromUrl && serviceFromUrl) {
                     slug = slugFromUrl;
@@ -668,6 +688,7 @@
                     const tabs = await browserAPI.tabs.query({ active: true, currentWindow: true });
                     if (!tabs || !tabs[0]) throw new Error('No active tab found');
                     currentUrl = tabs[0].url;
+                    activeTabId = tabs[0].id;
                     console.log('[PopupController] Current URL:', currentUrl);
 
                     const match = currentUrl.match(/\/(?:manga|book)\/([^/?]+)/);
@@ -682,6 +703,8 @@
 
                     serviceKey = service.name;
                 }
+
+                await this._applyAuthToken(serviceKey, activeTabId, service);
 
                 this._applyServiceTheme(serviceKey, siteLogo);
 
@@ -761,7 +784,6 @@
             const downloadBtn = document.getElementById('downloadBtn');
             const pauseBtn = document.getElementById('pauseBtn');
             const stopBtn = document.getElementById('stopBtn');
-            const backgroundBtn = document.getElementById('backgroundBtn');
 
             if (downloadBtn) {
                 downloadBtn.addEventListener('click', async () => {
@@ -817,48 +839,6 @@
             }
 
             if (stopBtn) stopBtn.addEventListener('click', () => this.stopDownload());
-
-            if (backgroundBtn) {
-                backgroundBtn.addEventListener('click', async () => {
-                    if (!this.currentDownloadId) {
-                        console.error('[PopupController] No currentDownloadId:', this.currentDownloadId);
-                        return;
-                    }
-                    console.log('[PopupController] Attempting to move download to background with ID:',
-                        this.currentDownloadId);
-
-                    try {
-                        const downloadState = this.downloadManager.getDownloadState(this.currentDownloadId);
-
-                        if (!downloadState) {
-                            console.error('[PopupController] No downloadState for ID:', this.currentDownloadId);
-                            return;
-                        }
-                        this.shouldStop = true;
-                        this.downloadManager.stop(this.currentDownloadId);
-
-                        const response = await browserAPI.runtime.sendMessage({
-                            action: 'takeOverDownload',
-                            ...downloadState
-                        });
-
-                        if (response.ok) {
-                            const inSeparateWindow = await this.isInSeparateWindow();
-                            if (inSeparateWindow)
-                                window.close();
-                            else {
-                                this.resetUI();
-                                const status = document.getElementById('status');
-                                if (status) status.textContent = 'Загрузка продолжается в фоне';
-                                else console.warn(`Status element not found after moving to background`);
-                            }
-                        } else this.shouldStop = false;
-                    } catch (e) {
-                        console.error('[PopupController] Failed to move to background:', e);
-                        this.shouldStop = false;
-                    }
-                });
-            }
         }
 
         subscribeToEvents() {
@@ -978,6 +958,7 @@
                     chapterRange,
                     branchId,
                     maxSizeMB,
+                    authToken: this.authToken,
                     controller: {
                         isPaused: () => this.isPaused,
                         shouldStop: () => this.shouldStop,

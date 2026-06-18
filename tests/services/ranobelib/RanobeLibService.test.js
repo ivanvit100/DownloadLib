@@ -101,7 +101,7 @@ describe('RanobeLibService', () => {
         expect(global.fetch).toHaveBeenCalledTimes(2);
         expect(global.fetch.mock.calls[0][0]).toContain('fields[]=id');
         expect(global.fetch.mock.calls[1][0]).toBe('https://ranobelib.me/api/manga/slug');
-        expect(warnSpy).toHaveBeenCalledWith('[RanobeLib] Metadata endpoint rejected, retrying with fallback URL');
+        expect(warnSpy).toHaveBeenCalledWith('[RanobeLib] Metadata endpoint rejected (403), retrying with fallback URL');
 
         warnSpy.mockRestore();
         delete global.fetch;

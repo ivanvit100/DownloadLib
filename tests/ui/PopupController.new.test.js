@@ -9,7 +9,6 @@ function setupDOM() {
         <button id="downloadBtn"></button>
         <button id="pauseBtn"></button>
         <button id="stopBtn"></button>
-        <button id="backgroundBtn"></button>
         <div id="status"></div>
         <progress id="progress"></progress>
         <img id="siteLogo" />
@@ -17,7 +16,6 @@ function setupDOM() {
         <img id="cover" />
         <div id="description"></div>
         <div id="releaseDate"></div>
-        <div id="activeDownloadsInfo"></div>
         <div id="error" class="hidden"></div>
         <div id="success" class="hidden"></div>
     `;
@@ -106,101 +104,6 @@ afterEach(() => {
 });
 
 describe('PopupController second test file', () => {
-    it('Sets shouldStop to false when background download takeover fails', async () => {
-        const controller = new PopupController();
-        controller.currentDownloadId = 123;
-        controller.downloadManager.getDownloadState = vi.fn(() => ({
-            id: 123, status: 'active', progress: 50, slug: 'slug'
-        }));
-
-        const stopSpy = vi.spyOn(controller.downloadManager, 'stop');
-        const resetUISpy = vi.spyOn(controller, 'resetUI');
-
-        let resolveSendMessage;
-        const sendMessageCalled = new Promise(resolve => { resolveSendMessage = resolve; });
-
-        global.browser.runtime.sendMessage = vi.fn(async () => {
-            const result = { ok: false };
-            resolveSendMessage();
-            return result;
-        });
-
-        const backgroundBtn = document.getElementById('backgroundBtn');
-        backgroundBtn.click();
-
-        await sendMessageCalled;
-        await new Promise(resolve => setTimeout(resolve, 50));
-
-        expect(stopSpy).toHaveBeenCalledWith(123);
-        expect(controller.shouldStop).toBe(false);
-        expect(resetUISpy).not.toHaveBeenCalled();
-    });
-
-    it('Shows error and returns if downloadState is missing', async () => {
-        const controller = new PopupController();
-        controller.currentDownloadId = 123;
-        controller.downloadManager.getDownloadState = vi.fn(() => null);
-
-        const errorSpy = vi.spyOn(console, 'error');
-        const stopSpy = vi.spyOn(controller.downloadManager, 'stop');
-        const resetUISpy = vi.spyOn(controller, 'resetUI');
-
-        const backgroundBtn = document.getElementById('backgroundBtn');
-        backgroundBtn.click();
-
-        await new Promise(resolve => setTimeout(resolve, 30));
-
-        expect(errorSpy).toHaveBeenCalledWith('[PopupController] No downloadState for ID:', 123);
-        expect(stopSpy).not.toHaveBeenCalled();
-        expect(resetUISpy).not.toHaveBeenCalled();
-    });
-
-    it('Resets UI and sets status text when background download takeover succeeds and not in separate window', async () => {
-        const controller = new PopupController();
-        controller.currentDownloadId = 123;
-        controller.downloadManager.getDownloadState = vi.fn(() => ({
-            id: 123, status: 'active', progress: 50, slug: 'slug'
-        }));
-        const stopSpy = vi.spyOn(controller.downloadManager, 'stop');
-        const resetUISpy = vi.spyOn(controller, 'resetUI');
-        global.browser.runtime.sendMessage = vi.fn(async () => ({ ok: true }));
-        controller.isInSeparateWindow = vi.fn(async () => false);
-
-        const status = document.getElementById('status');
-        status.textContent = '';
-
-        const backgroundBtn = document.getElementById('backgroundBtn');
-        backgroundBtn.click();
-
-        await new Promise(resolve => setTimeout(resolve, 50));
-
-        expect(stopSpy).toHaveBeenCalledWith(123);
-        expect(resetUISpy).toHaveBeenCalled();
-        expect(status.textContent).toBe('Нажмите "Скачать" для загрузки книги');
-    });
-
-    it('Warns in console if status element is missing after moving to background', async () => {
-        const controller = new PopupController();
-        controller.currentDownloadId = 123;
-        controller.downloadManager.getDownloadState = vi.fn(() => ({
-            id: 123, status: 'active', progress: 50, slug: 'slug'
-        }));
-        global.browser.runtime.sendMessage = vi.fn(async () => ({ ok: true }));
-        controller.isInSeparateWindow = vi.fn(async () => false);
-
-        const status = document.getElementById('status');
-        status.parentNode.removeChild(status);
-
-        const warnSpy = vi.spyOn(console, 'warn');
-
-        const backgroundBtn = document.getElementById('backgroundBtn');
-        backgroundBtn.click();
-
-        await new Promise(resolve => setTimeout(resolve, 50));
-
-        expect(warnSpy).toHaveBeenCalledWith('Status element not found after moving to background');
-    });
-
     it('Handles progress, completed and failed events from eventBus', async () => {
         const controller = new PopupController();
         const updateProgressSpy = vi.spyOn(controller, 'updateProgress');
@@ -224,24 +127,6 @@ describe('PopupController second test file', () => {
         eventHandlers['download:failed']({ error: { message: 'fail' } });
         expect(showErrorSpy).toHaveBeenCalledWith('fail');
         expect(resetUISpy).toHaveBeenCalled();
-    });
-
-    it('Sets shouldStop to false and logs error if moving to background throws', async () => {
-        const controller = new PopupController();
-        controller.currentDownloadId = 123;
-        controller.downloadManager.getDownloadState = vi.fn(() => ({
-            id: 123, status: 'active', progress: 50, slug: 'slug'
-        }));
-        global.browser.runtime.sendMessage = vi.fn(async () => { throw new Error('fail'); });
-        const errorSpy = vi.spyOn(console, 'error');
-
-        const backgroundBtn = document.getElementById('backgroundBtn');
-        backgroundBtn.click();
-
-        await new Promise(resolve => setTimeout(resolve, 50));
-
-        expect(errorSpy).toHaveBeenCalledWith('[PopupController] Failed to move to background:', expect.any(Error));
-        expect(controller.shouldStop).toBe(false);
     });
 
     it('Shows updated file message when completed event fires and loadedFile is set', async () => {
@@ -837,66 +722,6 @@ describe('PopupController second test file', () => {
         toSelect.dispatchEvent(new Event('change'));
 
         expect(logSpy).toHaveBeenCalledWith('Chapter range selectors updated without invalid range');
-    });
-
-    it('Uses extension api provider when available', async () => {
-        vi.resetModules();
-        setupDOM();
-        global.DownloadManager = class {
-            constructor() {
-                this.eventBus = { on: vi.fn() };
-            }
-        };
-        const extensionApi = {
-            runtime: {
-                sendMessage: vi.fn(async () => ({ ok: true, downloads: [] })),
-                getURL: vi.fn(() => 'popup.html')
-            },
-            windows: {
-                getCurrent: vi.fn(async () => ({ type: 'popup' })),
-                create: vi.fn(async () => ({ id: 1 })),
-                update: vi.fn(async () => {})
-            },
-            tabs: {
-                query: vi.fn(async () => ([{ url: 'https://ranobelib.me/manga/slug' }]))
-            }
-        };
-        global.getExtensionApi = vi.fn(() => extensionApi);
-        global.browser = {
-            runtime: {
-                sendMessage: vi.fn(async () => ({ ok: true, downloads: [] })),
-                getURL: vi.fn(() => 'popup.html')
-            },
-            windows: {
-                getCurrent: vi.fn(async () => ({ type: 'popup' })),
-                create: vi.fn(async () => ({ id: 2 })),
-                update: vi.fn(async () => {})
-            },
-            tabs: {
-                query: vi.fn(async () => ([{ url: 'https://ranobelib.me/manga/slug' }]))
-            }
-        };
-        global.chrome = {
-            runtime: {
-                sendMessage: vi.fn(async () => ({ ok: true, downloads: [] })),
-                getURL: vi.fn(() => 'popup.html')
-            },
-            windows: {
-                getCurrent: vi.fn(async () => ({ type: 'popup' })),
-                create: vi.fn(async () => ({ id: 3 })),
-                update: vi.fn(async () => {})
-            },
-            tabs: {
-                query: vi.fn(async () => ([{ url: 'https://ranobelib.me/manga/slug' }]))
-            }
-        };
-        await import('../../ui/PopupController.js?nocache=' + Math.random());
-        const PopupControllerClass = global.PopupController;
-        const localController = new PopupControllerClass();
-        await localController.updateActiveDownloadsInfo();
-        expect(global.getExtensionApi).toHaveBeenCalledTimes(1);
-        expect(extensionApi.runtime.sendMessage).toHaveBeenCalled();
-        expect(global.browser.runtime.sendMessage).not.toHaveBeenCalled();
     });
 
     it('Defaults format to fb2 when formatSelector is absent in window creation path', async () => {

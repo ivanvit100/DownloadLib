@@ -30,9 +30,14 @@
             const query = Array.isArray(fields) && fields.length
                 ? fields.map(f => `fields[]=${f}`).join('&')
                 : '';
+
+            const numericIdMatch = /^\d+(?=--)/.exec(slug);
+            const numericId = numericIdMatch ? numericIdMatch[0] : null;
+
             const urls = [];
             if (query) urls.push(`${this.baseUrl}/api/manga/${slug}?${query}`);
             urls.push(`${this.baseUrl}/api/manga/${slug}`);
+            if (numericId) urls.push(`${this.baseUrl}/api/manga/${numericId}`);
 
             for (let i = 0; i < urls.length; i++) {
                 const url = urls[i];
@@ -46,8 +51,8 @@
                 });
                 if (!response.ok) {
                     const text = await response.text().catch(() => '');
-                    if (response.status === 403 && i < urls.length - 1) {
-                        console.warn(`[${this.name}] Metadata endpoint rejected, retrying with fallback URL`);
+                    if ((response.status === 403 || response.status === 404) && i < urls.length - 1) {
+                        console.warn(`[${this.name}] Metadata endpoint rejected (${response.status}), retrying with fallback URL`);
                         continue;
                     }
                     console.error(`[${this.name}] Error response:`, text);

@@ -28,11 +28,38 @@ console.log('[Background] Detected browser:', isFirefox ? 'Firefox' : 'Chrome');
 
 const rateLimiter = globalRateLimiter || new RateLimiter({ maxRequestsPerMinute: 80 });
 const ServiceConfigs = {};
+const authTokens = {};
 
 if (typeof mangalibConfig !== 'undefined')
     ServiceConfigs.mangalib = mangalibConfig;
 if (typeof ranolibConfig !== 'undefined')
     ServiceConfigs.ranobelib = ranolibConfig;
+
+function captureAuthToken(details, serviceName) {
+    if (details.url.startsWith('https://api.cdnlibs.org/')) {
+        const authHeader = details.requestHeaders?.find(h => h.name.toLowerCase() === 'authorization');
+        if (authHeader?.value?.startsWith('Bearer ')) {
+            const svc = serviceName || (() => {
+                const tabUrl = [details.originUrl, details.documentUrl].find(u => u?.startsWith('https://'));
+                return tabUrl?.includes('ranobelib.me') ? 'ranobelib' : 'mangalib';
+            })();
+            const newToken = authHeader.value.substring(7);
+            if (authTokens[svc] !== newToken) {
+                authTokens[svc] = newToken;
+                console.log(`[Background] Captured auth token for ${svc}`);
+            }
+        }
+    }
+}
+
+function injectAuthToken(headers, serviceName, url) {
+    if (serviceName && authTokens[serviceName] && url.startsWith('https://api.cdnlibs.org/')) {
+        const authIdx = headers.findIndex(h => h.name.toLowerCase() === 'authorization');
+        const authValue = `Bearer ${authTokens[serviceName]}`;
+        if (authIdx !== -1) headers[authIdx].value = authValue;
+        else headers.push({ name: 'Authorization', value: authValue });
+    }
+}
 
 function isImageRequest(url) {
     return url.includes('mixlib.me') ||
@@ -110,7 +137,10 @@ if (isFirefox && browserAPI && browserAPI.webRequest) {
             const fromExtension = isFromExtension(details);
             const serviceName = detectServiceByReferer(details);
 
-            if (!fromExtension) return {};
+            if (!fromExtension) {
+                captureAuthToken(details, serviceName);
+                return {};
+            }
 
             if (serviceName)
                 await rateLimiter.trackRequest(serviceName);
@@ -142,6 +172,8 @@ if (isFirefox && browserAPI && browserAPI.webRequest) {
                 } else console.warn(`[Background] No headers found for service ${serviceName} (isImage: ${isImage})`);
             }
 
+            injectAuthToken(headers, serviceName, details.url);
+
             return { requestHeaders: headers };
         },
         { urls: FIREFOX_WEBREQUEST_URLS },
@@ -172,10 +204,12 @@ if (isChrome && browserAPI && browserAPI.webRequest) {
 
     browserAPI.webRequest.onBeforeSendHeaders.addListener(
         async (details) => {
+            const fromExtension = isFromExtension(details);
             const serviceName = detectServiceByReferer(details);
-            if (!serviceName) return;
 
-            if (isFromExtension(details))
+            if (!fromExtension)
+                captureAuthToken(details, serviceName);
+            else if (serviceName)
                 await rateLimiter.trackRequest(serviceName);
         },
         {
@@ -197,7 +231,18 @@ if (isChrome && browserAPI && browserAPI.webRequest) {
 
 if (browserAPI && browserAPI.runtime && browserAPI.runtime.onMessage) {
     browserAPI.runtime.onMessage.addListener((message, sender, sendResponse) => {
-        if (message.action === 'setRateLimit') {
+        if (message.action === 'getAuthToken') {
+            const token = message.serviceKey ? (authTokens[message.serviceKey] || null) : null;
+            sendResponse({ token });
+            return true;
+        } else if (message.action === 'cacheAuthToken') {
+            if (message.serviceKey && message.token) {
+                authTokens[message.serviceKey] = message.token;
+                console.log(`[Background] Cached auth token for ${message.serviceKey}`);
+            }
+            sendResponse({ ok: true });
+            return true;
+        } else if (message.action === 'setRateLimit') {
             rateLimiter.setLimit(message.limit);
             sendResponse({ ok: true });
             return true;
@@ -309,43 +354,6 @@ if (browserAPI && browserAPI.runtime && browserAPI.runtime.onMessage) {
                     sendResponse({ ok: false, error: String(err) });
                 }
             })();
-            return true;
-        } else if (message.action === 'takeOverDownload') {
-            (async () => {
-                try {
-                    const result = await backgroundDownload.takeOverDownload({
-                        slug: message.slug,
-                        serviceKey: message.serviceKey,
-                        format: message.format,
-                        manga: message.manga,
-                        coverBase64: message.coverBase64,
-                        chapterContents: message.chapterContents,
-                        chapters: message.chapters,
-                        currentChapterIndex: message.currentChapterIndex,
-                        currentStatus: message.currentStatus,
-                        currentProgress: message.currentProgress,
-                        loadedFile: message.loadedFile
-                    });
-                    sendResponse({ ok: true, downloadId: result.downloadId });
-                } catch (err) {
-                    sendResponse({ ok: false, error: String(err) });
-                }
-            })();
-            return true;
-        } else if (message.action === 'getActiveDownloads') {
-            sendResponse({ ok: true, downloads: backgroundDownload.getActiveDownloads() });
-            return true;
-        } else if (message.action === 'pauseBackgroundDownload') {
-            backgroundDownload.pause(message.downloadId);
-            sendResponse({ ok: true });
-            return true;
-        } else if (message.action === 'resumeBackgroundDownload') {
-            backgroundDownload.resume(message.downloadId);
-            sendResponse({ ok: true });
-            return true;
-        } else if (message.action === 'stopBackgroundDownload') {
-            backgroundDownload.stop(message.downloadId);
-            sendResponse({ ok: true });
             return true;
         } else if (message.action === 'openDownloadWindow') {
             (async () => {

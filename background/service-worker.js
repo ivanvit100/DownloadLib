@@ -10,7 +10,6 @@ try {
         '/lib/jszip.min.js',
         '/exporters/ExporterRegistry.js',
         '/core/MangaPatcher.js',
-        '/background/BackgroundDownload.js',
         '/background/Background.js');
 } catch (e) {
     console.error('[ServiceWorker] Failed to load scripts:', e.message, e.stack);
