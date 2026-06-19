@@ -544,6 +544,97 @@ describe('Background', () => {
             });
             expect(result.responseHeaders).toContainEqual({ name: 'Access-Control-Allow-Origin', value: '*' });
         });
+
+        it('Captures Bearer token from non-extension request to api.cdnlibs.org', async () => {
+            await capturedBeforeSendHeadersCb({
+                tabId: 1,
+                frameId: 0,
+                url: 'https://api.cdnlibs.org/api/manga/slug',
+                requestHeaders: [{ name: 'Authorization', value: 'Bearer capturedtoken' }],
+                originUrl: 'https://mangalib.me/',
+            });
+            expect(console.log).toHaveBeenCalledWith('[Background] Captured auth token for mangalib');
+        });
+
+        it('Captures Bearer token and detects ranobelib service via originUrl', async () => {
+            await capturedBeforeSendHeadersCb({
+                tabId: 1,
+                frameId: 0,
+                url: 'https://api.cdnlibs.org/api/manga/slug',
+                requestHeaders: [{ name: 'Authorization', value: 'Bearer ranobetoken' }],
+                originUrl: 'https://ranobelib.me/',
+            });
+            expect(console.log).toHaveBeenCalledWith('[Background] Captured auth token for ranobelib');
+        });
+
+        it('Does not re-capture same Bearer token', async () => {
+            const details = {
+                tabId: 1,
+                frameId: 0,
+                url: 'https://api.cdnlibs.org/api/manga/slug',
+                requestHeaders: [{ name: 'Authorization', value: 'Bearer same-token' }],
+                originUrl: 'https://mangalib.me/',
+            };
+            await capturedBeforeSendHeadersCb(details);
+            console.log.mockClear();
+            await capturedBeforeSendHeadersCb(details);
+            expect(console.log).not.toHaveBeenCalledWith('[Background] Captured auth token for mangalib');
+        });
+
+        it('Injects cached token as new Authorization header into extension request to api.cdnlibs.org', async () => {
+            await capturedBeforeSendHeadersCb({
+                tabId: 1,
+                frameId: 0,
+                url: 'https://api.cdnlibs.org/api/manga/slug',
+                requestHeaders: [{ name: 'Authorization', value: 'Bearer injected-token' }],
+                originUrl: 'https://mangalib.me/',
+            });
+            const result = await capturedBeforeSendHeadersCb({
+                tabId: -1,
+                frameId: 0,
+                url: 'https://api.cdnlibs.org/api/manga/slug',
+                requestHeaders: [
+                    { name: 'X-Extension-Request', value: 'true' },
+                    { name: 'X-DL-Service', value: 'mangalib' },
+                ],
+            });
+            const auth = result.requestHeaders.find(h => h.name === 'Authorization');
+            expect(auth.value).toBe('Bearer injected-token');
+        });
+
+        it('Updates existing Authorization header when injecting cached token', async () => {
+            await capturedBeforeSendHeadersCb({
+                tabId: 1,
+                frameId: 0,
+                url: 'https://api.cdnlibs.org/api/manga/slug',
+                requestHeaders: [{ name: 'Authorization', value: 'Bearer new-token' }],
+                originUrl: 'https://mangalib.me/',
+            });
+            const result = await capturedBeforeSendHeadersCb({
+                tabId: -1,
+                frameId: 0,
+                url: 'https://api.cdnlibs.org/api/manga/slug',
+                requestHeaders: [
+                    { name: 'X-Extension-Request', value: 'true' },
+                    { name: 'X-DL-Service', value: 'mangalib' },
+                    { name: 'Authorization', value: 'Bearer old-token' },
+                ],
+            });
+            const auth = result.requestHeaders.find(h => h.name === 'Authorization');
+            expect(auth.value).toBe('Bearer new-token');
+        });
+
+        it('Does not capture token when Authorization header value does not start with Bearer', async () => {
+            console.log.mockClear();
+            await capturedBeforeSendHeadersCb({
+                tabId: 1,
+                frameId: 0,
+                url: 'https://api.cdnlibs.org/api/manga/slug',
+                requestHeaders: [{ name: 'Authorization', value: 'Basic dXNlcjpwYXNz' }],
+                originUrl: 'https://mangalib.me/',
+            });
+            expect(console.log).not.toHaveBeenCalledWith(expect.stringContaining('Captured auth token'));
+        });
     });
 
     describe('Chrome mode', () => {
@@ -608,6 +699,14 @@ describe('Background', () => {
                 ],
             });
             expect(mockTrackRequest).toHaveBeenCalledWith('ranobelib');
+        });
+
+        it('Does not track when extension request has no detectable service', async () => {
+            await capturedBeforeSendHeadersCb({
+                url: 'https://api.cdnlibs.org/unknown/path',
+                requestHeaders: [{ name: 'X-Extension-Request', value: 'true' }],
+            });
+            expect(mockTrackRequest).not.toHaveBeenCalled();
         });
     });
 
@@ -1031,6 +1130,36 @@ describe('Background', () => {
             );
             await vi.waitFor(() => expect(sendResponse).toHaveBeenCalled());
             expect(sendResponse).toHaveBeenCalledWith({ ok: false, error: 'No window/tab API available' });
+        });
+
+        it('Handles getAuthToken returns null when no serviceKey provided', () => {
+            const sendResponse = vi.fn();
+            capturedMessageCb({ action: 'getAuthToken' }, {}, sendResponse);
+            expect(sendResponse).toHaveBeenCalledWith({ token: null });
+        });
+
+        it('Handles getAuthToken returns null for uncached service', () => {
+            const sendResponse = vi.fn();
+            capturedMessageCb({ action: 'getAuthToken', serviceKey: 'mangalib' }, {}, sendResponse);
+            expect(sendResponse).toHaveBeenCalledWith({ token: null });
+        });
+
+        it('Handles cacheAuthToken stores token and getAuthToken retrieves it', () => {
+            const cacheResp = vi.fn();
+            capturedMessageCb({ action: 'cacheAuthToken', serviceKey: 'mangalib', token: 'abc123' }, {}, cacheResp);
+            expect(cacheResp).toHaveBeenCalledWith({ ok: true });
+            const getResp = vi.fn();
+            capturedMessageCb({ action: 'getAuthToken', serviceKey: 'mangalib' }, {}, getResp);
+            expect(getResp).toHaveBeenCalledWith({ token: 'abc123' });
+        });
+
+        it('Handles cacheAuthToken skips storage when serviceKey or token missing', () => {
+            const cacheResp = vi.fn();
+            capturedMessageCb({ action: 'cacheAuthToken', serviceKey: 'mangalib' }, {}, cacheResp);
+            expect(cacheResp).toHaveBeenCalledWith({ ok: true });
+            const getResp = vi.fn();
+            capturedMessageCb({ action: 'getAuthToken', serviceKey: 'mangalib' }, {}, getResp);
+            expect(getResp).toHaveBeenCalledWith({ token: null });
         });
     });
 

@@ -326,6 +326,14 @@ describe('DownloadManager', () => {
         await expect(dm.startDownload({ url: 'https://site/manga/slug' })).rejects.toThrow();
     });
 
+    it('Start download with authToken applies Authorization header to service', async () => {
+        serviceMock.config = { headers: {} };
+        const dm = new DownloadManager();
+        const res = await dm.startDownload({ serviceKey: 'mangalib', url: 'https://site/manga/slug', authToken: 'mytoken' });
+        expect(serviceMock.config.headers['Authorization']).toBe('Bearer mytoken');
+        expect(res.success).toBe(true);
+    });
+
     it('Update existing file error', async () => {
         const dm = new DownloadManager();
         const ds = { id: 'id', slug: 'slug', format: 'fb2', controller: dm.createController() };
