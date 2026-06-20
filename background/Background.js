@@ -400,6 +400,26 @@ if (browserAPI && browserAPI.runtime && browserAPI.runtime.onMessage) {
                 }
             })();
             return true;
+        } else if (message.action === 'openWindowWithUrl') {
+            (async () => {
+                try {
+                    const { url } = message;
+                    if (browserAPI.windows) {
+                        const win = await browserAPI.windows.create({
+                            url, type: 'popup', width: 350, height: 650, focused: true, state: 'normal'
+                        });
+                        if (win && win.id) browserAPI.windows.update(win.id, { focused: true });
+                        sendResponse({ ok: true });
+                    } else if (browserAPI.tabs) {
+                        const tab = await browserAPI.tabs.create({ url, active: true });
+                        if (tab) sendResponse({ ok: true });
+                        else sendResponse({ ok: false, error: 'tab create' });
+                    } else sendResponse({ ok: false, error: 'No window/tab API available' });
+                } catch (e) {
+                    sendResponse({ ok: false, error: String(e) });
+                }
+            })();
+            return true;
         }
 
         return false;

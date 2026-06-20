@@ -1132,6 +1132,62 @@ describe('Background', () => {
             expect(sendResponse).toHaveBeenCalledWith({ ok: false, error: 'No window/tab API available' });
         });
 
+        it('Handles openWindowWithUrl with windows API', async () => {
+            const mockCreate = vi.fn().mockResolvedValue({ id: 99 });
+            const mockUpdate = vi.fn();
+            globalThis.browser.windows = { create: mockCreate, update: mockUpdate };
+            const sendResponse = vi.fn();
+            capturedMessageCb({ action: 'openWindowWithUrl', url: 'popup.html?download=true' }, {}, sendResponse);
+            await vi.waitFor(() => expect(sendResponse).toHaveBeenCalled());
+            expect(sendResponse).toHaveBeenCalledWith({ ok: true });
+            expect(mockUpdate).toHaveBeenCalledWith(99, { focused: true });
+        });
+
+        it('Handles openWindowWithUrl with windows API when win has no id', async () => {
+            const mockCreate = vi.fn().mockResolvedValue({});
+            const mockUpdate = vi.fn();
+            globalThis.browser.windows = { create: mockCreate, update: mockUpdate };
+            const sendResponse = vi.fn();
+            capturedMessageCb({ action: 'openWindowWithUrl', url: 'popup.html?download=true' }, {}, sendResponse);
+            await vi.waitFor(() => expect(sendResponse).toHaveBeenCalled());
+            expect(sendResponse).toHaveBeenCalledWith({ ok: true });
+            expect(mockUpdate).not.toHaveBeenCalled();
+        });
+
+        it('Handles openWindowWithUrl with tabs API when windows unavailable', async () => {
+            globalThis.browser.tabs = { create: vi.fn().mockResolvedValue({ id: 5 }) };
+            const sendResponse = vi.fn();
+            capturedMessageCb({ action: 'openWindowWithUrl', url: 'popup.html?download=true' }, {}, sendResponse);
+            await vi.waitFor(() => expect(sendResponse).toHaveBeenCalled());
+            expect(sendResponse).toHaveBeenCalledWith({ ok: true });
+        });
+
+        it('Handles openWindowWithUrl with tabs API when tab is null', async () => {
+            globalThis.browser.tabs = { create: vi.fn().mockResolvedValue(null) };
+            const sendResponse = vi.fn();
+            capturedMessageCb({ action: 'openWindowWithUrl', url: 'popup.html?download=true' }, {}, sendResponse);
+            await vi.waitFor(() => expect(sendResponse).toHaveBeenCalled());
+            expect(sendResponse).toHaveBeenCalledWith({ ok: false, error: 'tab create' });
+        });
+
+        it('Handles openWindowWithUrl when neither windows nor tabs API is available', async () => {
+            const sendResponse = vi.fn();
+            capturedMessageCb({ action: 'openWindowWithUrl', url: 'popup.html?download=true' }, {}, sendResponse);
+            await vi.waitFor(() => expect(sendResponse).toHaveBeenCalled());
+            expect(sendResponse).toHaveBeenCalledWith({ ok: false, error: 'No window/tab API available' });
+        });
+
+        it('Handles openWindowWithUrl exception', async () => {
+            globalThis.browser.windows = {
+                create: vi.fn().mockRejectedValue(new Error('create fail')),
+                update: vi.fn(),
+            };
+            const sendResponse = vi.fn();
+            capturedMessageCb({ action: 'openWindowWithUrl', url: 'popup.html?download=true' }, {}, sendResponse);
+            await vi.waitFor(() => expect(sendResponse).toHaveBeenCalled());
+            expect(sendResponse).toHaveBeenCalledWith({ ok: false, error: expect.stringContaining('create fail') });
+        });
+
         it('Handles getAuthToken returns null when no serviceKey provided', () => {
             const sendResponse = vi.fn();
             capturedMessageCb({ action: 'getAuthToken' }, {}, sendResponse);

@@ -320,11 +320,7 @@
         async isInSeparateWindow() {
             try {
                 const urlParams = new URLSearchParams(window.location.search);
-                const hasParams = urlParams.has('download') || urlParams.has('fileUpload');
-
-                if (hasParams) return true;
-                if (window.outerWidth <= 500 && window.outerHeight <= 700) return true;
-
+                if (urlParams.has('download') || urlParams.has('fileUpload')) return true;
                 const currentWindow = await browserAPI.windows.getCurrent();
                 console.log('[PopupController] Window type:', currentWindow.type);
                 return currentWindow.type === 'popup';
@@ -335,6 +331,11 @@
         }
 
         async openInNewContext(url) {
+            const isFirefox = typeof global.browser !== 'undefined' && !!global.browser;
+            if (!isFirefox) {
+                browserAPI.runtime.sendMessage({ action: 'openWindowWithUrl', url }).catch(() => {});
+                return;
+            }
             if (browserAPI.windows) {
                 const win = await browserAPI.windows.create({
                     url,

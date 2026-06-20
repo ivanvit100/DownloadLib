@@ -2209,4 +2209,23 @@ describe('PopupController', () => {
         const result = await controller._getAuthToken('mangalib', 1);
         expect(result).toBeNull();
     });
+
+    it('openInNewContext sends openWindowWithUrl to background in Chrome mode', async () => {
+        const sendMessageMock = vi.fn(async () => ({ ok: true }));
+        global.browser.runtime.sendMessage = sendMessageMock;
+        global.browser = undefined;
+        const controller = new PopupController();
+        await controller.openInNewContext('popup.html?download=true');
+        expect(sendMessageMock).toHaveBeenCalledWith({ action: 'openWindowWithUrl', url: 'popup.html?download=true' });
+    });
+
+    it('openInNewContext silently catches sendMessage rejection in Chrome mode', async () => {
+        const sendMessageMock = vi.fn(async () => { throw new Error('port closed'); });
+        global.browser.runtime.sendMessage = sendMessageMock;
+        global.browser = undefined;
+        const controller = new PopupController();
+        await controller.openInNewContext('popup.html?download=true');
+        await Promise.resolve();
+        expect(sendMessageMock).toHaveBeenCalled();
+    });
 });
