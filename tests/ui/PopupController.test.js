@@ -818,14 +818,11 @@ describe('PopupController', () => {
         global.browser.tabs.query = vi.fn(async () => ([{ url: 'https://unknownsite.me/' }]));
         await controller.loadMetadata();
         expect(document.getElementById('logoInfo').textContent).toBe('');
-        expect(document.getElementById('cover').style.display).toBe('none');
-        expect(document.getElementById('description').textContent).toBe('Сперва откройте один из сайтов проекта MangaLib');
-        expect(document.getElementById('releaseDate').textContent).toBe('');
-        expect(document.getElementById('downloadBtn').disabled).toBe(true);
-        expect(document.getElementById('status').textContent).toBe('');
+        expect(document.getElementById('downloadBtn').style.display).toBe('none');
+        expect(document.getElementById('status').style.display).toBe('none');
     });
 
-    it('Warns for missing elements when showing no service error', async () => {
+    it('_showWrongServiceState handles missing logoInfo and absent container', async () => {
         const controller = new PopupController();
         global.serviceRegistry.getServiceByUrl = vi.fn(() => null);
         Object.defineProperty(window, 'location', {
@@ -833,23 +830,13 @@ describe('PopupController', () => {
             writable: true
         });
         global.browser.tabs.query = vi.fn(async () => ([{ url: 'https://unknownsite.me/' }]));
-        const coverImg = document.getElementById('cover');
-        const desc = document.getElementById('description');
-        const releaseEl = document.getElementById('releaseDate');
-        const status = document.getElementById('status');
-        if (coverImg && coverImg.parentNode) coverImg.parentNode.removeChild(coverImg);
-        if (desc && desc.parentNode) desc.parentNode.removeChild(desc);
-        if (releaseEl && releaseEl.parentNode) releaseEl.parentNode.removeChild(releaseEl);
-        if (status && status.parentNode) status.parentNode.removeChild(status);
-        const consoleWarnSpy = vi.spyOn(console, 'warn');
+        const logoInfo = document.getElementById('logoInfo');
+        if (logoInfo && logoInfo.parentNode) logoInfo.parentNode.removeChild(logoInfo);
         await controller.loadMetadata();
-        expect(consoleWarnSpy).toHaveBeenCalledWith('Description element found when showing no service error');
-        expect(consoleWarnSpy).toHaveBeenCalledWith('Release date element found when showing no service error');
-        expect(consoleWarnSpy).toHaveBeenCalledWith('Status element not found when showing no service error');
-        consoleWarnSpy.mockRestore();
+        expect(document.getElementById('wrongServicePanel')).toBeNull();
     });
 
-    it('Warns for missing elements when showing no slug error', async () => {
+    it('_showNoTitleState handles missing logoInfo and absent container', async () => {
         const controller = new PopupController();
         global.serviceRegistry.getServiceByUrl = vi.fn(() => ({ name: 'ranobelib', fetchMangaMetadata: vi.fn(), fetchChaptersList: vi.fn() }));
         Object.defineProperty(window, 'location', {
@@ -857,20 +844,10 @@ describe('PopupController', () => {
             writable: true
         });
         global.browser.tabs.query = vi.fn(async () => ([{ url: 'https://ranobelib.me/' }]));
-        const coverImg = document.getElementById('cover');
-        const desc = document.getElementById('description');
-        const releaseEl = document.getElementById('releaseDate');
-        const status = document.getElementById('status');
-        if (coverImg && coverImg.parentNode) coverImg.parentNode.removeChild(coverImg);
-        if (desc && desc.parentNode) desc.parentNode.removeChild(desc);
-        if (releaseEl && releaseEl.parentNode) releaseEl.parentNode.removeChild(releaseEl);
-        if (status && status.parentNode) status.parentNode.removeChild(status);
-        const consoleWarnSpy = vi.spyOn(console, 'warn');
+        const logoInfo = document.getElementById('logoInfo');
+        if (logoInfo && logoInfo.parentNode) logoInfo.parentNode.removeChild(logoInfo);
         await controller.loadMetadata();
-        expect(consoleWarnSpy).toHaveBeenCalledWith('Cover image element not found when showing no slug error');
-        expect(consoleWarnSpy).toHaveBeenCalledWith('Release date element found when showing no slug error');
-        expect(consoleWarnSpy).toHaveBeenCalledWith('Status element not found when showing no slug error');
-        consoleWarnSpy.mockRestore();
+        expect(document.getElementById('noTitlePanel')).toBeNull();
     });
 
     it('Uses rawResp as metadata if data is missing', async () => {

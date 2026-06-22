@@ -4,7 +4,7 @@
  * @module ui/PopupController
  * @license MIT
  * @author ivanvit
- * @version 1.0.6
+ * @version 1.0.7
  */
 
 'use strict';
@@ -22,6 +22,21 @@
         console.error('[PopupController] No browser API available');
         return;
     }
+
+    const GITHUB_ICON_SVG = `<svg xmlns="http://www.w3.org/2000/svg" 
+        viewBox="0 0 16 16" width="14" height="14" fill="currentColor" 
+        style="vertical-align:middle;margin-right:6px">
+        <path d="M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07
+        .55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94
+        -.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58
+         1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07
+        -1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15
+        -.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82.64-.18 1.32-.27
+         2-.27.68 0 1.36.09 2 .27 1.53-1.04 2.2-.82 2.2-.82
+        .44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15
+         0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48
+         0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38
+        A8.013 8.013 0 0016 8c0-4.42-3.58-8-8-8z"/></svg>`;
 
     class PopupController {
         constructor() {
@@ -365,19 +380,6 @@
             else console.warn('Site logo element not found when setting logo for service:', serviceKey);
         }
 
-        _showEmptyState({ logoInfo, coverImg, desc, releaseEl, btn, status }, descText, context) {
-            logoInfo.textContent = '';
-            if (coverImg) coverImg.style.display = 'none';
-            else console.warn(`Cover image element not found when showing ${context}`);
-            console.warn(`Description element found when showing ${context}`);
-            if (desc) desc.textContent = descText;
-            console.warn(`Release date element found when showing ${context}`);
-            if (releaseEl) releaseEl.textContent = '';
-            btn.disabled = true;
-            if (status) status.textContent = '';
-            else console.warn(`Status element not found when showing ${context}`);
-        }
-
         _applyUrlParams({ formatFromUrl, maxSizeMBFromUrl, rateLimitFromUrl, formatSelector, rateLimitInput }) {
             if (formatFromUrl && formatSelector) {
                 formatSelector.value = formatFromUrl;
@@ -638,6 +640,114 @@
             }
         }
 
+        _showWrongServiceState() {
+            const toHide = [
+                'bookContainer', 'downloadBtn', 'status', 'progress', 'releaseDate',
+                'formatContainer', 'rateLimitContainer', 'fileInputContainer',
+                'downloadControls', 'splitModeContainer', 'chapterRangeContainer', 'translatorContainer'
+            ];
+            toHide.forEach(id => {
+                const el = document.getElementById(id);
+                if (el) el.style.display = 'none';
+            });
+
+            const logoInfo = document.getElementById('logoInfo');
+            if (logoInfo) logoInfo.textContent = '';
+
+            let panel = document.getElementById('wrongServicePanel');
+            if (!panel) {
+                panel = document.createElement('div');
+                panel.id = 'wrongServicePanel';
+
+                const msg = document.createElement('div');
+                msg.id = 'wrongServiceMsg';
+                const lines = `Расширение работает только<br>
+                    на сайтах проекта <strong>MangaLib</strong>.<br><br>
+                    Откройте один из сайтов:`;
+                msg.innerHTML = lines;
+                panel.appendChild(msg);
+
+                const serviceLinks = document.createElement('div');
+                serviceLinks.id = 'serviceLinks';
+
+                const mangalibBtn = document.createElement('button');
+                mangalibBtn.className = 'service-link-btn mangalib-link-btn';
+                mangalibBtn.textContent = 'MangaLib';
+                mangalibBtn.addEventListener('click', () => {
+                    browserAPI.tabs.create({ url: 'https://mangalib.me' });
+                    this._applyServiceTheme('mangalib', document.getElementById('siteLogo'));
+                    panel.style.display = 'none';
+                    this._showNoTitleState();
+                });
+
+                const ranobelibBtn = document.createElement('button');
+                ranobelibBtn.className = 'service-link-btn ranobelib-link-btn';
+                ranobelibBtn.textContent = 'RanobeLib';
+                ranobelibBtn.addEventListener('click', () => {
+                    browserAPI.tabs.create({ url: 'https://ranobelib.me' });
+                    this._applyServiceTheme('ranobelib', document.getElementById('siteLogo'));
+                    panel.style.display = 'none';
+                    this._showNoTitleState();
+                });
+
+                serviceLinks.appendChild(mangalibBtn);
+                serviceLinks.appendChild(ranobelibBtn);
+                panel.appendChild(serviceLinks);
+
+                const githubBtn = document.createElement('button');
+                githubBtn.className = 'service-link-btn github-link-btn';
+                githubBtn.innerHTML = `${GITHUB_ICON_SVG}GitHub`;
+                githubBtn.addEventListener('click', () => {
+                    browserAPI.tabs.create({ url: 'https://github.com/ivanvit100/DownloadLib' });
+                });
+                panel.appendChild(githubBtn);
+
+                const container = document.getElementById('container');
+                if (container) container.appendChild(panel);
+            }
+
+            panel.style.display = 'block';
+        }
+
+        _showNoTitleState() {
+            const toHide = [
+                'bookContainer', 'downloadBtn', 'status', 'progress', 'releaseDate',
+                'formatContainer', 'rateLimitContainer', 'fileInputContainer',
+                'downloadControls', 'splitModeContainer', 'chapterRangeContainer', 'translatorContainer'
+            ];
+            toHide.forEach(id => {
+                const el = document.getElementById(id);
+                if (el) el.style.display = 'none';
+            });
+
+            const logoInfo = document.getElementById('logoInfo');
+            if (logoInfo) logoInfo.textContent = '';
+
+            let panel = document.getElementById('noTitlePanel');
+            if (!panel) {
+                panel = document.createElement('div');
+                panel.id = 'noTitlePanel';
+
+                const msg = document.createElement('div');
+                msg.id = 'noTitleMsg';
+                msg.innerHTML = 'Откройте страницу конкретного<br>тайтла и нажмите на иконку<br>расширения снова.';
+                panel.appendChild(msg);
+
+                const githubBtn = document.createElement('button');
+                githubBtn.className = 'service-link-btn github-link-btn';
+                githubBtn.innerHTML = `${GITHUB_ICON_SVG}GitHub`;
+                githubBtn.addEventListener('click', () => {
+                    browserAPI.tabs.create({ url: 'https://github.com/ivanvit100/DownloadLib' });
+                });
+                panel.appendChild(githubBtn);
+
+                const container = document.getElementById('container');
+                if (container) container.appendChild(panel);
+            }
+
+            panel.style.display = 'block';
+        }
+
         async loadMetadata() {
             await Promise.resolve();
             const status = document.getElementById('status');
@@ -697,8 +807,7 @@
 
                     service = global.serviceRegistry.getServiceByUrl(currentUrl);
                     if (!service) {
-                        this._showEmptyState(uiElements,
-                            'Сперва откройте один из сайтов проекта MangaLib', 'no service error');
+                        this._showWrongServiceState();
                         return;
                     }
 
@@ -710,7 +819,7 @@
                 this._applyServiceTheme(serviceKey, siteLogo);
 
                 if (!slug) {
-                    this._showEmptyState(uiElements, 'Сперва откройте соответствующий тайтл', 'no slug error');
+                    this._showNoTitleState();
                     return;
                 }
 

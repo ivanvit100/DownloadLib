@@ -1073,3 +1073,188 @@ describe('PopupController second test file', () => {
         expect(capturedBranchId).toBe(7);
     });
 });
+
+describe('_showWrongServiceState and _showNoTitleState', () => {
+    beforeEach(() => {
+        document.body.innerHTML = `
+            <div id="container">
+                <img id="siteLogo" />
+                <div id="logoInfo"></div>
+                <div id="bookContainer">
+                    <img id="cover" />
+                    <div id="description"></div>
+                </div>
+                <button id="downloadBtn"></button>
+                <div id="status"></div>
+                <progress id="progress"></progress>
+                <div id="error" class="hidden"></div>
+                <div id="success" class="hidden"></div>
+            </div>
+        `;
+        global.browser.tabs.create = vi.fn(async () => {});
+    });
+
+    it('_showWrongServiceState hides UI controls', () => {
+        const controller = new PopupController();
+        controller._showWrongServiceState();
+
+        expect(document.getElementById('downloadBtn').style.display).toBe('none');
+        expect(document.getElementById('status').style.display).toBe('none');
+        expect(document.getElementById('formatContainer').style.display).toBe('none');
+        expect(document.getElementById('rateLimitContainer').style.display).toBe('none');
+        expect(document.getElementById('fileInputContainer').style.display).toBe('none');
+    });
+
+    it('_showWrongServiceState clears logoInfo and creates visible panel', () => {
+        const controller = new PopupController();
+        document.getElementById('logoInfo').textContent = 'something';
+
+        controller._showWrongServiceState();
+
+        expect(document.getElementById('logoInfo').textContent).toBe('');
+        const panel = document.getElementById('wrongServicePanel');
+        expect(panel).not.toBeNull();
+        expect(panel.style.display).toBe('block');
+    });
+
+    it('_showWrongServiceState creates MangaLib and RanobeLib buttons', () => {
+        const controller = new PopupController();
+        controller._showWrongServiceState();
+
+        const btns = document.getElementById('serviceLinks').querySelectorAll('button');
+        expect(btns.length).toBe(2);
+        expect(btns[0].textContent).toBe('MangaLib');
+        expect(btns[1].textContent).toBe('RanobeLib');
+    });
+
+    it('_showWrongServiceState creates GitHub button with SVG icon', () => {
+        const controller = new PopupController();
+        controller._showWrongServiceState();
+
+        const githubBtn = document.querySelector('#wrongServicePanel .github-link-btn');
+        expect(githubBtn).not.toBeNull();
+        expect(githubBtn.innerHTML).toContain('svg');
+        expect(githubBtn.innerHTML).toContain('GitHub');
+    });
+
+    it('_showWrongServiceState does not duplicate panel on repeated calls', () => {
+        const controller = new PopupController();
+        controller._showWrongServiceState();
+        controller._showWrongServiceState();
+
+        expect(document.querySelectorAll('#wrongServicePanel').length).toBe(1);
+    });
+
+    it('MangaLib button opens mangalib.me tab', () => {
+        const controller = new PopupController();
+        controller._showWrongServiceState();
+
+        document.querySelector('.mangalib-link-btn').click();
+
+        expect(global.browser.tabs.create).toHaveBeenCalledWith({ url: 'https://mangalib.me' });
+    });
+
+    it('MangaLib button applies mangalib theme and transitions to noTitleState', () => {
+        const controller = new PopupController();
+        controller._showWrongServiceState();
+
+        document.querySelector('.mangalib-link-btn').click();
+
+        expect(document.getElementById('siteLogo').src).toContain('logo1.png');
+        expect(document.getElementById('wrongServicePanel').style.display).toBe('none');
+        expect(document.getElementById('noTitlePanel')).not.toBeNull();
+        expect(document.getElementById('noTitlePanel').style.display).toBe('block');
+    });
+
+    it('RanobeLib button opens ranobelib.me tab', () => {
+        const controller = new PopupController();
+        controller._showWrongServiceState();
+
+        document.querySelector('.ranobelib-link-btn').click();
+
+        expect(global.browser.tabs.create).toHaveBeenCalledWith({ url: 'https://ranobelib.me' });
+    });
+
+    it('RanobeLib button applies ranobelib theme and transitions to noTitleState', () => {
+        const controller = new PopupController();
+        controller._showWrongServiceState();
+
+        document.querySelector('.ranobelib-link-btn').click();
+
+        expect(document.getElementById('siteLogo').src).toContain('logo3.png');
+        expect(document.getElementById('wrongServicePanel').style.display).toBe('none');
+        expect(document.getElementById('noTitlePanel')).not.toBeNull();
+        expect(document.getElementById('noTitlePanel').style.display).toBe('block');
+    });
+
+    it('GitHub button in wrongServicePanel opens repo URL', () => {
+        const controller = new PopupController();
+        controller._showWrongServiceState();
+
+        document.querySelector('#wrongServicePanel .github-link-btn').click();
+
+        expect(global.browser.tabs.create).toHaveBeenCalledWith({
+            url: 'https://github.com/ivanvit100/DownloadLib'
+        });
+    });
+
+    it('_showNoTitleState hides UI controls and shows noTitlePanel', () => {
+        const controller = new PopupController();
+        controller._showNoTitleState();
+
+        expect(document.getElementById('downloadBtn').style.display).toBe('none');
+        expect(document.getElementById('formatContainer').style.display).toBe('none');
+        const panel = document.getElementById('noTitlePanel');
+        expect(panel).not.toBeNull();
+        expect(panel.style.display).toBe('block');
+    });
+
+    it('_showNoTitleState creates GitHub button with SVG icon', () => {
+        const controller = new PopupController();
+        controller._showNoTitleState();
+
+        const githubBtn = document.querySelector('#noTitlePanel .github-link-btn');
+        expect(githubBtn).not.toBeNull();
+        expect(githubBtn.innerHTML).toContain('svg');
+        expect(githubBtn.innerHTML).toContain('GitHub');
+    });
+
+    it('_showNoTitleState does not duplicate panel on repeated calls', () => {
+        const controller = new PopupController();
+        controller._showNoTitleState();
+        controller._showNoTitleState();
+
+        expect(document.querySelectorAll('#noTitlePanel').length).toBe(1);
+    });
+
+    it('GitHub button in noTitlePanel opens repo URL', () => {
+        const controller = new PopupController();
+        controller._showNoTitleState();
+
+        document.querySelector('#noTitlePanel .github-link-btn').click();
+
+        expect(global.browser.tabs.create).toHaveBeenCalledWith({
+            url: 'https://github.com/ivanvit100/DownloadLib'
+        });
+    });
+
+    it('loadMetadata triggers _showWrongServiceState when no service found', async () => {
+        global.serviceRegistry.getServiceByUrl = vi.fn(() => null);
+        const controller = new PopupController();
+        const spy = vi.spyOn(controller, '_showWrongServiceState');
+
+        await controller.loadMetadata();
+
+        expect(spy).toHaveBeenCalled();
+    });
+
+    it('loadMetadata triggers _showNoTitleState when service found but URL has no title slug', async () => {
+        global.browser.tabs.query = vi.fn(async () => ([{ url: 'https://ranobelib.me/' }]));
+        const controller = new PopupController();
+        const spy = vi.spyOn(controller, '_showNoTitleState');
+
+        await controller.loadMetadata();
+
+        expect(spy).toHaveBeenCalled();
+    });
+});

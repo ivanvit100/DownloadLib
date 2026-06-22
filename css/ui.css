@@ -300,3 +300,52 @@ input[type="number"] {
 #translatorSelect:hover {
     border: 2px solid var(--secondary-color);
 }
+#wrongServicePanel, #noTitlePanel {
+    text-align: center;
+    margin-top: 16px;
+}
+#wrongServiceMsg, #noTitleMsg {
+    color: #ddd;
+    font-size: 15px;
+    font-weight: bold;
+    background: #2e2e30;
+    border: 1px solid #3d3d3f;
+    border-radius: 8px;
+    padding: 16px 12px;
+    margin-bottom: 14px;
+    line-height: 1.7;
+}
+#serviceLinks {
+    display: flex;
+    gap: 8px;
+    margin-bottom: 8px;
+}
+.service-link-btn {
+    font-weight: bold;
+    background: #252527 !important;
+    color: #fff !important;
+    font-size: 14px;
+}
+.mangalib-link-btn {
+    flex: 1;
+    border: 2px solid #ff9100 !important;
+}
+.mangalib-link-btn:hover {
+    background: rgba(255, 145, 0, 0.12) !important;
+}
+.ranobelib-link-btn {
+    flex: 1;
+    border: 2px solid #2196f3 !important;
+}
+.ranobelib-link-btn:hover {
+    background: rgba(33, 150, 243, 0.12) !important;
+}
+.github-link-btn {
+    width: 100%;
+    border: 2px solid #6e7681 !important;
+    font-size: 13px;
+    padding: 8px;
+}
+.github-link-btn:hover {
+    background: rgba(110, 118, 129, 0.12) !important;
+}
