@@ -10,7 +10,7 @@
 
 [![Test Extension](https://github.com/ivanvit100/DownloadLib/actions/workflows/test.yaml/badge.svg)](https://github.com/ivanvit/DownloadLib/actions/workflows/test.yaml)
 ![Code Coverage](https://img.shields.io/badge/Coverage-100%25-brightgreen)
-![Version](https://img.shields.io/badge/version-1.0.5-blue)
+![Version](https://img.shields.io/badge/version-1.0.6-blue)
 
 [📦 Скачать](#установка) · [⚠️ Сообщить об ошибке](https://github.com/ivanvit100/DownloadLib/issues) · [✏️ Участвовать в разработке](CONTRIBUTING.md)
 
@@ -72,7 +72,7 @@
     <td>Дополнение скачанного файла недостающими главами</td>
   </tr>
   <tr>
-    <td>⚙️ <b>Гибкая настройка</b></td>
+    <td>⏸️ <b>Гибкая настройка</b></td>
     <td>Лимит запросов в минуту и максимальный размер частей файла</td>
   </tr>
   <tr>
@@ -80,8 +80,8 @@
     <td>Разбиение длинных страниц манги на части для читалок</td>
   </tr>
   <tr>
-    <td>⏸️ <b>Фоновая загрузка</b></td>
-    <td>Пауза, продолжение и перевод загрузки в фоновый режим</td>
+    <td>⚙️ <b>Выбор перевода</b></td>
+    <td>Возможность выбрать понравившегося переводчика при имеющихся альтернативных переводах</td>
   </tr>
   <tr>
     <td>🖱️ <b>Кнопка на сайте</b></td>
@@ -101,7 +101,8 @@
 | Браузер | Поддержка |
 |---|---|
 | **Firefox** | Полная поддержка всех функций |
-| **Chromium** (Chrome, Edge, Яндекс и др.) | ⚠️ Бета — некоторые функции могут работать нестабильно |
+| **Chromium** (Chrome, Edge, Яндекс и др.) | Полная поддержка всех функций |
+| **Firefox для Android**| ⚠️ Бета — некоторые функции могут работать нестабильно |
 
 ---
 
