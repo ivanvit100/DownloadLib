@@ -201,7 +201,7 @@ describe('PopupController second test file', () => {
         await new Promise(resolve => setTimeout(resolve, 100));
 
         const idsToRemove = [
-            'formatSelector', 'rateLimitInput', 'fileInput', 'customFileBtn',
+            'formatContainer', 'rateLimitContainer', 'fileInput', 'customFileBtn',
             'fileInputContainer', 'progress', 'siteLogo', 'downloadControls',
             'chapterRangeContainer'
         ];
@@ -216,8 +216,8 @@ describe('PopupController second test file', () => {
 
         const expectedWarnings = [
             'Rate limit input not found when setting rate limit',
-            'Format selector not found when disabling during download',
-            'Rate limit input not found when disabling during download',
+            'Format container not found when hiding during download',
+            'Rate limit container not found when hiding during download',
             'Hidden file input not found when disabling during download',
             'Custom file button not found when disabling during download',
             'File input container not found when disabling during download',
@@ -428,28 +428,28 @@ describe('PopupController second test file', () => {
         expect(warnSpy).toHaveBeenCalledWith('Download button not found when resetting UI');
     });
 
-    it('Warns when format selector is missing during UI reset', async () => {
+    it('Warns when format container is missing during UI reset', async () => {
         const controller = new PopupController();
 
-        const el = document.getElementById('formatSelector');
+        const el = document.getElementById('formatContainer');
         if (el) el.parentNode.removeChild(el);
 
         const warnSpy = vi.spyOn(console, 'warn');
         controller.resetUI();
 
-        expect(warnSpy).toHaveBeenCalledWith('Format selector not found when resetting UI');
+        expect(warnSpy).toHaveBeenCalledWith('Format container not found when resetting UI');
     });
 
-    it('Warns when rate limit input is missing during UI reset', async () => {
+    it('Warns when rate limit container is missing during UI reset', async () => {
         const controller = new PopupController();
 
-        const el = document.getElementById('rateLimitInput');
+        const el = document.getElementById('rateLimitContainer');
         if (el) el.parentNode.removeChild(el);
 
         const warnSpy = vi.spyOn(console, 'warn');
         controller.resetUI();
 
-        expect(warnSpy).toHaveBeenCalledWith('Rate limit input not found when resetting UI');
+        expect(warnSpy).toHaveBeenCalledWith('Rate limit container not found when resetting UI');
     });
 
     it('Warns when hidden file input is missing during UI reset', async () => {
@@ -510,6 +510,18 @@ describe('PopupController second test file', () => {
         controller.resetUI();
 
         expect(warnSpy).toHaveBeenCalledWith('Chapter range container not found when resetting UI');
+    });
+
+    it('Warns when fileInputContainer is missing during UI reset', async () => {
+        const controller = new PopupController();
+
+        const el = document.getElementById('fileInputContainer');
+        if (el) el.parentNode.removeChild(el);
+
+        const warnSpy = vi.spyOn(console, 'warn');
+        controller.resetUI();
+
+        expect(warnSpy).toHaveBeenCalledWith('File input container not found when resetting UI');
     });
 
     it('Warns when error element is missing during error display', async () => {
@@ -1071,6 +1083,153 @@ describe('PopupController second test file', () => {
         await controller.startDownload();
 
         expect(capturedBranchId).toBe(7);
+    });
+
+    it('Warns when downloadInfoPanel is already in DOM during setupUI', async () => {
+        const panel = document.createElement('div');
+        panel.id = 'downloadInfoPanel';
+        document.body.appendChild(panel);
+
+        const warnSpy = vi.spyOn(console, 'warn');
+        new PopupController();
+        expect(warnSpy).toHaveBeenCalledWith('downloadInfoPanel found in DOM');
+        warnSpy.mockRestore();
+    });
+
+    it('Populates downloadInfoPanel with format, rate limit and max size during download', async () => {
+        const controller = new PopupController();
+        controller.currentSlug = 'slug';
+        controller.currentServiceKey = 'ranobelib';
+
+        await new Promise(resolve => setTimeout(resolve, 100));
+
+        const formatSelector = document.getElementById('formatSelector');
+        const rateLimitInput = document.getElementById('rateLimitInput');
+        const maxSizeInput = document.getElementById('maxSizeInput');
+
+        if (formatSelector) formatSelector.selectedIndex = 0;  // FB2
+        if (rateLimitInput) rateLimitInput.value = '85';
+        if (maxSizeInput) maxSizeInput.value = '200';
+
+        controller.downloadManager.startDownload = vi.fn(async () => ({}));
+
+        await controller.startDownload();
+
+        const panel = document.getElementById('downloadInfoPanel');
+        expect(panel).not.toBeNull();
+        expect(panel.style.display).toBe('block');
+        expect(panel.innerHTML).toContain('info-row');
+        expect(panel.innerHTML).toContain('85');
+        expect(panel.innerHTML).toContain('200');
+    });
+
+    it('Hides downloadInfoPanel after resetUI', async () => {
+        const controller = new PopupController();
+        controller.currentSlug = 'slug';
+        controller.currentServiceKey = 'ranobelib';
+
+        await new Promise(resolve => setTimeout(resolve, 100));
+
+        controller.downloadManager.startDownload = vi.fn(async () => ({}));
+        await controller.startDownload();
+
+        const panel = document.getElementById('downloadInfoPanel');
+        expect(panel.style.display).toBe('block');
+
+        controller.resetUI();
+        expect(panel.style.display).toBe('none');
+    });
+
+    it('Restores formatContainer visibility after resetUI', async () => {
+        const controller = new PopupController();
+        controller.currentSlug = 'slug';
+        controller.currentServiceKey = 'ranobelib';
+
+        await new Promise(resolve => setTimeout(resolve, 100));
+
+        controller.downloadManager.startDownload = vi.fn(async () => ({}));
+        await controller.startDownload();
+
+        const formatContainer = document.getElementById('formatContainer');
+        expect(formatContainer.style.display).toBe('none');
+
+        controller.resetUI();
+        expect(formatContainer.style.display).toBe('');
+    });
+
+    it('Restores rateLimitContainer visibility after resetUI', async () => {
+        const controller = new PopupController();
+        controller.currentSlug = 'slug';
+        controller.currentServiceKey = 'ranobelib';
+
+        await new Promise(resolve => setTimeout(resolve, 100));
+
+        controller.downloadManager.startDownload = vi.fn(async () => ({}));
+        await controller.startDownload();
+
+        const rateLimitContainer = document.getElementById('rateLimitContainer');
+        expect(rateLimitContainer.style.display).toBe('none');
+
+        controller.resetUI();
+        expect(rateLimitContainer.style.display).toBe('');
+    });
+
+    it('Skips panel population when downloadInfoPanel is absent from DOM during startDownload', async () => {
+        const controller = new PopupController();
+        controller.currentSlug = 'slug';
+        controller.currentServiceKey = 'ranobelib';
+
+        const panel = document.getElementById('downloadInfoPanel');
+        if (panel) panel.parentNode.removeChild(panel);
+
+        controller.downloadManager.startDownload = vi.fn(async () => ({}));
+        await expect(controller.startDownload()).resolves.not.toThrow();
+    });
+
+    it('Uses formatSelector.value when selected option has no text in downloadInfoPanel', async () => {
+        const controller = new PopupController();
+        controller.currentSlug = 'slug';
+        controller.currentServiceKey = 'ranobelib';
+
+        const formatSelector = document.getElementById('formatSelector');
+        formatSelector.innerHTML = '';
+        const opt = document.createElement('option');
+        opt.value = 'mobi';
+        formatSelector.appendChild(opt);
+
+        controller.downloadManager.startDownload = vi.fn(async () => ({}));
+        await controller.startDownload();
+
+        const panel = document.getElementById('downloadInfoPanel');
+        expect(panel.innerHTML).toContain('mobi');
+    });
+
+    it('Skips downloadInfoPanel hiding when it is absent from DOM during resetUI', () => {
+        const controller = new PopupController();
+
+        const panel = document.getElementById('downloadInfoPanel');
+        if (panel) panel.parentNode.removeChild(panel);
+
+        expect(() => controller.resetUI()).not.toThrow();
+    });
+
+    it('Shows translatorContainer in resetUI when translatorSelect has more than one option', () => {
+        const controller = new PopupController();
+
+        const tc = document.getElementById('translatorContainer');
+        const ts = document.getElementById('translatorSelect');
+
+        const opt1 = document.createElement('option');
+        opt1.value = '1';
+        const opt2 = document.createElement('option');
+        opt2.value = '2';
+        ts.appendChild(opt1);
+        ts.appendChild(opt2);
+
+        tc.style.display = 'none';
+        controller.resetUI();
+
+        expect(tc.style.display).toBe('block');
     });
 });
 

@@ -218,6 +218,32 @@ input[type="number"] {
     display: flex;
     justify-content: space-between;
 }
+#downloadInfoPanel {
+    background: #2e2e30;
+    border: 1px solid #3d3d3f;
+    border-left: 3px solid var(--primary-color);
+    border-radius: 4px;
+    padding: 8px 12px;
+    margin-top: 10px;
+    margin-bottom: 10px;
+}
+#downloadInfoPanel .info-row {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    font-size: 13px;
+    margin-bottom: 4px;
+}
+#downloadInfoPanel .info-row:last-child {
+    margin-bottom: 0;
+}
+#downloadInfoPanel .info-label {
+    color: #999;
+}
+#downloadInfoPanel .info-value {
+    color: #fff;
+    font-weight: bold;
+}
 #splitModeContainer {
 	text-align: center;
 	margin-top: 10px;

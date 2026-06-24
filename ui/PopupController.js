@@ -327,6 +327,14 @@
                 chapterRangeContainer.parentNode.insertBefore(translatorContainer, chapterRangeContainer);
             } else console.warn('translatorContainer found in DOM');
 
+            let downloadInfoPanel = document.getElementById('downloadInfoPanel');
+            if (!downloadInfoPanel) {
+                downloadInfoPanel = document.createElement('div');
+                downloadInfoPanel.id = 'downloadInfoPanel';
+                downloadInfoPanel.style.display = 'none';
+                btn.parentNode.insertBefore(downloadInfoPanel, btn);
+            } else console.warn('downloadInfoPanel found in DOM');
+
             if (progress) progress.style.display = 'none';
 
             console.log('[PopupController] UI setup complete');
@@ -974,14 +982,16 @@
             return null;
         }
 
-        _setDownloadingUIState({ btn, formatSelector, rateLimitInput, hiddenFileInput,
+        _setDownloadingUIState({ btn, hiddenFileInput,
             customFileBtn, fileInputContainer, progress, controlsContainer, chapterRangeContainer, status }) {
             btn.disabled = true;
             btn.style.display = 'none';
-            if (formatSelector) formatSelector.disabled = true;
-            else console.warn('Format selector not found when disabling during download');
-            if (rateLimitInput) rateLimitInput.disabled = true;
-            else console.warn('Rate limit input not found when disabling during download');
+            const formatContainer = document.getElementById('formatContainer');
+            if (formatContainer) formatContainer.style.display = 'none';
+            else console.warn('Format container not found when hiding during download');
+            const rateLimitContainer = document.getElementById('rateLimitContainer');
+            if (rateLimitContainer) rateLimitContainer.style.display = 'none';
+            else console.warn('Rate limit container not found when hiding during download');
             if (hiddenFileInput) hiddenFileInput.disabled = true;
             else console.warn('Hidden file input not found when disabling during download');
             if (customFileBtn) customFileBtn.disabled = true;
@@ -1000,6 +1010,24 @@
             const splitModeContainer = document.getElementById('splitModeContainer');
             if (splitModeContainer) splitModeContainer.style.display = 'none';
             else console.warn('Split mode container not found when hiding during download');
+
+            const downloadInfoPanel = document.getElementById('downloadInfoPanel');
+            if (downloadInfoPanel) {
+                const formatSelector = document.getElementById('formatSelector');
+                const rateLimitInput = document.getElementById('rateLimitInput');
+                const maxSizeInput = document.getElementById('maxSizeInput');
+                const formatLabel = formatSelector
+                    ? (formatSelector.options[formatSelector.selectedIndex]?.text || formatSelector.value)
+                    : '';
+                const rateLabel = rateLimitInput ? rateLimitInput.value : '';
+                const sizeLabel = maxSizeInput ? maxSizeInput.value : '';
+                downloadInfoPanel.innerHTML =
+                    `<div class="info-row"><span class="info-label">Формат</span><span class="info-value">${formatLabel}</span></div>` +
+                    `<div class="info-row"><span class="info-label">Запросов в минуту</span><span class="info-value">${rateLabel}</span></div>` +
+                    `<div class="info-row"><span class="info-label">Макс. размер части</span><span class="info-value">${sizeLabel} МБ</span></div>`;
+                downloadInfoPanel.style.display = 'block';
+            }
+
             const statusText = this.loadedFile ? 'Запуск обновления...' : 'Запуск скачивания...';
             if (status) status.textContent = statusText;
             else console.warn('Status element not found when setting initial status for download start');
@@ -1053,7 +1081,7 @@
                 this.shouldStop = false;
 
                 this._setDownloadingUIState({
-                    btn, formatSelector, rateLimitInput, hiddenFileInput,
+                    btn, hiddenFileInput,
                     customFileBtn, fileInputContainer, progress, controlsContainer, chapterRangeContainer, status
                 });
 
@@ -1115,8 +1143,6 @@
             this.loadedFile = null;
 
             const btn = document.getElementById('downloadBtn');
-            const formatSelector = document.getElementById('formatSelector');
-            const rateLimitInput = document.getElementById('rateLimitInput');
             const progress = document.getElementById('progress');
             const controls = document.getElementById('downloadControls');
             const hiddenFileInput = document.getElementById('fileInput');
@@ -1127,10 +1153,14 @@
                 btn.disabled = false;
                 btn.textContent = 'Скачать';
             } else console.warn('Download button not found when resetting UI');
-            if (formatSelector) formatSelector.disabled = false;
-            else console.warn('Format selector not found when resetting UI');
-            if (rateLimitInput) rateLimitInput.disabled = false;
-            else console.warn('Rate limit input not found when resetting UI');
+            const formatContainer = document.getElementById('formatContainer');
+            if (formatContainer) formatContainer.style.display = '';
+            else console.warn('Format container not found when resetting UI');
+            const rateLimitContainer = document.getElementById('rateLimitContainer');
+            if (rateLimitContainer) rateLimitContainer.style.display = '';
+            else console.warn('Rate limit container not found when resetting UI');
+            const downloadInfoPanel = document.getElementById('downloadInfoPanel');
+            if (downloadInfoPanel) downloadInfoPanel.style.display = 'none';
             if (hiddenFileInput) {
                 hiddenFileInput.disabled = false;
                 hiddenFileInput.value = '';
@@ -1144,11 +1174,19 @@
             if (controls) controls.style.display = 'none';
             else console.warn('Controls container not found when resetting UI');
 
+            const fileInputContainer = document.getElementById('fileInputContainer');
+            if (fileInputContainer) fileInputContainer.style.display = 'block';
+            else console.warn('File input container not found when resetting UI');
+
             const chapterRangeContainer = document.getElementById('chapterRangeContainer');
-            if (chapterRangeContainer) chapterRangeContainer.style.display = 'none';
+            const fromSelectReset = document.getElementById('chapterFromSelect');
+            if (chapterRangeContainer)
+                chapterRangeContainer.style.display = (fromSelectReset && fromSelectReset.options.length > 0) ? 'block' : 'none';
             else console.warn('Chapter range container not found when resetting UI');
             const translatorContainerReset = document.getElementById('translatorContainer');
-            if (translatorContainerReset) translatorContainerReset.style.display = 'none';
+            const translatorSelectReset = document.getElementById('translatorSelect');
+            if (translatorContainerReset)
+                translatorContainerReset.style.display = (translatorSelectReset && translatorSelectReset.options.length > 1) ? 'block' : 'none';
             else console.warn('Translator container not found when resetting UI');
             const splitModeContainer = document.getElementById('splitModeContainer');
             if (splitModeContainer) splitModeContainer.style.display = 'block';
