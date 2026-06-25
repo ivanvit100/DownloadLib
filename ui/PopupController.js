@@ -1180,14 +1180,16 @@
 
             const chapterRangeContainer = document.getElementById('chapterRangeContainer');
             const fromSelectReset = document.getElementById('chapterFromSelect');
-            if (chapterRangeContainer)
-                chapterRangeContainer.style.display = (fromSelectReset && fromSelectReset.options.length > 0) ? 'block' : 'none';
-            else console.warn('Chapter range container not found when resetting UI');
+            if (chapterRangeContainer) {
+                chapterRangeContainer.style.display =
+                    (fromSelectReset && fromSelectReset.options.length > 0) ? 'block' : 'none';
+            } else console.warn('Chapter range container not found when resetting UI');
             const translatorContainerReset = document.getElementById('translatorContainer');
             const translatorSelectReset = document.getElementById('translatorSelect');
-            if (translatorContainerReset)
-                translatorContainerReset.style.display = (translatorSelectReset && translatorSelectReset.options.length > 1) ? 'block' : 'none';
-            else console.warn('Translator container not found when resetting UI');
+            if (translatorContainerReset) {
+                translatorContainerReset.style.display =
+                    (translatorSelectReset && translatorSelectReset.options.length > 1) ? 'block' : 'none';
+            } else console.warn('Translator container not found when resetting UI');
             const splitModeContainer = document.getElementById('splitModeContainer');
             if (splitModeContainer) splitModeContainer.style.display = 'block';
             else console.warn('Split mode container not found when resetting UI');
