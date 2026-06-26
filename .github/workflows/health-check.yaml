@@ -1,0 +1,22 @@
+name: API Health Check
+
+on:
+  schedule:
+    # Каждый день в 08:00 UTC
+    - cron: '0 8 * * *'
+  workflow_dispatch: # Ручной запуск для тестирования
+
+jobs:
+  health-check:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Run health checks
+        id: checks
+        env:
+          TG_BOT_TOKEN: ${{ secrets.TG_BOT_TOKEN }}
+          TG_USER_ID: ${{ secrets.TG_USER_ID }}
+        run: |
+          node .github/scripts/health-check.js
