@@ -8,8 +8,10 @@
 
 **Браузерное расширение для загрузки манги и ранобэ с MangaLib и RanobeLib**
 
-[![Test Extension](https://github.com/ivanvit100/DownloadLib/actions/workflows/test.yaml/badge.svg)](https://github.com/ivanvit/DownloadLib/actions/workflows/test.yaml)
+[![Tests](https://github.com/ivanvit100/DownloadLib/actions/workflows/test.yaml/badge.svg)](https://github.com/ivanvit/DownloadLib/actions/workflows/test.yaml)
 ![Code Coverage](https://img.shields.io/badge/Coverage-100%25-brightgreen)
+[![API Check](https://github.com/ivanvit100/DownloadLib/actions/workflows/health-check.yaml/badge.svg)](https://github.com/ivanvit100/DownloadLib/actions/workflows/health-check.yaml)
+
 ![Version](https://img.shields.io/badge/version-1.0.6-blue)
 
 [📦 Скачать](#установка) · [⚠️ Сообщить об ошибке](https://github.com/ivanvit100/DownloadLib/issues) · [✏️ Участвовать в разработке](CONTRIBUTING.md)

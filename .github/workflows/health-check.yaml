@@ -2,9 +2,8 @@ name: API Health Check
 
 on:
   schedule:
-    # Каждый день в 08:00 UTC
-    - cron: '0 8 * * *'
-  workflow_dispatch: # Ручной запуск для тестирования
+    - cron: '0 5 * * *'
+  workflow_dispatch:
 
 jobs:
   health-check:
