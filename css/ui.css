@@ -375,3 +375,24 @@ input[type="number"] {
 .github-link-btn:hover {
     background: rgba(110, 118, 129, 0.12) !important;
 }
+#apiWarning {
+    background: #2e2e30;
+    border: 1px solid #3d3d3f;
+    border-left: 3px solid var(--primary-color);
+    border-radius: 4px;
+    padding: 8px 12px;
+    margin-bottom: 10px;
+}
+#apiWarningMsg {
+    color: #ddd;
+    font-size: 13px;
+    line-height: 1.4;
+}
+#apiWarningLink {
+    color: var(--primary-color);
+    font-size: 13px;
+    text-decoration: none;
+}
+#apiWarningLink:hover {
+    text-decoration: underline;
+}

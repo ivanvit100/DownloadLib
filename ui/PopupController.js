@@ -55,6 +55,7 @@
             this.setupEventListeners();
             this.subscribeToEvents();
             this.loadMetadata();
+            this.checkApiHealth();
 
             this.downloadManager.eventBus.on('download:started', (state) => {
                 this.currentDownloadId = state.id;
@@ -652,7 +653,8 @@
             const toHide = [
                 'bookContainer', 'downloadBtn', 'status', 'progress', 'releaseDate',
                 'formatContainer', 'rateLimitContainer', 'fileInputContainer',
-                'downloadControls', 'splitModeContainer', 'chapterRangeContainer', 'translatorContainer'
+                'downloadControls', 'splitModeContainer', 'chapterRangeContainer',
+                'translatorContainer', 'apiWarning'
             ];
             toHide.forEach(id => {
                 const el = document.getElementById(id);
@@ -721,7 +723,7 @@
             const toHide = [
                 'bookContainer', 'downloadBtn', 'status', 'progress', 'releaseDate',
                 'formatContainer', 'rateLimitContainer', 'fileInputContainer',
-                'downloadControls', 'splitModeContainer', 'chapterRangeContainer', 'translatorContainer'
+                'downloadControls', 'splitModeContainer', 'chapterRangeContainer', 'translatorContainer', 'apiWarning'
             ];
             toHide.forEach(id => {
                 const el = document.getElementById(id);
@@ -1213,6 +1215,55 @@
                 successEl.classList.remove('hidden');
                 setTimeout(() => successEl.classList.add('hidden'), 5000);
             } else console.warn('Success element not found when showing success message');
+        }
+
+        async checkApiHealth() {
+            const CACHE_KEY = 'DLoadLib_API_check';
+            const CACHE_TTL = 4 * 60 * 60 * 1000;
+            const BADGE_URL = 'https://github.com/ivanvit100/DownloadLib/actions/workflows/health-check.yaml/badge.svg';
+            const REPO_URL = 'https://github.com/ivanvit100/DownloadLib/issues';
+
+            try {
+                const cached = JSON.parse(localStorage.getItem(CACHE_KEY) || 'null');
+                const useCache = cached && (Date.now() - cached.timestamp < CACHE_TTL);
+
+                if (!useCache) {
+                    const res = await fetch(BADGE_URL, { cache: 'no-cache' });
+                    const svg = await res.text();
+                    const isFailing = svg.includes('failing');
+                    localStorage.setItem(CACHE_KEY, JSON.stringify({ isFailing, timestamp: Date.now() }));
+                    if (isFailing) this._showApiWarning(REPO_URL);
+                    return;
+                }
+
+                if (cached.isFailing) this._showApiWarning(REPO_URL);
+            } catch (e) {
+                console.warn('[PopupController] Health check status unavailable:', e.message);
+            }
+        }
+
+        _showApiWarning(repoUrl) {
+            const warning = document.createElement('div');
+            warning.id = 'apiWarning';
+
+            const msg = document.createElement('div');
+            msg.id = 'apiWarningMsg';
+            msg.textContent = '⚠️ Некоторые запросы к API могут не работать. ';
+            warning.appendChild(msg);
+
+            const link = document.createElement('a');
+            link.id = 'apiWarningLink';
+            link.textContent = 'Подробнее на GitHub →';
+            link.href = '#';
+            link.addEventListener('click', (e) => {
+                e.preventDefault();
+                browserAPI.tabs.create({ url: repoUrl });
+            });
+            warning.appendChild(link);
+
+            const downloadBtn = document.getElementById('downloadBtn');
+            if (downloadBtn && downloadBtn.parentNode)
+                downloadBtn.parentNode.insertBefore(warning, downloadBtn);
         }
     }
 
