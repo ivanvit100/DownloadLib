@@ -49,6 +49,7 @@
             this.loadedFile = null;
             this.currentSlug = null;
             this.currentServiceKey = null;
+            this.currentTitle = null;
             this.authToken = null;
             this._allChapters = [];
             this.setupUI();
@@ -529,6 +530,7 @@
 
         _renderMeta({ patched, chaptersCount, slug, coverImg, desc, releaseEl, logoInfo }) {
             const title = patched.name || slug;
+            this.currentTitle = title;
             const summary = this.truncateText(patched.summary || 'Описание отсутствует.', 100);
             const cover = patched.cover || null;
             if (!cover) console.warn('No cover information found in metadata');
@@ -1064,19 +1066,9 @@
             const toSelect = document.getElementById('chapterToSelect');
 
             try {
-                if (rateLimitInput) {
-                    const limit = parseInt(rateLimitInput.value) || 100;
-                    await browserAPI.runtime.sendMessage({ action: 'setRateLimit', limit });
-                } else console.warn('Rate limit input not found when setting rate limit');
-
-                const chapterRange = this._buildChapterRange(fromSelect, toSelect, chapterRangeContainer);
-
-                const translatorSelect = document.getElementById('translatorSelect');
-                const translatorContainer = document.getElementById('translatorContainer');
-                const branchId = (translatorSelect && translatorContainer &&
-                    translatorContainer.style.display !== 'none')
-                    ? parseInt(translatorSelect.value)
-                    : null;
+                const { chapterRange, branchId, historyParams } = await this._prepareDownload({
+                    fromSelect, toSelect, chapterRangeContainer, rateLimitInput
+                });
 
                 this.isDownloading = true;
                 this.isPaused = false;
@@ -1111,11 +1103,48 @@
                 });
 
                 this._handleDownloadResult(result, status);
+                global.DownloadHistory.add({
+                    service: this.currentServiceKey,
+                    slug: this.currentSlug,
+                    title: this.currentTitle || this.currentSlug,
+                    format,
+                    ...historyParams
+                });
             } catch (error) {
                 console.error('[PopupController] Download failed:', error);
                 this.showError(error.message);
                 this.resetUI();
             }
+        }
+
+        _getSelectText(select) {
+            if (!select || select.selectedIndex < 0) return null;
+            return select.options[select.selectedIndex]?.text || null;
+        }
+
+        async _prepareDownload({ fromSelect, toSelect, chapterRangeContainer, rateLimitInput }) {
+            if (rateLimitInput) {
+                const limit = parseInt(rateLimitInput.value) || 100;
+                await browserAPI.runtime.sendMessage({ action: 'setRateLimit', limit });
+            } else console.warn('Rate limit input not found when setting rate limit');
+
+            const chapterRange = this._buildChapterRange(fromSelect, toSelect, chapterRangeContainer);
+
+            const translatorSelect = document.getElementById('translatorSelect');
+            const translatorContainer = document.getElementById('translatorContainer');
+            const translatorVisible = !!(translatorSelect && translatorContainer &&
+                translatorContainer.style.display !== 'none');
+            const branchId = translatorVisible ? parseInt(translatorSelect.value) : null;
+
+            return {
+                chapterRange,
+                branchId,
+                historyParams: {
+                    chapterFrom: this._getSelectText(fromSelect),
+                    chapterTo: this._getSelectText(toSelect),
+                    translator: translatorVisible ? this._getSelectText(translatorSelect) : null
+                }
+            };
         }
 
         stopDownload() {

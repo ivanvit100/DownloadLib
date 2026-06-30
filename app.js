@@ -21,6 +21,8 @@
     const dependencies = [
         'EventBus',
         'RateLimiter',
+        'Storage',
+        'DownloadHistory',
         'ServiceRegistry',
         'DownloadManager',
         'MangaPatcher',

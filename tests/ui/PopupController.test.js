@@ -100,6 +100,8 @@ beforeEach(async () => {
             { value: 'simple', label: 'TXT/JPEG' },
         ]),
     };
+    global.DownloadHistory = { add: vi.fn(), getAll: vi.fn(() => []), clear: vi.fn() };
+
     await import('../../core/MangaPatcher.js');
     await import('../../ui/PopupController.js');
     PopupController = global.PopupController;
