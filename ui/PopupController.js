@@ -23,21 +23,6 @@
         return;
     }
 
-    const GITHUB_ICON_SVG = `<svg xmlns="http://www.w3.org/2000/svg" 
-        viewBox="0 0 16 16" width="14" height="14" fill="currentColor" 
-        style="vertical-align:middle;margin-right:6px">
-        <path d="M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07
-        .55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94
-        -.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58
-         1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07
-        -1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15
-        -.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82.64-.18 1.32-.27
-         2-.27.68 0 1.36.09 2 .27 1.53-1.04 2.2-.82 2.2-.82
-        .44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15
-         0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48
-         0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38
-        A8.013 8.013 0 0016 8c0-4.42-3.58-8-8-8z"/></svg>`;
-
     class PopupController {
         constructor() {
             console.log('[PopupController] Initializing...');
@@ -52,44 +37,78 @@
             this.currentTitle = null;
             this.authToken = null;
             this._allChapters = [];
-            this.setupUI();
-            this.setupEventListeners();
-            this.subscribeToEvents();
-            this.loadMetadata();
-            this.checkApiHealth();
+            this._shellEventsBound = false;
 
             this.downloadManager.eventBus.on('download:started', (state) => {
                 this.currentDownloadId = state.id;
                 console.log('[PopupController] Download started with ID:', this.currentDownloadId);
             });
 
+            this.subscribeToEvents();
+            this._init();
+
             console.log('[PopupController] Initialized');
         }
 
-        setupUI() {
-            const btn = document.getElementById('downloadBtn');
-            const status = document.getElementById('status');
-            const progress = document.getElementById('progress');
+        async _init() {
+            global.TemplateLoader.init('view');
+            this._bindShellEvents();
+            await global.TemplateLoader.show('title');
+            this._bindTitleEvents();
+            this.setupEventListeners();
+            await this.loadMetadata();
+            this.checkApiHealth();
+        }
 
+        async _restoreMainView() {
+            const logoInfo = document.getElementById('logoInfo');
+            if (logoInfo) logoInfo.textContent = '';
+            await global.TemplateLoader.show('title');
+            this._bindTitleEvents();
+            this.setupEventListeners();
+            await this.loadMetadata();
+            this.checkApiHealth();
+        }
+
+        _bindShellEvents() {
+            if (this._shellEventsBound) return;
+            this._shellEventsBound = true;
+
+            const historyBtn = document.getElementById('historyBtn');
+            if (historyBtn) {
+                historyBtn.addEventListener('click', () => {
+                    const logoInfo = document.getElementById('logoInfo');
+                    if (logoInfo) logoInfo.textContent = '';
+                    global.TemplateLoader.show('history', () => global.HistoryController.init());
+                });
+            } else console.warn('[PopupController] historyBtn not found in shell');
+        }
+
+        _bindTitleEvents() {
+            const btn = document.getElementById('downloadBtn');
             if (!btn) {
-                console.error('downloadBtn not found in DOM');
+                console.error('[PopupController] downloadBtn not found in title template');
                 return;
             }
 
-            let releaseEl = document.getElementById('releaseDate');
-            if (!releaseEl) {
-                releaseEl = document.createElement('div');
-                releaseEl.id = 'releaseDate';
-                btn.parentNode.insertBefore(releaseEl, btn);
-            }
+            const formatSelector = document.getElementById('formatSelector');
+            const rateLimitInput = document.getElementById('rateLimitInput');
+            const maxSizeInput = document.getElementById('maxSizeInput');
+            const hiddenFileInput = document.getElementById('fileInput');
+            const customFileBtn = document.getElementById('customFileBtn');
+            const status = document.getElementById('status');
+            const chapterFromSelect = document.getElementById('chapterFromSelect');
+            const chapterToSelect = document.getElementById('chapterToSelect');
+            const progress = document.getElementById('progress');
+            const controls = document.getElementById('downloadControls');
+            const downloadInfoPanel = document.getElementById('downloadInfoPanel');
 
-            let formatSelector = document.getElementById('formatSelector');
-            if (!formatSelector) {
-                const formatContainer = document.createElement('div');
-                formatContainer.id = 'formatContainer';
+            if (progress) progress.style.display = 'none';
+            if (controls) controls.style.display = 'none';
+            if (downloadInfoPanel) downloadInfoPanel.style.display = 'none';
 
-                formatSelector = document.createElement('select');
-                formatSelector.id = 'formatSelector';
+            if (formatSelector) {
+                const FORMAT_STORAGE_KEY = 'manga_parser_selected_format';
 
                 global.ExporterRegistry.getFormats().forEach(({ value, label }) => {
                     const option = document.createElement('option');
@@ -98,75 +117,41 @@
                     formatSelector.appendChild(option);
                 });
 
-                const label = document.createElement('label');
-                label.textContent = 'Формат: ';
-                label.htmlFor = 'formatSelector';
+                if (localStorage.getItem(FORMAT_STORAGE_KEY))
+                    formatSelector.value = localStorage.getItem(FORMAT_STORAGE_KEY);
+                else console.log('[PopupController] No saved format in localStorage');
 
-                formatContainer.appendChild(label);
-                formatContainer.appendChild(formatSelector);
-                btn.parentNode.insertBefore(formatContainer, btn);
-            } else console.warn('formatSelector found in DOM');
-
-            const FORMAT_STORAGE_KEY = 'manga_parser_selected_format';
-            if (formatSelector && localStorage.getItem(FORMAT_STORAGE_KEY))
-                formatSelector.value = localStorage.getItem(FORMAT_STORAGE_KEY);
-            else console.log('No saved format in localStorage');
-
-            if (browserAPI && browserAPI.storage && browserAPI.storage.local)
-                browserAPI.storage.local.set({ [FORMAT_STORAGE_KEY]: formatSelector.value });
-
-            formatSelector.addEventListener('change', () => {
-                localStorage.setItem(FORMAT_STORAGE_KEY, formatSelector.value);
-                if (browserAPI && browserAPI.storage && browserAPI.storage.local)
+                if (browserAPI?.storage?.local)
                     browserAPI.storage.local.set({ [FORMAT_STORAGE_KEY]: formatSelector.value });
-            });
 
-            let rateLimitInput = document.getElementById('rateLimitInput');
-            if (!rateLimitInput) {
-                const rateLimitContainer = document.createElement('div');
-                rateLimitContainer.id = 'rateLimitContainer';
+                formatSelector.addEventListener('change', () => {
+                    localStorage.setItem(FORMAT_STORAGE_KEY, formatSelector.value);
+                    if (browserAPI?.storage?.local)
+                        browserAPI.storage.local.set({ [FORMAT_STORAGE_KEY]: formatSelector.value });
+                });
+            }
 
-                const label = document.createElement('label');
-                label.textContent = 'Запросов в минуту: ';
-
-                rateLimitInput = document.createElement('input');
-                rateLimitInput.id = 'rateLimitInput';
-                rateLimitInput.type = 'number';
-                rateLimitInput.min = '2';
-                rateLimitInput.max = '200';
-                rateLimitInput.step = '1';
-                rateLimitInput.value = '85';
-
+            if (rateLimitInput) {
                 rateLimitInput.addEventListener('input', (e) => {
                     let val = parseInt(e.target.value);
                     if (isNaN(val) || val < 2) val = 2;
                     if (val > 200) val = 200;
                     e.target.value = Math.floor(val);
                 });
+            }
 
-                rateLimitContainer.appendChild(label);
-                rateLimitContainer.appendChild(rateLimitInput);
-                btn.parentNode.insertBefore(rateLimitContainer, btn);
-            } else console.warn('rateLimitInput found in DOM');
+            const MAX_SIZE_KEY = 'manga_parser_max_size_mb';
+            if (maxSizeInput) {
+                maxSizeInput.value = localStorage.getItem(MAX_SIZE_KEY) || '200';
+                maxSizeInput.addEventListener('input', (e) => {
+                    let val = parseInt(e.target.value);
+                    if (isNaN(val) || val < 1) val = 1;
+                    e.target.value = Math.floor(val);
+                    localStorage.setItem(MAX_SIZE_KEY, e.target.value);
+                });
+            }
 
-            let fileInputContainer = document.getElementById('fileInputContainer');
-            if (!fileInputContainer) {
-                fileInputContainer = document.createElement('div');
-                fileInputContainer.id = 'fileInputContainer';
-
-                const hiddenFileInput = document.createElement('input');
-                hiddenFileInput.type = 'file';
-                hiddenFileInput.id = 'fileInput';
-                hiddenFileInput.accept = '.pdf,.epub,.fb2';
-
-                const customFileBtn = document.createElement('button');
-                customFileBtn.id = 'customFileBtn';
-                customFileBtn.textContent = 'Загрузить файл для обновления';
-
-                fileInputContainer.appendChild(hiddenFileInput);
-                fileInputContainer.appendChild(customFileBtn);
-                btn.parentNode.insertBefore(fileInputContainer, btn);
-
+            if (hiddenFileInput && customFileBtn && formatSelector) {
                 hiddenFileInput.addEventListener('change', (e) => {
                     e.stopPropagation();
                     const file = hiddenFileInput.files && hiddenFileInput.files[0];
@@ -175,7 +160,6 @@
                     if (!file) {
                         formatSelector.disabled = false;
                         if (status) status.textContent = '';
-                        else console.warn('Status element not found when resetting after file deselection');
                         customFileBtn.textContent = 'Загрузить файл для обновления';
                         btn.textContent = 'Скачать';
                         btn.style.display = 'block';
@@ -194,152 +178,28 @@
                     } else {
                         formatSelector.disabled = false;
                         if (status) status.textContent = 'Ошибка: поддерживаются только файлы PDF, EPUB или FB2';
-                        else console.warn('Status element not found when showing file type error');
                         customFileBtn.textContent = 'Загрузить файл для обновления';
                         hiddenFileInput.value = '';
                         this.loadedFile = null;
                         btn.textContent = 'Скачать';
                     }
                 });
-            } else console.warn('fileInputContainer found in DOM');
-
-            let controlsContainer = document.getElementById('downloadControls');
-            if (!controlsContainer) {
-                controlsContainer = document.createElement('div');
-                controlsContainer.id = 'downloadControls';
-
-                const pauseBtn = document.createElement('button');
-                pauseBtn.id = 'pauseBtn';
-                pauseBtn.textContent = 'Пауза';
-
-                const stopBtn = document.createElement('button');
-                stopBtn.id = 'stopBtn';
-                stopBtn.textContent = 'Завершить';
-
-                const btnRow = document.createElement('div');
-                btnRow.id = 'btnRow';
-                btnRow.appendChild(pauseBtn);
-
-                controlsContainer.appendChild(btnRow);
-                controlsContainer.appendChild(stopBtn);
-                btn.parentNode.insertBefore(controlsContainer, btn.nextSibling);
-            } else console.warn('downloadControls container found in DOM');
-
-            const MAX_SIZE_KEY = 'manga_parser_max_size_mb';
-
-            let splitModeContainer = document.getElementById('splitModeContainer');
-            if (!splitModeContainer) {
-                splitModeContainer = document.createElement('div');
-                splitModeContainer.id = 'splitModeContainer';
-
-                const maxSizeLabel = document.createElement('label');
-                maxSizeLabel.textContent = 'Макс. размер части (МБ):';
-                maxSizeLabel.htmlFor = 'maxSizeInput';
-
-                const maxSizeInput = document.createElement('input');
-                maxSizeInput.id = 'maxSizeInput';
-                maxSizeInput.type = 'number';
-                maxSizeInput.min = '1';
-                maxSizeInput.max = '9999';
-                maxSizeInput.step = '1';
-                maxSizeInput.value = localStorage.getItem(MAX_SIZE_KEY) || '200';
-                maxSizeInput.addEventListener('input', (e) => {
-                    let val = parseInt(e.target.value);
-                    if (isNaN(val) || val < 1) val = 1;
-                    e.target.value = Math.floor(val);
-                    localStorage.setItem(MAX_SIZE_KEY, e.target.value);
-                });
-
-                splitModeContainer.appendChild(maxSizeLabel);
-                splitModeContainer.appendChild(maxSizeInput);
-
-                const chapterRangeContainer = document.getElementById('chapterRangeContainer');
-                if (chapterRangeContainer)
-                    chapterRangeContainer.parentNode.insertBefore(splitModeContainer,chapterRangeContainer.nextSibling);
-                else
-                    btn.parentNode.insertBefore(splitModeContainer, btn);
-            } else console.warn('splitModeContainer found in DOM');
-
-            let chapterRangeContainer = document.getElementById('chapterRangeContainer');
-            if (!chapterRangeContainer) {
-                chapterRangeContainer = document.createElement('div');
-                chapterRangeContainer.id = 'chapterRangeContainer';
-
-                const chapterSelectRow = document.createElement('div');
-                chapterSelectRow.id = 'chapterSelectRow';
-
-                const chapterFromLabel = document.createElement('div');
-                chapterFromLabel.id = 'chapterFromLabel';
-                chapterFromLabel.textContent = 'от';
-
-                const chapterToLabel = document.createElement('div');
-                chapterToLabel.id = 'chapterToLabel';
-                chapterToLabel.textContent = 'до';
-
-                const chapterLabelsRow = document.createElement('div');
-                chapterLabelsRow.id = 'chapterLabelsRow';
-                chapterLabelsRow.appendChild(chapterFromLabel);
-                chapterLabelsRow.appendChild(chapterToLabel);
-
-                const chapterFromSelect = document.createElement('select');
-                chapterFromSelect.id = 'chapterFromSelect';
-
-                const chapterToSelect = document.createElement('select');
-                chapterToSelect.id = 'chapterToSelect';
-
-                chapterFromSelect.addEventListener('change', () => {
-                    const fromIdx = parseInt(chapterFromSelect.value);
-                    const toIdx = parseInt(chapterToSelect.value);
-                    if (fromIdx > toIdx) chapterToSelect.value = chapterFromSelect.value;
-                    else console.log('Chapter range selectors updated without invalid range');
-                });
-
-                chapterToSelect.addEventListener('change', () => {
-                    const fromIdx = parseInt(chapterFromSelect.value);
-                    const toIdx = parseInt(chapterToSelect.value);
-                    if (toIdx < fromIdx) chapterFromSelect.value = chapterToSelect.value;
-                    else console.log('Chapter range selectors updated without invalid range');
-                });
-                chapterSelectRow.appendChild(chapterFromSelect);
-                chapterSelectRow.appendChild(chapterToSelect);
-
-                chapterRangeContainer.appendChild(chapterLabelsRow);
-                chapterRangeContainer.appendChild(chapterSelectRow);
-
-                const rateLimitContainer = rateLimitInput.parentNode;
-                rateLimitContainer.parentNode.insertBefore(chapterRangeContainer, rateLimitContainer.nextSibling);
             }
 
-            let translatorContainer = document.getElementById('translatorContainer');
-            if (!translatorContainer) {
-                translatorContainer = document.createElement('div');
-                translatorContainer.id = 'translatorContainer';
-                translatorContainer.style.display = 'none';
+            if (chapterFromSelect && chapterToSelect) {
+                chapterFromSelect.addEventListener('change', () => {
+                    if (parseInt(chapterFromSelect.value) > parseInt(chapterToSelect.value))
+                        chapterToSelect.value = chapterFromSelect.value;
+                    else console.log('[PopupController] Chapter range selectors updated without invalid range');
+                });
+                chapterToSelect.addEventListener('change', () => {
+                    if (parseInt(chapterToSelect.value) < parseInt(chapterFromSelect.value))
+                        chapterFromSelect.value = chapterToSelect.value;
+                    else console.log('[PopupController] Chapter range selectors updated without invalid range');
+                });
+            }
 
-                const translatorLabel = document.createElement('label');
-                translatorLabel.textContent = 'Перевод:';
-                translatorLabel.htmlFor = 'translatorSelect';
-
-                const translatorSelect = document.createElement('select');
-                translatorSelect.id = 'translatorSelect';
-
-                translatorContainer.appendChild(translatorLabel);
-                translatorContainer.appendChild(translatorSelect);
-
-                chapterRangeContainer.parentNode.insertBefore(translatorContainer, chapterRangeContainer);
-            } else console.warn('translatorContainer found in DOM');
-
-            let downloadInfoPanel = document.getElementById('downloadInfoPanel');
-            if (!downloadInfoPanel) {
-                downloadInfoPanel = document.createElement('div');
-                downloadInfoPanel.id = 'downloadInfoPanel';
-                downloadInfoPanel.style.display = 'none';
-                btn.parentNode.insertBefore(downloadInfoPanel, btn);
-            } else console.warn('downloadInfoPanel found in DOM');
-
-            if (progress) progress.style.display = 'none';
-
-            console.log('[PopupController] UI setup complete');
+            console.log('[PopupController] Title events bound');
         }
 
         async isInSeparateWindow() {
@@ -548,7 +408,6 @@
             const firstLineParts = [];
             if (chaptersCount !== null) firstLineParts.push(`Глав: ${chaptersCount}`);
             if (rating) firstLineParts.push(`Рейтинг: ${rating}`);
-            else console.warn('No rating information found in metadata');
 
             const secondLine = (authors && authors.length) ? `Авторы: ${authors.join(', ')}` : '';
             const logoText = secondLine
@@ -651,113 +510,38 @@
             }
         }
 
-        _showWrongServiceState() {
-            const toHide = [
-                'bookContainer', 'downloadBtn', 'status', 'progress', 'releaseDate',
-                'formatContainer', 'rateLimitContainer', 'fileInputContainer',
-                'downloadControls', 'splitModeContainer', 'chapterRangeContainer',
-                'translatorContainer', 'apiWarning'
-            ];
-            toHide.forEach(id => {
-                const el = document.getElementById(id);
-                if (el) el.style.display = 'none';
-            });
-
+        async _showWrongServiceState() {
+            await global.TemplateLoader.show('wrong-service');
             const logoInfo = document.getElementById('logoInfo');
             if (logoInfo) logoInfo.textContent = '';
 
-            let panel = document.getElementById('wrongServicePanel');
-            if (!panel) {
-                panel = document.createElement('div');
-                panel.id = 'wrongServicePanel';
+            const siteLogo = document.getElementById('siteLogo');
 
-                const msg = document.createElement('div');
-                msg.id = 'wrongServiceMsg';
-                const lines = `Расширение работает только<br>
-                    на сайтах проекта <strong>MangaLib</strong>.<br><br>
-                    Откройте один из сайтов:`;
-                msg.innerHTML = lines;
-                panel.appendChild(msg);
+            document.getElementById('openMangaLib')?.addEventListener('click', async () => {
+                browserAPI.tabs.create({ url: 'https://mangalib.me' });
+                this._applyServiceTheme('mangalib', siteLogo);
+                await this._showNoTitleState();
+            });
 
-                const serviceLinks = document.createElement('div');
-                serviceLinks.id = 'serviceLinks';
+            document.getElementById('openRanobeLib')?.addEventListener('click', async () => {
+                browserAPI.tabs.create({ url: 'https://ranobelib.me' });
+                this._applyServiceTheme('ranobelib', siteLogo);
+                await this._showNoTitleState();
+            });
 
-                const mangalibBtn = document.createElement('button');
-                mangalibBtn.className = 'service-link-btn mangalib-link-btn';
-                mangalibBtn.textContent = 'MangaLib';
-                mangalibBtn.addEventListener('click', () => {
-                    browserAPI.tabs.create({ url: 'https://mangalib.me' });
-                    this._applyServiceTheme('mangalib', document.getElementById('siteLogo'));
-                    panel.style.display = 'none';
-                    this._showNoTitleState();
-                });
-
-                const ranobelibBtn = document.createElement('button');
-                ranobelibBtn.className = 'service-link-btn ranobelib-link-btn';
-                ranobelibBtn.textContent = 'RanobeLib';
-                ranobelibBtn.addEventListener('click', () => {
-                    browserAPI.tabs.create({ url: 'https://ranobelib.me' });
-                    this._applyServiceTheme('ranobelib', document.getElementById('siteLogo'));
-                    panel.style.display = 'none';
-                    this._showNoTitleState();
-                });
-
-                serviceLinks.appendChild(mangalibBtn);
-                serviceLinks.appendChild(ranobelibBtn);
-                panel.appendChild(serviceLinks);
-
-                const githubBtn = document.createElement('button');
-                githubBtn.className = 'service-link-btn github-link-btn';
-                githubBtn.innerHTML = `${GITHUB_ICON_SVG}GitHub`;
-                githubBtn.addEventListener('click', () => {
-                    browserAPI.tabs.create({ url: 'https://github.com/ivanvit100/DownloadLib' });
-                });
-                panel.appendChild(githubBtn);
-
-                const container = document.getElementById('container');
-                if (container) container.appendChild(panel);
-            }
-
-            panel.style.display = 'block';
+            document.getElementById('openGithub')?.addEventListener('click', () => {
+                browserAPI.tabs.create({ url: 'https://github.com/ivanvit100/DownloadLib' });
+            });
         }
 
-        _showNoTitleState() {
-            const toHide = [
-                'bookContainer', 'downloadBtn', 'status', 'progress', 'releaseDate',
-                'formatContainer', 'rateLimitContainer', 'fileInputContainer',
-                'downloadControls', 'splitModeContainer', 'chapterRangeContainer', 'translatorContainer', 'apiWarning'
-            ];
-            toHide.forEach(id => {
-                const el = document.getElementById(id);
-                if (el) el.style.display = 'none';
-            });
-
+        async _showNoTitleState() {
+            await global.TemplateLoader.show('no-title');
             const logoInfo = document.getElementById('logoInfo');
             if (logoInfo) logoInfo.textContent = '';
 
-            let panel = document.getElementById('noTitlePanel');
-            if (!panel) {
-                panel = document.createElement('div');
-                panel.id = 'noTitlePanel';
-
-                const msg = document.createElement('div');
-                msg.id = 'noTitleMsg';
-                msg.innerHTML = 'Откройте страницу конкретного<br>тайтла и нажмите на иконку<br>расширения снова.';
-                panel.appendChild(msg);
-
-                const githubBtn = document.createElement('button');
-                githubBtn.className = 'service-link-btn github-link-btn';
-                githubBtn.innerHTML = `${GITHUB_ICON_SVG}GitHub`;
-                githubBtn.addEventListener('click', () => {
-                    browserAPI.tabs.create({ url: 'https://github.com/ivanvit100/DownloadLib' });
-                });
-                panel.appendChild(githubBtn);
-
-                const container = document.getElementById('container');
-                if (container) container.appendChild(panel);
-            }
-
-            panel.style.display = 'block';
+            document.getElementById('openGithub')?.addEventListener('click', () => {
+                browserAPI.tabs.create({ url: 'https://github.com/ivanvit100/DownloadLib' });
+            });
         }
 
         async loadMetadata() {
@@ -819,7 +603,7 @@
 
                     service = global.serviceRegistry.getServiceByUrl(currentUrl);
                     if (!service) {
-                        this._showWrongServiceState();
+                        await this._showWrongServiceState();
                         return;
                     }
 
@@ -831,7 +615,7 @@
                 this._applyServiceTheme(serviceKey, siteLogo);
 
                 if (!slug) {
-                    this._showNoTitleState();
+                    await this._showNoTitleState();
                     return;
                 }
 
@@ -861,7 +645,6 @@
 
                             if (inSeparateWindow) {
                                 if (status) status.textContent = 'Выберите файл для обновления';
-                                else console.warn(`Status element not found when prompting for file selection in separate window`);
                                 hiddenFileInput.click();
                             } else {
                                 const format = formatSelector ? formatSelector.value : 'fb2';
@@ -876,18 +659,16 @@
                                 } catch (createError) {
                                     console.error('Failed to create window:', createError);
                                     if (status) status.textContent = 'Не удалось открыть окно, используем текущее';
-                                    else console.warn('Status element not found when showing window creation error');
                                     hiddenFileInput.click();
                                 }
                             }
                         } catch (e) {
                             console.error('Failed to handle file upload:', e);
                             if (status) status.textContent = 'Выберите файл для обновления';
-                            else console.warn('Status element not found when prompting for file selection after error');
                             hiddenFileInput.click();
                         }
                     };
-                } else console.warn('Custom file button not found when setting up file upload handler');
+                } else console.warn('[PopupController] customFileBtn not found');
 
                 if (autoDownload) setTimeout(() => this.startDownload(), 500);
             } catch (error) {
@@ -920,18 +701,15 @@
 
                         const format = formatSelector ? formatSelector.value : 'fb2';
                         const rateLimit = rateLimitInput ? parseInt(rateLimitInput.value) || 100 : 100;
-
                         const maxSizeMB = document.getElementById('maxSizeInput')?.value || '200';
 
                         let urlParams = `?download=true&slug=${encodeURIComponent(this.currentSlug)}&service=${encodeURIComponent(this.currentServiceKey)}&format=${encodeURIComponent(format)}&rateLimit=${encodeURIComponent(rateLimit)}&maxSizeMB=${encodeURIComponent(maxSizeMB)}`;
 
                         if (fromSelect && toSelect &&
                             chapterRangeContainer &&
-                            chapterRangeContainer.style.display !== 'none') {
-                            const chapterFrom = fromSelect.value;
-                            const chapterTo = toSelect.value;
-                            urlParams += `&chapterFrom=${encodeURIComponent(chapterFrom)}&chapterTo=${encodeURIComponent(chapterTo)}`;
-                        } else console.warn(`Chapter range selectors not found or not visible when constructing URL parameters for download`);
+                            chapterRangeContainer.style.display !== 'none')
+                            urlParams += `&chapterFrom=${encodeURIComponent(fromSelect.value)}&chapterTo=${encodeURIComponent(toSelect.value)}`;
+                        else console.warn(`Chapter range selectors not found or not visible when constructing URL parameters for download`);
 
                         const translatorSelect = document.getElementById('translatorSelect');
                         const translatorContainer = document.getElementById('translatorContainer');

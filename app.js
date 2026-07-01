@@ -3,7 +3,7 @@
  * Initializes the application, registers services, and sets up the UI
  * @license MIT
  * @author ivanvit
- * @version 1.0.6
+ * @version 1.0.7
  */
 
 'use strict';
@@ -27,6 +27,8 @@
         'DownloadManager',
         'MangaPatcher',
         'ExporterRegistry',
+        'TemplateLoader',
+        'HistoryController',
         'PopupController'
     ];
 

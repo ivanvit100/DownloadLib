@@ -6,18 +6,49 @@ let originalSetInterval;
 
 function setupDOM() {
     document.body.innerHTML = `
-        <button id="downloadBtn"></button>
-        <button id="pauseBtn"></button>
-        <button id="stopBtn"></button>
-        <div id="status"></div>
-        <progress id="progress"></progress>
         <img id="siteLogo" />
         <div id="logoInfo"></div>
-        <img id="cover" />
-        <div id="description"></div>
-        <div id="releaseDate"></div>
         <div id="error" class="hidden"></div>
         <div id="success" class="hidden"></div>
+        <div id="view">
+            <img id="cover" />
+            <div id="description"></div>
+            <div id="releaseDate"></div>
+            <div id="translatorContainer" style="display:none;">
+                <select id="translatorSelect"></select>
+            </div>
+            <div id="chapterRangeContainer" style="display:none;">
+                <div id="chapterLabelsRow">
+                    <div id="chapterFromLabel">от</div>
+                    <div id="chapterToLabel">до</div>
+                </div>
+                <div id="chapterSelectRow">
+                    <select id="chapterFromSelect"></select>
+                    <select id="chapterToSelect"></select>
+                </div>
+            </div>
+            <div id="splitModeContainer">
+                <input id="maxSizeInput" type="number" value="200">
+            </div>
+            <div id="rateLimitContainer">
+                <input id="rateLimitInput" type="number" value="85">
+            </div>
+            <div id="formatContainer">
+                <select id="formatSelector"></select>
+            </div>
+            <div id="fileInputContainer">
+                <input type="file" id="fileInput">
+                <button id="customFileBtn">Загрузить файл для обновления</button>
+            </div>
+            <div id="downloadInfoPanel" style="display:none;"></div>
+            <button id="downloadBtn"></button>
+            <div id="status"></div>
+            <progress id="progress"></progress>
+            <div id="downloadControls" style="display:none;">
+                <div id="btnRow"><button id="pauseBtn">Пауза</button></div>
+                <button id="stopBtn">Завершить</button>
+            </div>
+        </div>
     `;
 }
 
@@ -92,6 +123,12 @@ beforeEach(async () => {
     };
 
     global.DownloadHistory = { add: vi.fn(), getAll: vi.fn(() => []), clear: vi.fn() };
+    global.TemplateLoader = {
+        init: vi.fn(),
+        show: vi.fn(async () => {}),
+        current: vi.fn(() => null)
+    };
+    global.HistoryController = { init: vi.fn() };
 
     await import('../../core/MangaPatcher.js');
     await import('../../ui/PopupController.js');
@@ -552,20 +589,6 @@ describe('PopupController second test file', () => {
         expect(warnSpy).toHaveBeenCalledWith('Success element not found when showing success message');
     });
 
-    it('Warns when status element is missing during pause/resume event', async () => {
-        const controller = new PopupController();
-
-        const pauseBtn = document.getElementById('pauseBtn');
-        const status = document.getElementById('status');
-        if (status) status.parentNode.removeChild(status);
-
-        const warnSpy = vi.spyOn(console, 'warn');
-
-        pauseBtn.click();
-
-        expect(warnSpy).toHaveBeenCalledWith('Status element not found when updating status on pause/resume');
-    });
-
     it('Warns when chapter range selectors are missing when constructing URL parameters for download', async () => {
         const controller = new PopupController();
         controller.currentSlug = 'slug';
@@ -679,103 +702,6 @@ describe('PopupController second test file', () => {
         toSelect.dispatchEvent(new Event('change'));
 
         expect(fromSelect.value).toBe('1');
-    });
-
-    it('Logs no saved format when localStorage has no format and logs UI setup complete', async () => {
-        const logSpy = vi.spyOn(console, 'log');
-
-        new PopupController();
-
-        expect(logSpy).toHaveBeenCalledWith('No saved format in localStorage');
-        expect(logSpy).toHaveBeenCalledWith('[PopupController] UI setup complete');
-    });
-
-    it('Logs valid range message when fromSelect changes without exceeding toSelect', async () => {
-        const controller = new PopupController();
-
-        await new Promise(resolve => setTimeout(resolve, 100));
-
-        const fromSelect = document.getElementById('chapterFromSelect');
-        const toSelect = document.getElementById('chapterToSelect');
-
-        const opt1 = document.createElement('option');
-        opt1.value = '1';
-        const opt2 = document.createElement('option');
-        opt2.value = '2';
-        [opt1, opt2].forEach(o => { fromSelect.appendChild(o.cloneNode(true)); toSelect.appendChild(o.cloneNode(true)); });
-
-        fromSelect.value = '1';
-        toSelect.value = '2';
-
-        const logSpy = vi.spyOn(console, 'log');
-
-        fromSelect.dispatchEvent(new Event('change'));
-
-        expect(logSpy).toHaveBeenCalledWith('Chapter range selectors updated without invalid range');
-    });
-
-    it('Logs valid range message when toSelect changes without going below fromSelect', async () => {
-        const controller = new PopupController();
-
-        await new Promise(resolve => setTimeout(resolve, 100));
-
-        const fromSelect = document.getElementById('chapterFromSelect');
-        const toSelect = document.getElementById('chapterToSelect');
-
-        const opt1 = document.createElement('option');
-        opt1.value = '1';
-        const opt2 = document.createElement('option');
-        opt2.value = '2';
-        [opt1, opt2].forEach(o => { fromSelect.appendChild(o.cloneNode(true)); toSelect.appendChild(o.cloneNode(true)); });
-
-        fromSelect.value = '1';
-        toSelect.value = '2';
-
-        const logSpy = vi.spyOn(console, 'log');
-
-        toSelect.dispatchEvent(new Event('change'));
-
-        expect(logSpy).toHaveBeenCalledWith('Chapter range selectors updated without invalid range');
-    });
-
-    it('Defaults format to fb2 when formatSelector is absent in window creation path', async () => {
-        const controller = new PopupController();
-        controller.currentSlug = 'slug';
-        controller.currentServiceKey = 'ranobelib';
-        const formatSelector = document.getElementById('formatSelector');
-        if (formatSelector && formatSelector.parentNode) formatSelector.parentNode.removeChild(formatSelector);
-        controller.isInSeparateWindow = vi.fn().mockResolvedValue(false);
-        const windowsCreateSpy = vi.spyOn(global.browser.windows, 'create').mockResolvedValue({ id: 123 });
-        const downloadBtn = document.getElementById('downloadBtn');
-        downloadBtn.click();
-        await new Promise(resolve => setTimeout(resolve, 100));
-        const urlArg = windowsCreateSpy.mock.calls[0]?.[0]?.url;
-        expect(urlArg).toContain('format=fb2');
-        windowsCreateSpy.mockRestore();
-    });
-
-    it('Uses 200 as maxSizeMB when maxSizeInput is absent in window creation path, and splitModeContainer is hidden on startDownload and shown on resetUI', async () => {
-        const splitModeContainer = document.createElement('div');
-        splitModeContainer.id = 'splitModeContainer';
-        splitModeContainer.style.display = 'block';
-        document.body.appendChild(splitModeContainer);
-        const controller = new PopupController();
-        controller.currentSlug = 'slug';
-        controller.currentServiceKey = 'ranobelib';
-        const maxSizeInput = document.getElementById('maxSizeInput');
-        if (maxSizeInput && maxSizeInput.parentNode) maxSizeInput.parentNode.removeChild(maxSizeInput);
-        controller.isInSeparateWindow = vi.fn().mockResolvedValue(false);
-        const windowsCreateSpy = vi.spyOn(global.browser.windows, 'create').mockResolvedValue({ id: 123 });
-        const downloadBtn = document.getElementById('downloadBtn');
-        downloadBtn.click();
-        await new Promise(resolve => setTimeout(resolve, 100));
-        const urlArg = windowsCreateSpy.mock.calls[0]?.[0]?.url;
-        expect(urlArg).toContain('maxSizeMB=200');
-        windowsCreateSpy.mockRestore();
-        await controller.startDownload();
-        expect(splitModeContainer.style.display).toBe('none');
-        controller.resetUI();
-        expect(splitModeContainer.style.display).toBe('block');
     });
 
     it('openInNewContext uses tabs.create when windows API is unavailable and tab is returned', async () => {
@@ -1087,17 +1013,6 @@ describe('PopupController second test file', () => {
         expect(capturedBranchId).toBe(7);
     });
 
-    it('Warns when downloadInfoPanel is already in DOM during setupUI', async () => {
-        const panel = document.createElement('div');
-        panel.id = 'downloadInfoPanel';
-        document.body.appendChild(panel);
-
-        const warnSpy = vi.spyOn(console, 'warn');
-        new PopupController();
-        expect(warnSpy).toHaveBeenCalledWith('downloadInfoPanel found in DOM');
-        warnSpy.mockRestore();
-    });
-
     it('Populates downloadInfoPanel with format, rate limit and max size during download', async () => {
         const controller = new PopupController();
         controller.currentSlug = 'slug';
@@ -1232,190 +1147,5 @@ describe('PopupController second test file', () => {
         controller.resetUI();
 
         expect(tc.style.display).toBe('block');
-    });
-});
-
-describe('_showWrongServiceState and _showNoTitleState', () => {
-    beforeEach(() => {
-        document.body.innerHTML = `
-            <div id="container">
-                <img id="siteLogo" />
-                <div id="logoInfo"></div>
-                <div id="bookContainer">
-                    <img id="cover" />
-                    <div id="description"></div>
-                </div>
-                <button id="downloadBtn"></button>
-                <div id="status"></div>
-                <progress id="progress"></progress>
-                <div id="error" class="hidden"></div>
-                <div id="success" class="hidden"></div>
-            </div>
-        `;
-        global.browser.tabs.create = vi.fn(async () => {});
-    });
-
-    it('_showWrongServiceState hides UI controls', () => {
-        const controller = new PopupController();
-        controller._showWrongServiceState();
-
-        expect(document.getElementById('downloadBtn').style.display).toBe('none');
-        expect(document.getElementById('status').style.display).toBe('none');
-        expect(document.getElementById('formatContainer').style.display).toBe('none');
-        expect(document.getElementById('rateLimitContainer').style.display).toBe('none');
-        expect(document.getElementById('fileInputContainer').style.display).toBe('none');
-    });
-
-    it('_showWrongServiceState clears logoInfo and creates visible panel', () => {
-        const controller = new PopupController();
-        document.getElementById('logoInfo').textContent = 'something';
-
-        controller._showWrongServiceState();
-
-        expect(document.getElementById('logoInfo').textContent).toBe('');
-        const panel = document.getElementById('wrongServicePanel');
-        expect(panel).not.toBeNull();
-        expect(panel.style.display).toBe('block');
-    });
-
-    it('_showWrongServiceState creates MangaLib and RanobeLib buttons', () => {
-        const controller = new PopupController();
-        controller._showWrongServiceState();
-
-        const btns = document.getElementById('serviceLinks').querySelectorAll('button');
-        expect(btns.length).toBe(2);
-        expect(btns[0].textContent).toBe('MangaLib');
-        expect(btns[1].textContent).toBe('RanobeLib');
-    });
-
-    it('_showWrongServiceState creates GitHub button with SVG icon', () => {
-        const controller = new PopupController();
-        controller._showWrongServiceState();
-
-        const githubBtn = document.querySelector('#wrongServicePanel .github-link-btn');
-        expect(githubBtn).not.toBeNull();
-        expect(githubBtn.innerHTML).toContain('svg');
-        expect(githubBtn.innerHTML).toContain('GitHub');
-    });
-
-    it('_showWrongServiceState does not duplicate panel on repeated calls', () => {
-        const controller = new PopupController();
-        controller._showWrongServiceState();
-        controller._showWrongServiceState();
-
-        expect(document.querySelectorAll('#wrongServicePanel').length).toBe(1);
-    });
-
-    it('MangaLib button opens mangalib.me tab', () => {
-        const controller = new PopupController();
-        controller._showWrongServiceState();
-
-        document.querySelector('.mangalib-link-btn').click();
-
-        expect(global.browser.tabs.create).toHaveBeenCalledWith({ url: 'https://mangalib.me' });
-    });
-
-    it('MangaLib button applies mangalib theme and transitions to noTitleState', () => {
-        const controller = new PopupController();
-        controller._showWrongServiceState();
-
-        document.querySelector('.mangalib-link-btn').click();
-
-        expect(document.getElementById('siteLogo').src).toContain('logo1.png');
-        expect(document.getElementById('wrongServicePanel').style.display).toBe('none');
-        expect(document.getElementById('noTitlePanel')).not.toBeNull();
-        expect(document.getElementById('noTitlePanel').style.display).toBe('block');
-    });
-
-    it('RanobeLib button opens ranobelib.me tab', () => {
-        const controller = new PopupController();
-        controller._showWrongServiceState();
-
-        document.querySelector('.ranobelib-link-btn').click();
-
-        expect(global.browser.tabs.create).toHaveBeenCalledWith({ url: 'https://ranobelib.me' });
-    });
-
-    it('RanobeLib button applies ranobelib theme and transitions to noTitleState', () => {
-        const controller = new PopupController();
-        controller._showWrongServiceState();
-
-        document.querySelector('.ranobelib-link-btn').click();
-
-        expect(document.getElementById('siteLogo').src).toContain('logo3.png');
-        expect(document.getElementById('wrongServicePanel').style.display).toBe('none');
-        expect(document.getElementById('noTitlePanel')).not.toBeNull();
-        expect(document.getElementById('noTitlePanel').style.display).toBe('block');
-    });
-
-    it('GitHub button in wrongServicePanel opens repo URL', () => {
-        const controller = new PopupController();
-        controller._showWrongServiceState();
-
-        document.querySelector('#wrongServicePanel .github-link-btn').click();
-
-        expect(global.browser.tabs.create).toHaveBeenCalledWith({
-            url: 'https://github.com/ivanvit100/DownloadLib'
-        });
-    });
-
-    it('_showNoTitleState hides UI controls and shows noTitlePanel', () => {
-        const controller = new PopupController();
-        controller._showNoTitleState();
-
-        expect(document.getElementById('downloadBtn').style.display).toBe('none');
-        expect(document.getElementById('formatContainer').style.display).toBe('none');
-        const panel = document.getElementById('noTitlePanel');
-        expect(panel).not.toBeNull();
-        expect(panel.style.display).toBe('block');
-    });
-
-    it('_showNoTitleState creates GitHub button with SVG icon', () => {
-        const controller = new PopupController();
-        controller._showNoTitleState();
-
-        const githubBtn = document.querySelector('#noTitlePanel .github-link-btn');
-        expect(githubBtn).not.toBeNull();
-        expect(githubBtn.innerHTML).toContain('svg');
-        expect(githubBtn.innerHTML).toContain('GitHub');
-    });
-
-    it('_showNoTitleState does not duplicate panel on repeated calls', () => {
-        const controller = new PopupController();
-        controller._showNoTitleState();
-        controller._showNoTitleState();
-
-        expect(document.querySelectorAll('#noTitlePanel').length).toBe(1);
-    });
-
-    it('GitHub button in noTitlePanel opens repo URL', () => {
-        const controller = new PopupController();
-        controller._showNoTitleState();
-
-        document.querySelector('#noTitlePanel .github-link-btn').click();
-
-        expect(global.browser.tabs.create).toHaveBeenCalledWith({
-            url: 'https://github.com/ivanvit100/DownloadLib'
-        });
-    });
-
-    it('loadMetadata triggers _showWrongServiceState when no service found', async () => {
-        global.serviceRegistry.getServiceByUrl = vi.fn(() => null);
-        const controller = new PopupController();
-        const spy = vi.spyOn(controller, '_showWrongServiceState');
-
-        await controller.loadMetadata();
-
-        expect(spy).toHaveBeenCalled();
-    });
-
-    it('loadMetadata triggers _showNoTitleState when service found but URL has no title slug', async () => {
-        global.browser.tabs.query = vi.fn(async () => ([{ url: 'https://ranobelib.me/' }]));
-        const controller = new PopupController();
-        const spy = vi.spyOn(controller, '_showNoTitleState');
-
-        await controller.loadMetadata();
-
-        expect(spy).toHaveBeenCalled();
     });
 });

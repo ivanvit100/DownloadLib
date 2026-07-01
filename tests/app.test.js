@@ -23,7 +23,8 @@ describe('App initialization', () => {
         global.window = mockWindow;
         global.document = mockDocument;
 
-        ['EventBus', 'RateLimiter', 'Storage', 'DownloadHistory', 'ServiceRegistry', 'DownloadManager', 'MangaPatcher', 'ExporterRegistry', 'PopupController']
+        ['EventBus', 'RateLimiter', 'Storage', 'DownloadHistory', 'ServiceRegistry', 'DownloadManager',
+            'MangaPatcher', 'ExporterRegistry', 'TemplateLoader', 'HistoryController', 'PopupController']
             .forEach(dep => {
                 mockWindow[dep] = {};
             });

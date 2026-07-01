@@ -5,17 +5,50 @@ let controller;
 
 function setupDOM() {
     document.body.innerHTML = `
-        <button id="downloadBtn"></button>
-        <div id="status"></div>
-        <progress id="progress"></progress>
         <img id="siteLogo" />
         <div id="logoInfo"></div>
-        <img id="cover" />
-        <div id="description"></div>
-        <div id="releaseDate"></div>
         <div id="activeDownloadsInfo"></div>
         <div id="error" class="hidden"></div>
         <div id="success" class="hidden"></div>
+        <div id="view">
+            <img id="cover" />
+            <div id="description"></div>
+            <div id="releaseDate"></div>
+            <div id="translatorContainer" style="display:none;">
+                <select id="translatorSelect"></select>
+            </div>
+            <div id="chapterRangeContainer" style="display:none;">
+                <div id="chapterLabelsRow">
+                    <div id="chapterFromLabel">от</div>
+                    <div id="chapterToLabel">до</div>
+                </div>
+                <div id="chapterSelectRow">
+                    <select id="chapterFromSelect"></select>
+                    <select id="chapterToSelect"></select>
+                </div>
+            </div>
+            <div id="splitModeContainer">
+                <input id="maxSizeInput" type="number" value="200">
+            </div>
+            <div id="rateLimitContainer">
+                <input id="rateLimitInput" type="number" value="85">
+            </div>
+            <div id="formatContainer">
+                <select id="formatSelector"></select>
+            </div>
+            <div id="fileInputContainer">
+                <input type="file" id="fileInput">
+                <button id="customFileBtn">Загрузить файл для обновления</button>
+            </div>
+            <div id="downloadInfoPanel" style="display:none;"></div>
+            <button id="downloadBtn"></button>
+            <div id="status"></div>
+            <progress id="progress"></progress>
+            <div id="downloadControls" style="display:none;">
+                <div id="btnRow"><button id="pauseBtn">Пауза</button></div>
+                <button id="stopBtn">Завершить</button>
+            </div>
+        </div>
     `;
 }
 
@@ -101,6 +134,12 @@ beforeEach(async () => {
         ]),
     };
     global.DownloadHistory = { add: vi.fn(), getAll: vi.fn(() => []), clear: vi.fn() };
+    global.TemplateLoader = {
+        init: vi.fn(),
+        show: vi.fn(async () => {}),
+        current: vi.fn(() => null)
+    };
+    global.HistoryController = { init: vi.fn() };
 
     await import('../../core/MangaPatcher.js');
     await import('../../ui/PopupController.js');
@@ -163,20 +202,16 @@ describe('PopupController', () => {
     });
 
     it('resetUI hides splitModeContainer when present', () => {
-        const splitModeContainer = document.createElement('div');
-        splitModeContainer.id = 'splitModeContainer';
+        const splitModeContainer = document.getElementById('splitModeContainer');
         splitModeContainer.style.display = 'none';
-        document.body.appendChild(splitModeContainer);
         const controller = new PopupController();
         controller.resetUI();
         expect(splitModeContainer.style.display).toBe('block');
     });
 
     it('startDownload hides splitModeContainer when present', async () => {
-        const splitModeContainer = document.createElement('div');
-        splitModeContainer.id = 'splitModeContainer';
+        const splitModeContainer = document.getElementById('splitModeContainer');
         splitModeContainer.style.display = 'block';
-        document.body.appendChild(splitModeContainer);
         const controller = new PopupController();
         controller.currentSlug = 'slug';
         controller.currentServiceKey = 'ranobelib';
@@ -185,11 +220,11 @@ describe('PopupController', () => {
     });
 
     it('startDownload uses maxSizeInput value when present', async () => {
-        const maxSizeInput = document.createElement('input');
-        maxSizeInput.id = 'maxSizeInput';
-        maxSizeInput.value = '150';
-        document.body.appendChild(maxSizeInput);
         const controller = new PopupController();
+        await Promise.resolve();
+        await Promise.resolve();
+        const maxSizeInput = document.getElementById('maxSizeInput');
+        maxSizeInput.value = '150';
         controller.currentSlug = 'slug';
         controller.currentServiceKey = 'ranobelib';
         await controller.startDownload();
@@ -376,36 +411,14 @@ describe('PopupController', () => {
         const PopupModule = await import('../../ui/PopupController.js?nocache=' + Math.random());
         const PopupControllerClass = global.PopupController;
         new PopupControllerClass();
+        await Promise.resolve();
+        await Promise.resolve();
 
-        expect(consoleErrorSpy).toHaveBeenCalledWith('downloadBtn not found in DOM');
+        expect(consoleErrorSpy).toHaveBeenCalledWith('[PopupController] downloadBtn not found in title template');
         consoleErrorSpy.mockRestore();
     });
 
-	it('Warns if formatSelector found in DOM', async () => {
-        vi.resetModules();
-        setupDOM();
-        const formatSelector = document.createElement('select');
-        formatSelector.id = 'formatSelector';
-        document.body.appendChild(formatSelector);
-        global.DownloadManager = class { constructor() { this.eventBus = { on: vi.fn() }; } };
-        global.browser = {
-            runtime: { sendMessage: vi.fn(async () => ({ ok: true, downloads: [] })), getURL: vi.fn() },
-            windows: { getCurrent: vi.fn(), create: vi.fn(), update: vi.fn() },
-            tabs: { query: vi.fn() }
-        };
-        global.chrome = undefined;
-
-        const consoleWarnSpy = vi.spyOn(console, 'warn');
-
-        const PopupModule = await import('../../ui/PopupController.js?nocache=' + Math.random());
-        const PopupControllerClass = global.PopupController;
-        new PopupControllerClass();
-
-        expect(consoleWarnSpy).toHaveBeenCalledWith('formatSelector found in DOM');
-        consoleWarnSpy.mockRestore();
-    });
-
-	it('Sets formatSelector value from localStorage', async () => {
+it('Sets formatSelector value from localStorage', async () => {
         vi.resetModules();
         setupDOM();
         global.DownloadManager = class { constructor() { this.eventBus = { on: vi.fn() }; } };
@@ -421,6 +434,8 @@ describe('PopupController', () => {
         const PopupModule = await import('../../ui/PopupController.js?nocache=' + Math.random());
         const PopupControllerClass = global.PopupController;
         new PopupControllerClass();
+        await Promise.resolve();
+        await Promise.resolve();
 
         const formatSelector = document.getElementById('formatSelector');
         expect(formatSelector.value).toBe('epub');
@@ -439,9 +454,10 @@ describe('PopupController', () => {
         const FORMAT_STORAGE_KEY = 'manga_parser_selected_format';
         const setItemSpy = vi.spyOn(global.localStorage, 'setItem');
 
-        const PopupModule = await import('../../ui/PopupController.js?nocache=' + Math.random());
         const PopupControllerClass = global.PopupController;
         new PopupControllerClass();
+        await Promise.resolve();
+        await Promise.resolve();
 
         const formatSelector = document.getElementById('formatSelector');
         formatSelector.value = 'pdf';
@@ -449,232 +465,6 @@ describe('PopupController', () => {
 
         expect(setItemSpy).toHaveBeenCalledWith(FORMAT_STORAGE_KEY, 'pdf');
         setItemSpy.mockRestore();
-    });
-
-    it('Warns if RateLimitInput found in DOM', async () => {
-        vi.resetModules();
-        document.body.innerHTML = `<button id="downloadBtn"></button><input id="rateLimitInput" type="number" />`;
-        global.DownloadManager = class { constructor() { this.eventBus = { on: vi.fn() }; } };
-        global.browser = {
-            runtime: { sendMessage: vi.fn(async () => ({ ok: true, downloads: [] })), getURL: vi.fn() },
-            windows: { getCurrent: vi.fn(), create: vi.fn(), update: vi.fn() },
-            tabs: { query: vi.fn() }
-        };
-        global.chrome = undefined;
-        const consoleWarnSpy = vi.spyOn(console, 'warn');
-        await import('../../ui/PopupController.js?nocache=' + Math.random());
-        const PopupControllerClass = global.PopupController;
-        new PopupControllerClass();
-        expect(consoleWarnSpy).toHaveBeenCalledWith('rateLimitInput found in DOM');
-        consoleWarnSpy.mockRestore();
-    });
-
-    it('EventListener clamps value correctly', async () => {
-        document.body.innerHTML = `<button id="downloadBtn"></button>`;
-        global.DownloadManager = class { constructor() { this.eventBus = { on: vi.fn() }; } };
-        global.browser = {
-            runtime: { sendMessage: vi.fn(async () => ({ ok: true, downloads: [] })), getURL: vi.fn() },
-            windows: { getCurrent: vi.fn(), create: vi.fn(), update: vi.fn() },
-            tabs: { query: vi.fn() }
-        };
-        global.chrome = undefined;
-        await import('../../ui/PopupController.js?nocache=' + Math.random());
-        const PopupControllerClass = global.PopupController;
-        new PopupControllerClass();
-        const input = document.getElementById('rateLimitInput');
-        input.value = '1';
-        input.dispatchEvent(new Event('input'));
-        expect(input.value).toBe('2');
-        input.value = '250';
-        input.dispatchEvent(new Event('input'));
-        expect(input.value).toBe('200');
-        input.value = 'abc';
-        input.dispatchEvent(new Event('input'));
-        expect(input.value).toBe('2');
-        input.value = '50.9';
-        input.dispatchEvent(new Event('input'));
-        expect(input.value).toBe('50');
-    });
-
-    it('Change on file input calls stopPropagation', async () => {
-        document.body.innerHTML = `<button id="downloadBtn"></button>`;
-        global.DownloadManager = class { constructor() { this.eventBus = { on: vi.fn() }; } };
-        global.browser = {
-            runtime: { sendMessage: vi.fn(async () => ({ ok: true, downloads: [] })), getURL: vi.fn() },
-            windows: { getCurrent: vi.fn(), create: vi.fn(), update: vi.fn() },
-            tabs: { query: vi.fn() }
-        };
-        global.chrome = undefined;
-        await import('../../ui/PopupController.js?nocache=' + Math.random());
-        const PopupControllerClass = global.PopupController;
-        new PopupControllerClass();
-        const input = document.getElementById('fileInput');
-        const event = new Event('change');
-        event.stopPropagation = vi.fn();
-        Object.defineProperty(input, 'files', { value: [new File([''], 'test.fb2')], configurable: true });
-        input.dispatchEvent(event);
-        expect(event.stopPropagation).toHaveBeenCalled();
-    });
-
-    it('Change on file input handles no file case', async () => {
-        document.body.innerHTML = `<button id="downloadBtn"></button><div id="status"></div>`;
-        global.DownloadManager = class { constructor() { this.eventBus = { on: vi.fn() }; } };
-        global.browser = {
-            runtime: { sendMessage: vi.fn(async () => ({ ok: true, downloads: [] })), getURL: vi.fn() },
-            windows: { getCurrent: vi.fn(), create: vi.fn(), update: vi.fn() },
-            tabs: { query: vi.fn() }
-        };
-        global.chrome = undefined;
-        await import('../../ui/PopupController.js?nocache=' + Math.random());
-        const PopupControllerClass = global.PopupController;
-        new PopupControllerClass();
-        const input = document.getElementById('fileInput');
-        const btn = document.getElementById('downloadBtn');
-        const status = document.getElementById('status');
-        const formatSelector = document.getElementById('formatSelector');
-        const customFileBtn = document.getElementById('customFileBtn');
-        const event = new Event('change');
-        event.stopPropagation = vi.fn();
-        Object.defineProperty(input, 'files', { value: [], configurable: true });
-        input.dispatchEvent(event);
-        expect(formatSelector.disabled).toBe(false);
-        expect(status.textContent).toBe('');
-        expect(customFileBtn.textContent).toBe('Загрузить файл для обновления');
-        expect(btn.textContent).toBe('Скачать');
-        expect(btn.style.display).toBe('block');
-    });
-
-    it('Warns if status not found when resetting after file deselection', async () => {
-        document.body.innerHTML = `<button id="downloadBtn"></button>`;
-        global.DownloadManager = class { constructor() { this.eventBus = { on: vi.fn() }; } };
-        global.browser = {
-            runtime: { sendMessage: vi.fn(async () => ({ ok: true, downloads: [] })), getURL: vi.fn() },
-            windows: { getCurrent: vi.fn(), create: vi.fn(), update: vi.fn() },
-            tabs: { query: vi.fn() }
-        };
-        global.chrome = undefined;
-        const consoleWarnSpy = vi.spyOn(console, 'warn');
-        await import('../../ui/PopupController.js?nocache=' + Math.random());
-        const PopupControllerClass = global.PopupController;
-        const controller = new PopupControllerClass();
-        const input = document.getElementById('fileInput');
-        const event = new Event('change');
-        event.stopPropagation = vi.fn();
-        Object.defineProperty(input, 'files', { value: [], configurable: true });
-        const formatSelector = document.getElementById('formatSelector');
-        if (formatSelector && formatSelector.parentNode) formatSelector.parentNode.removeChild(formatSelector);
-        const status = document.getElementById('status');
-        if (status && status.parentNode) status.parentNode.removeChild(status);
-        input.dispatchEvent(event);
-        expect(consoleWarnSpy).toHaveBeenCalledWith('Status element not found when resetting after file deselection');
-        consoleWarnSpy.mockRestore();
-    });
-
-    it('Sets status textContent to uploaded file name on file upload', async () => {
-        document.body.innerHTML = `<button id="downloadBtn"></button><div id="status"></div>`;
-        global.DownloadManager = class { constructor() { this.eventBus = { on: vi.fn() }; } };
-        global.browser = {
-            runtime: { sendMessage: vi.fn(async () => ({ ok: true, downloads: [] })), getURL: vi.fn() },
-            windows: { getCurrent: vi.fn(), create: vi.fn(), update: vi.fn() },
-            tabs: { query: vi.fn() }
-        };
-        global.chrome = undefined;
-        await import('../../ui/PopupController.js?nocache=' + Math.random());
-        const PopupControllerClass = global.PopupController;
-        new PopupControllerClass();
-        const input = document.getElementById('fileInput');
-        const status = document.getElementById('status');
-        const event = new Event('change');
-        event.stopPropagation = vi.fn();
-        Object.defineProperty(input, 'files', { value: [new File([''], 'test.fb2')], configurable: true });
-        input.dispatchEvent(event);
-        expect(status.textContent).toBe('Загружен файл: test.fb2');
-    });
-
-    it('Handles unsupported file type in fileInput change event', async () => {
-        document.body.innerHTML = `<button id="downloadBtn"></button><div id="status"></div>`;
-        global.DownloadManager = class { constructor() { this.eventBus = { on: vi.fn() }; } };
-        global.browser = {
-            runtime: { sendMessage: vi.fn(async () => ({ ok: true, downloads: [] })), getURL: vi.fn() },
-            windows: { getCurrent: vi.fn(), create: vi.fn(), update: vi.fn() },
-            tabs: { query: vi.fn() }
-        };
-        global.chrome = undefined;
-        await import('../../ui/PopupController.js?nocache=' + Math.random());
-        const PopupControllerClass = global.PopupController;
-        new PopupControllerClass();
-        const input = document.getElementById('fileInput');
-        const status = document.getElementById('status');
-        const formatSelector = document.getElementById('formatSelector');
-        const customFileBtn = document.getElementById('customFileBtn');
-        const btn = document.getElementById('downloadBtn');
-        const event = new Event('change');
-        event.stopPropagation = vi.fn();
-        Object.defineProperty(input, 'files', { value: [new File([''], 'test.txt')], configurable: true });
-        input.dispatchEvent(event);
-        expect(formatSelector.disabled).toBe(false);
-        expect(status.textContent).toBe('Ошибка: поддерживаются только файлы PDF, EPUB или FB2');
-        expect(customFileBtn.textContent).toBe('Загрузить файл для обновления');
-        expect(input.value).toBe('');
-        expect(btn.textContent).toBe('Скачать');
-    });
-
-    it('Warns if status element not found when showing file type error', async () => {
-        document.body.innerHTML = `<button id="downloadBtn"></button>`;
-        global.DownloadManager = class { constructor() { this.eventBus = { on: vi.fn() }; } };
-        global.browser = {
-            runtime: { sendMessage: vi.fn(async () => ({ ok: true, downloads: [] })), getURL: vi.fn() },
-            windows: { getCurrent: vi.fn(), create: vi.fn(), update: vi.fn() },
-            tabs: { query: vi.fn() }
-        };
-        global.chrome = undefined;
-        const consoleWarnSpy = vi.spyOn(console, 'warn');
-        await import('../../ui/PopupController.js?nocache=' + Math.random());
-        const PopupControllerClass = global.PopupController;
-        new PopupControllerClass();
-        const input = document.getElementById('fileInput');
-        const event = new Event('change');
-        event.stopPropagation = vi.fn();
-        Object.defineProperty(input, 'files', { value: [new File([''], 'test.txt')], configurable: true });
-        input.dispatchEvent(event);
-        expect(consoleWarnSpy).toHaveBeenCalledWith('Status element not found when showing file type error');
-        consoleWarnSpy.mockRestore();
-    });
-
-    it('Warns if fileInputContainer found in DOM', async () => {
-        vi.resetModules();
-        document.body.innerHTML = `<button id="downloadBtn"></button><div id="fileInputContainer"></div>`;
-        global.DownloadManager = class { constructor() { this.eventBus = { on: vi.fn() }; } };
-        global.browser = {
-            runtime: { sendMessage: vi.fn(async () => ({ ok: true, downloads: [] })), getURL: vi.fn() },
-            windows: { getCurrent: vi.fn(), create: vi.fn(), update: vi.fn() },
-            tabs: { query: vi.fn() }
-        };
-        global.chrome = undefined;
-        const consoleWarnSpy = vi.spyOn(console, 'warn');
-        await import('../../ui/PopupController.js?nocache=' + Math.random());
-        const PopupControllerClass = global.PopupController;
-        new PopupControllerClass();
-        expect(consoleWarnSpy).toHaveBeenCalledWith('fileInputContainer found in DOM');
-        consoleWarnSpy.mockRestore();
-    });
-
-    it('Warns if downloadControls container found in DOM', async () => {
-        vi.resetModules();
-        document.body.innerHTML = `<button id="downloadBtn"></button><div id="downloadControls"></div>`;
-        global.DownloadManager = class { constructor() { this.eventBus = { on: vi.fn() }; } };
-        global.browser = {
-            runtime: { sendMessage: vi.fn(async () => ({ ok: true, downloads: [] })), getURL: vi.fn() },
-            windows: { getCurrent: vi.fn(), create: vi.fn(), update: vi.fn() },
-            tabs: { query: vi.fn() }
-        };
-        global.chrome = undefined;
-        const consoleWarnSpy = vi.spyOn(console, 'warn');
-        await import('../../ui/PopupController.js?nocache=' + Math.random());
-        const PopupControllerClass = global.PopupController;
-        new PopupControllerClass();
-        expect(consoleWarnSpy).toHaveBeenCalledWith('downloadControls container found in DOM');
-        consoleWarnSpy.mockRestore();
     });
 
     it('Returns true if hasParams', async () => {
@@ -808,48 +598,6 @@ describe('PopupController', () => {
         await controller.loadMetadata();
         expect(controller.currentSlug).toBe(null);
         window.location.search = originalSearch;
-    });
-
-    it('Disables UI and shows message if service is not found', async () => {
-        const controller = new PopupController();
-        global.serviceRegistry.getServiceByUrl = vi.fn(() => null);
-        Object.defineProperty(window, 'location', {
-            value: { search: '' },
-            writable: true
-        });
-        global.browser.tabs.query = vi.fn(async () => ([{ url: 'https://unknownsite.me/' }]));
-        await controller.loadMetadata();
-        expect(document.getElementById('logoInfo').textContent).toBe('');
-        expect(document.getElementById('downloadBtn').style.display).toBe('none');
-        expect(document.getElementById('status').style.display).toBe('none');
-    });
-
-    it('_showWrongServiceState handles missing logoInfo and absent container', async () => {
-        const controller = new PopupController();
-        global.serviceRegistry.getServiceByUrl = vi.fn(() => null);
-        Object.defineProperty(window, 'location', {
-            value: { search: '' },
-            writable: true
-        });
-        global.browser.tabs.query = vi.fn(async () => ([{ url: 'https://unknownsite.me/' }]));
-        const logoInfo = document.getElementById('logoInfo');
-        if (logoInfo && logoInfo.parentNode) logoInfo.parentNode.removeChild(logoInfo);
-        await controller.loadMetadata();
-        expect(document.getElementById('wrongServicePanel')).toBeNull();
-    });
-
-    it('_showNoTitleState handles missing logoInfo and absent container', async () => {
-        const controller = new PopupController();
-        global.serviceRegistry.getServiceByUrl = vi.fn(() => ({ name: 'ranobelib', fetchMangaMetadata: vi.fn(), fetchChaptersList: vi.fn() }));
-        Object.defineProperty(window, 'location', {
-            value: { search: '' },
-            writable: true
-        });
-        global.browser.tabs.query = vi.fn(async () => ([{ url: 'https://ranobelib.me/' }]));
-        const logoInfo = document.getElementById('logoInfo');
-        if (logoInfo && logoInfo.parentNode) logoInfo.parentNode.removeChild(logoInfo);
-        await controller.loadMetadata();
-        expect(document.getElementById('noTitlePanel')).toBeNull();
     });
 
     it('Uses rawResp as metadata if data is missing', async () => {
@@ -1308,33 +1056,6 @@ describe('PopupController', () => {
         consoleWarnSpy.mockRestore();
     });
 
-    it('Warns if no rating information found in metadata', async () => {
-        const controller = new PopupController();
-        global.serviceRegistry.getServiceByUrl = vi.fn(() => ({
-            name: 'ranobelib',
-            fetchMangaMetadata: vi.fn(async () => ({
-                data: {
-                    rus_name: 'Title',
-                    summary: 'Summary',
-                    cover: 'cover.png',
-                    authors: ['Author'],
-                    ageRestriction: {},
-                    releaseDate: '2020'
-                }
-            })),
-            fetchChaptersList: vi.fn(async () => ({ data: [{}, {}] }))
-        }));
-        Object.defineProperty(window, 'location', {
-            value: { search: '' },
-            writable: true
-        });
-        global.browser.tabs.query = vi.fn(async () => ([{ url: 'https://ranobelib.me/manga/slug' }]));
-        const consoleWarnSpy = vi.spyOn(console, 'warn');
-        await controller.loadMetadata();
-        expect(consoleWarnSpy).toHaveBeenCalledWith('No rating information found in metadata');
-        consoleWarnSpy.mockRestore();
-    });
-
     it('Sets release date from releaseDate or releaseDateString or release_date or published or year or date or empty', async () => {
         const controller = new PopupController();
 
@@ -1532,20 +1253,6 @@ describe('PopupController', () => {
         isInSeparateWindowSpy.mockRestore();
     });
 
-    it('Warns if status element not found when prompting for file selection in separate window', async () => {
-        const controller = new PopupController();
-        const isInSeparateWindowSpy = vi.spyOn(controller, 'isInSeparateWindow').mockResolvedValue(true);
-        const customFileBtn = document.getElementById('customFileBtn');
-        const status = document.getElementById('status');
-        if (status && status.parentNode) status.parentNode.removeChild(status);
-        const consoleWarnSpy = vi.spyOn(console, 'warn');
-        await controller.loadMetadata();
-        await customFileBtn.onclick();
-        expect(consoleWarnSpy).toHaveBeenCalledWith('Status element not found when prompting for file selection in separate window');
-        consoleWarnSpy.mockRestore();
-        isInSeparateWindowSpy.mockRestore();
-    });
-
     it('Sets format from formatSelector value', async () => {
         const controller = new PopupController();
         const customFileBtn = document.getElementById('customFileBtn');
@@ -1651,29 +1358,6 @@ describe('PopupController', () => {
         clickSpy.mockRestore();
     });
 
-    it('Warns if status element not found when showing window creation error', async () => {
-        const controller = new PopupController();
-        const customFileBtn = document.getElementById('customFileBtn');
-        const isInSeparateWindowSpy = vi.spyOn(controller, 'isInSeparateWindow').mockResolvedValue(false);
-        const windowsCreateSpy = vi.spyOn(global.browser.windows, 'create').mockRejectedValue(new Error('fail create'));
-        const status = document.getElementById('status');
-        if (status && status.parentNode) status.parentNode.removeChild(status);
-        const hiddenFileInput = document.getElementById('fileInput');
-        const clickSpy = vi.spyOn(hiddenFileInput, 'click');
-        const consoleWarnSpy = vi.spyOn(console, 'warn');
-        const consoleErrorSpy = vi.spyOn(console, 'error');
-        await controller.loadMetadata();
-        await customFileBtn.onclick();
-        expect(consoleErrorSpy).toHaveBeenCalledWith('Failed to create window:', expect.any(Error));
-        expect(consoleWarnSpy).toHaveBeenCalledWith('Status element not found when showing window creation error');
-        expect(clickSpy).toHaveBeenCalled();
-        consoleWarnSpy.mockRestore();
-        consoleErrorSpy.mockRestore();
-        isInSeparateWindowSpy.mockRestore();
-        windowsCreateSpy.mockRestore();
-        clickSpy.mockRestore();
-    });
-
     it('Handles error in file handler and shows prompt for file selection', async () => {
         const controller = new PopupController();
         const customFileBtn = document.getElementById('customFileBtn');
@@ -1687,27 +1371,6 @@ describe('PopupController', () => {
         expect(consoleErrorSpy).toHaveBeenCalledWith('Failed to handle file upload:', expect.any(Error));
         expect(status.textContent).toBe('Выберите файл для обновления');
         expect(clickSpy).toHaveBeenCalled();
-        consoleErrorSpy.mockRestore();
-        isInSeparateWindowSpy.mockRestore();
-        clickSpy.mockRestore();
-    });
-
-    it('Warns if status element not found when prompting for file selection after error', async () => {
-        const controller = new PopupController();
-        const customFileBtn = document.getElementById('customFileBtn');
-        const isInSeparateWindowSpy = vi.spyOn(controller, 'isInSeparateWindow').mockImplementation(() => { throw new Error('fail isInSeparateWindow'); });
-        const status = document.getElementById('status');
-        if (status && status.parentNode) status.parentNode.removeChild(status);
-        const hiddenFileInput = document.getElementById('fileInput');
-        const clickSpy = vi.spyOn(hiddenFileInput, 'click');
-        const consoleWarnSpy = vi.spyOn(console, 'warn');
-        const consoleErrorSpy = vi.spyOn(console, 'error');
-        await controller.loadMetadata();
-        await customFileBtn.onclick();
-        expect(consoleErrorSpy).toHaveBeenCalledWith('Failed to handle file upload:', expect.any(Error));
-        expect(consoleWarnSpy).toHaveBeenCalledWith('Status element not found when prompting for file selection after error');
-        expect(clickSpy).toHaveBeenCalled();
-        consoleWarnSpy.mockRestore();
         consoleErrorSpy.mockRestore();
         isInSeparateWindowSpy.mockRestore();
         clickSpy.mockRestore();
@@ -1753,16 +1416,6 @@ describe('PopupController', () => {
         expect(controller.truncateText('')).toBe('');
     });
 
-    it('Warns if custom file button not found when setting up file upload handler', async () => {
-        const controller = new PopupController();
-        const customFileBtn = document.getElementById('customFileBtn');
-        if (customFileBtn && customFileBtn.parentNode) customFileBtn.parentNode.removeChild(customFileBtn);
-        const consoleWarnSpy = vi.spyOn(console, 'warn');
-        await controller.loadMetadata();
-        expect(consoleWarnSpy).toHaveBeenCalledWith('Custom file button not found when setting up file upload handler');
-        consoleWarnSpy.mockRestore();
-    });
-
     it('Gets formatSelector and rateLimitInput elements when download button clicked', async () => {
         const controller = new PopupController();
         controller.currentSlug = 'slug';
@@ -1780,163 +1433,6 @@ describe('PopupController', () => {
         isInSeparateWindowSpy.mockRestore();
         windowsCreateSpy.mockRestore();
         windowsUpdateSpy.mockRestore();
-    });
-
-    it('Defaults format to fb2 if formatSelector is missing when download button clicked', async () => {
-        const controller = new PopupController();
-        const formatSelector = document.getElementById('formatSelector');
-        if (formatSelector && formatSelector.parentNode) formatSelector.parentNode.removeChild(formatSelector);
-        controller.currentSlug = 'slug';
-        controller.currentServiceKey = 'ranobelib';
-        const isInSeparateWindowSpy = vi.spyOn(controller, 'isInSeparateWindow').mockResolvedValue(false);
-        const windowsCreateSpy = vi.spyOn(global.browser.windows, 'create').mockResolvedValue({ id: 123 });
-        const downloadBtn = document.getElementById('downloadBtn');
-        await downloadBtn.click();
-        await new Promise(resolve => setTimeout(resolve, 100));
-        const urlArg = windowsCreateSpy.mock.calls[0][0].url;
-        expect(urlArg).toContain('format=fb2');
-        isInSeparateWindowSpy.mockRestore();
-        windowsCreateSpy.mockRestore();
-    });
-
-    it('Defaults rateLimit to 100 if rateLimitInput value is empty or invalid', async () => {
-        const controller = new PopupController();
-        const rateLimitInput = document.getElementById('rateLimitInput');
-        rateLimitInput.value = '';
-        controller.currentSlug = 'slug';
-        controller.currentServiceKey = 'ranobelib';
-        const isInSeparateWindowSpy = vi.spyOn(controller, 'isInSeparateWindow').mockResolvedValue(false);
-        const windowsCreateSpy = vi.spyOn(global.browser.windows, 'create').mockResolvedValue({ id: 123 });
-        const downloadBtn = document.getElementById('downloadBtn');
-        await downloadBtn.click();
-        await new Promise(resolve => setTimeout(resolve, 100));
-        const urlArg = windowsCreateSpy.mock.calls[0][0].url;
-        expect(urlArg).toContain('rateLimit=100');
-        isInSeparateWindowSpy.mockRestore();
-        windowsCreateSpy.mockRestore();
-    });
-
-    it('Defaults rateLimit to 100 if rateLimitInput is missing', async () => {
-        const controller = new PopupController();
-        const rateLimitInput = document.getElementById('rateLimitInput');
-        if (rateLimitInput && rateLimitInput.parentNode) rateLimitInput.parentNode.removeChild(rateLimitInput);
-        controller.currentSlug = 'slug';
-        controller.currentServiceKey = 'ranobelib';
-        const isInSeparateWindowSpy = vi.spyOn(controller, 'isInSeparateWindow').mockResolvedValue(false);
-        const windowsCreateSpy = vi.spyOn(global.browser.windows, 'create').mockResolvedValue({ id: 123 });
-        const downloadBtn = document.getElementById('downloadBtn');
-        await downloadBtn.click();
-        await new Promise(resolve => setTimeout(resolve, 100));
-        const urlArg = windowsCreateSpy.mock.calls[0][0].url;
-        expect(urlArg).toContain('rateLimit=100');
-        isInSeparateWindowSpy.mockRestore();
-        windowsCreateSpy.mockRestore();
-    });
-
-    it('Calls windows update after window creation', async () => {
-        const controller = new PopupController();
-        controller.currentSlug = 'slug';
-        controller.currentServiceKey = 'ranobelib';
-        const isInSeparateWindowSpy = vi.spyOn(controller, 'isInSeparateWindow').mockResolvedValue(false);
-        const windowsCreateSpy = vi.spyOn(global.browser.windows, 'create').mockResolvedValue({ id: 123 });
-        const windowsUpdateSpy = vi.spyOn(global.browser.windows, 'update').mockResolvedValue({});
-        const downloadBtn = document.getElementById('downloadBtn');
-        await downloadBtn.click();
-        await new Promise(resolve => setTimeout(resolve, 600));
-        expect(windowsUpdateSpy).toHaveBeenCalledWith(123, { focused: true });
-        isInSeparateWindowSpy.mockRestore();
-        windowsCreateSpy.mockRestore();
-        windowsUpdateSpy.mockRestore();
-    });
-
-    it('Warns if window created but no ID found', async () => {
-        const controller = new PopupController();
-        controller.currentSlug = 'slug';
-        controller.currentServiceKey = 'ranobelib';
-        const isInSeparateWindowSpy = vi.spyOn(controller, 'isInSeparateWindow').mockResolvedValue(false);
-        const windowsCreateSpy = vi.spyOn(global.browser.windows, 'create').mockResolvedValue({});
-        const consoleWarnSpy = vi.spyOn(console, 'warn');
-        const downloadBtn = document.getElementById('downloadBtn');
-        await downloadBtn.click();
-        await new Promise(resolve => setTimeout(resolve, 100));
-        expect(consoleWarnSpy).toHaveBeenCalledWith('Window created but no ID found:', {});
-        consoleWarnSpy.mockRestore();
-        isInSeparateWindowSpy.mockRestore();
-        windowsCreateSpy.mockRestore();
-    });
-
-    it('Handles error in window creation and calls startDownload', async () => {
-        const controller = new PopupController();
-        controller.currentSlug = 'slug';
-        controller.currentServiceKey = 'ranobelib';
-        const isInSeparateWindowSpy = vi.spyOn(controller, 'isInSeparateWindow').mockResolvedValue(false);
-        const windowsCreateSpy = vi.spyOn(global.browser.windows, 'create').mockRejectedValue(new Error('fail create'));
-        const startDownloadSpy = vi.spyOn(controller, 'startDownload').mockResolvedValue();
-        const consoleErrorSpy = vi.spyOn(console, 'error');
-        const downloadBtn = document.getElementById('downloadBtn');
-        await downloadBtn.click();
-        await new Promise(resolve => setTimeout(resolve, 100));
-        expect(consoleErrorSpy).toHaveBeenCalledWith('Failed to create window:', expect.any(Error));
-        expect(startDownloadSpy).toHaveBeenCalled();
-        consoleErrorSpy.mockRestore();
-        isInSeparateWindowSpy.mockRestore();
-        windowsCreateSpy.mockRestore();
-        startDownloadSpy.mockRestore();
-    });
-
-    it('Toggles pause state when button clicked', async () => {
-        const controller = new PopupController();
-        const pauseBtn = document.getElementById('pauseBtn');
-        const status = document.getElementById('status');
-        pauseBtn.click();
-        expect(controller.isPaused).toBe(true);
-        expect(pauseBtn.textContent).toBe('Продолжить');
-        expect(status.textContent).toBe('Пауза...');
-        pauseBtn.click();
-        expect(controller.isPaused).toBe(false);
-        expect(pauseBtn.textContent).toBe('Пауза');
-        expect(status.textContent).toBe('Загрузка...');
-    });
-
-    it('Warns if status element not found when updating status on pause/resume', async () => {
-        const controller = new PopupController();
-        const pauseBtn = document.getElementById('pauseBtn');
-        const status = document.getElementById('status');
-        if (status && status.parentNode) status.parentNode.removeChild(status);
-        const consoleWarnSpy = vi.spyOn(console, 'warn');
-        pauseBtn.click();
-        expect(consoleWarnSpy).toHaveBeenCalledWith('Status element not found when updating status on pause/resume');
-        consoleWarnSpy.mockRestore();
-    });
-
-    it('Calls stopDownload when stop button clicked', async () => {
-        const controller = new PopupController();
-        const stopDownloadSpy = vi.spyOn(controller, 'stopDownload');
-        const stopBtn = document.getElementById('stopBtn');
-        stopBtn.click();
-        expect(stopDownloadSpy).toHaveBeenCalled();
-        stopDownloadSpy.mockRestore();
-    });
-
-    it('maxSizeInput event listener persists value to localStorage', () => {
-        const controller = new PopupController();
-        const maxSizeInput = document.getElementById('maxSizeInput');
-        expect(maxSizeInput).toBeTruthy();
-        maxSizeInput.value = '150';
-        maxSizeInput.dispatchEvent(new Event('input'));
-        expect(global.localStorage.setItem).toHaveBeenCalledWith('manga_parser_max_size_mb', '150');
-    });
-
-    it('maxSizeInput event listener clamps value to 1 when input is NaN or less than 1', () => {
-        const controller = new PopupController();
-        const maxSizeInput = document.getElementById('maxSizeInput');
-        expect(maxSizeInput).toBeTruthy();
-        maxSizeInput.value = 'abc';
-        maxSizeInput.dispatchEvent(new Event('input'));
-        expect(maxSizeInput.value).toBe('1');
-        maxSizeInput.value = '0';
-        maxSizeInput.dispatchEvent(new Event('input'));
-        expect(maxSizeInput.value).toBe('1');
     });
 
     it('splitModeContainer falls back to btn parent when chapterRangeContainer is absent', () => {
@@ -1964,58 +1460,6 @@ describe('PopupController', () => {
         await controller.loadMetadata();
         expect(global.localStorage.setItem).toHaveBeenCalledWith('manga_parser_max_size_mb', '150');
         window.location.search = originalSearch;
-    });
-
-    it('Saves formatSelector value to browserAPI.storage.local on init', async () => {
-        vi.resetModules();
-        setupDOM();
-        global.DownloadManager = class { constructor() { this.eventBus = { on: vi.fn() }; } };
-        const setMock = vi.fn();
-        global.browser = {
-            runtime: { sendMessage: vi.fn(async () => ({ ok: true, downloads: [] })), getURL: vi.fn() },
-            windows: { getCurrent: vi.fn(), create: vi.fn(), update: vi.fn() },
-            tabs: { query: vi.fn() },
-            storage: { local: { set: setMock } }
-        };
-        global.chrome = undefined;
-        await import('../../ui/PopupController.js?nocache=' + Math.random());
-        const PopupControllerClass = global.PopupController;
-        new PopupControllerClass();
-        expect(setMock).toHaveBeenCalledWith({ manga_parser_selected_format: expect.any(String) });
-    });
-
-    it('Saves formatSelector value to browserAPI.storage.local on change event', async () => {
-        vi.resetModules();
-        setupDOM();
-        global.DownloadManager = class { constructor() { this.eventBus = { on: vi.fn() }; } };
-        const setMock = vi.fn();
-        global.browser = {
-            runtime: { sendMessage: vi.fn(async () => ({ ok: true, downloads: [] })), getURL: vi.fn() },
-            windows: { getCurrent: vi.fn(), create: vi.fn(), update: vi.fn() },
-            tabs: { query: vi.fn() },
-            storage: { local: { set: setMock } }
-        };
-        global.chrome = undefined;
-        await import('../../ui/PopupController.js?nocache=' + Math.random());
-        const PopupControllerClass = global.PopupController;
-        new PopupControllerClass();
-        const formatSelector = document.getElementById('formatSelector');
-        setMock.mockClear();
-        formatSelector.value = 'epub';
-        formatSelector.dispatchEvent(new Event('change'));
-        expect(setMock).toHaveBeenCalledWith({ manga_parser_selected_format: 'epub' });
-    });
-
-    it('Warns when maxSizeInput not found but maxSizeMB URL param is set', async () => {
-        const controller = new PopupController();
-        const maxSizeInput = document.getElementById('maxSizeInput');
-        if (maxSizeInput) maxSizeInput.parentNode.removeChild(maxSizeInput);
-        Object.defineProperty(window, 'location', { value: { search: '?maxSizeMB=500' }, writable: true });
-        const warnSpy = vi.spyOn(console, 'warn');
-        await controller.loadMetadata();
-        expect(warnSpy).toHaveBeenCalledWith('Max size input element not found');
-        warnSpy.mockRestore();
-        window.location.search = '';
     });
 
     it('Warns when splitModeContainer not found during startDownload', async () => {

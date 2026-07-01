@@ -396,3 +396,140 @@ input[type="number"] {
 #apiWarningLink:hover {
     text-decoration: underline;
 }
+#historyBtn {
+    position: absolute;
+    top: 0;
+    right: 0;
+    cursor: pointer;
+    color: #bdbdbd;
+    display: flex;
+    align-items: center;
+    line-height: 1;
+}
+#historyBtn:hover {
+    color: var(--primary-color);
+}
+#logoHeader {
+    position: relative;
+    margin-bottom: 6px;
+}
+#historyHeader {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    margin-bottom: 14px;
+}
+#historyTitle {
+    color: #ddd;
+    font-size: 16px;
+    font-weight: bold;
+    flex: 1;
+    text-align: center;
+    padding-right: 80px;
+}
+.history-nav-btn {
+    width: auto;
+    padding: 6px 10px;
+    font-size: 13px;
+    background: transparent;
+    border: 1px solid #3d3d3f;
+    color: #bdbdbd;
+    border-radius: 4px;
+    cursor: pointer;
+    white-space: nowrap;
+    flex-shrink: 0;
+}
+.history-nav-btn:hover {
+    background: #2e2e30;
+    color: var(--primary-color);
+    border-color: var(--primary-color);
+}
+#historyList {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+    margin-bottom: 12px;
+    max-height: 420px;
+    overflow-y: auto;
+    padding-right: 2px;
+}
+#historyList::-webkit-scrollbar {
+    width: 4px;
+}
+#historyList::-webkit-scrollbar-track {
+    background: #252527;
+}
+#historyList::-webkit-scrollbar-thumb {
+    background: #3d3d3f;
+    border-radius: 2px;
+}
+.history-card {
+    background: #2e2e30;
+    border: 1px solid #3d3d3f;
+    border-left: 3px solid var(--primary-color);
+    border-radius: 4px;
+    padding: 10px 12px;
+}
+.history-card-title {
+    color: #ddd;
+    font-size: 13px;
+    font-weight: bold;
+    margin-bottom: 6px;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+.history-card-title--link {
+    cursor: pointer;
+}
+.history-card-title--link:hover {
+    color: var(--entry-color);
+    text-decoration: underline;
+}
+.history-card-meta {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    margin-bottom: 4px;
+}
+.history-badge {
+    font-size: 11px;
+    font-weight: bold;
+    border: 1px solid;
+    border-radius: 3px;
+    padding: 1px 5px;
+    flex-shrink: 0;
+}
+.history-date {
+    color: #888;
+    font-size: 11px;
+}
+.history-chapters {
+    color: #aaa;
+    font-size: 12px;
+    margin-top: 4px;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+.history-translator {
+    color: #888;
+    font-size: 11px;
+    margin-top: 3px;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+#historyEmpty {
+    text-align: center;
+    margin: 20px 0;
+}
+#historyEmptyMsg {
+    color: #ddd;
+    font-size: 14px;
+    background: #2e2e30;
+    border: 1px solid #3d3d3f;
+    border-radius: 8px;
+    padding: 20px 12px;
+    line-height: 1.7;
+}
