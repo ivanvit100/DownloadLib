@@ -27,8 +27,10 @@
         'DownloadManager',
         'MangaPatcher',
         'ExporterRegistry',
+        'AuthManager',
         'TemplateLoader',
         'HistoryController',
+        'ChapterController',
         'PopupController'
     ];
 

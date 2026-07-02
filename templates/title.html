@@ -4,6 +4,21 @@
 </div>
 <div id="releaseDate"></div>
 
+<div id="splitModeContainer">
+    <label for="maxSizeInput">Макс. размер части (МБ):</label>
+    <input id="maxSizeInput" type="number" min="1" max="9999" step="1" value="200">
+</div>
+
+<div id="rateLimitContainer">
+    <label>Запросов в минуту: </label>
+    <input id="rateLimitInput" type="number" min="2" max="200" step="1" value="85">
+</div>
+
+<div id="formatContainer">
+    <label for="formatSelector">Формат: </label>
+    <select id="formatSelector"></select>
+</div>
+
 <div id="translatorContainer">
     <label for="translatorSelect">Перевод:</label>
     <select id="translatorSelect"></select>
@@ -18,21 +33,6 @@
         <select id="chapterFromSelect"></select>
         <select id="chapterToSelect"></select>
     </div>
-</div>
-
-<div id="splitModeContainer">
-    <label for="maxSizeInput">Макс. размер части (МБ):</label>
-    <input id="maxSizeInput" type="number" min="1" max="9999" step="1" value="200">
-</div>
-
-<div id="rateLimitContainer">
-    <label>Запросов в минуту: </label>
-    <input id="rateLimitInput" type="number" min="2" max="200" step="1" value="85">
-</div>
-
-<div id="formatContainer">
-    <label for="formatSelector">Формат: </label>
-    <select id="formatSelector"></select>
 </div>
 
 <div id="fileInputContainer">

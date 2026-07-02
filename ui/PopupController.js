@@ -23,10 +23,15 @@
         return;
     }
 
+    function $el(id) {
+        return document.getElementById(id);
+    }
+
     class PopupController {
         constructor() {
             console.log('[PopupController] Initializing...');
             this.downloadManager = new global.DownloadManager();
+            this.chapterController = new global.ChapterController();
             this.currentDownloadId = null;
             this.isDownloading = false;
             this.isPaused = false;
@@ -36,7 +41,6 @@
             this.currentServiceKey = null;
             this.currentTitle = null;
             this.authToken = null;
-            this._allChapters = [];
             this._shellEventsBound = false;
 
             this.downloadManager.eventBus.on('download:started', (state) => {
@@ -61,7 +65,7 @@
         }
 
         async _restoreMainView() {
-            const logoInfo = document.getElementById('logoInfo');
+            const logoInfo = $el('logoInfo');
             if (logoInfo) logoInfo.textContent = '';
             await global.TemplateLoader.show('title');
             this._bindTitleEvents();
@@ -74,10 +78,10 @@
             if (this._shellEventsBound) return;
             this._shellEventsBound = true;
 
-            const historyBtn = document.getElementById('historyBtn');
+            const historyBtn = $el('historyBtn');
             if (historyBtn) {
                 historyBtn.addEventListener('click', () => {
-                    const logoInfo = document.getElementById('logoInfo');
+                    const logoInfo = $el('logoInfo');
                     if (logoInfo) logoInfo.textContent = '';
                     global.TemplateLoader.show('history', () => global.HistoryController.init());
                 });
@@ -85,27 +89,24 @@
         }
 
         _bindTitleEvents() {
-            const btn = document.getElementById('downloadBtn');
+            const btn = $el('downloadBtn');
             if (!btn) {
                 console.error('[PopupController] downloadBtn not found in title template');
                 return;
             }
 
-            const formatSelector = document.getElementById('formatSelector');
-            const rateLimitInput = document.getElementById('rateLimitInput');
-            const maxSizeInput = document.getElementById('maxSizeInput');
-            const hiddenFileInput = document.getElementById('fileInput');
-            const customFileBtn = document.getElementById('customFileBtn');
-            const status = document.getElementById('status');
-            const chapterFromSelect = document.getElementById('chapterFromSelect');
-            const chapterToSelect = document.getElementById('chapterToSelect');
-            const progress = document.getElementById('progress');
-            const controls = document.getElementById('downloadControls');
-            const downloadInfoPanel = document.getElementById('downloadInfoPanel');
+            const formatSelector = $el('formatSelector');
+            const rateLimitInput = $el('rateLimitInput');
+            const maxSizeInput = $el('maxSizeInput');
+            const hiddenFileInput = $el('fileInput');
+            const customFileBtn = $el('customFileBtn');
+            const status = $el('status');
+            const chapterFromSelect = $el('chapterFromSelect');
+            const chapterToSelect = $el('chapterToSelect');
 
-            if (progress) progress.style.display = 'none';
-            if (controls) controls.style.display = 'none';
-            if (downloadInfoPanel) downloadInfoPanel.style.display = 'none';
+            this._setVisibility('progress', 'none');
+            this._setVisibility('downloadControls', 'none');
+            this._setVisibility('downloadInfoPanel', 'none');
 
             if (formatSelector) {
                 const FORMAT_STORAGE_KEY = 'manga_parser_selected_format';
@@ -202,6 +203,28 @@
             console.log('[PopupController] Title events bound');
         }
 
+        _setVisibility(id, display) {
+            const el = $el(id);
+            if (el) el.style.display = display;
+        }
+
+        _getDownloadElements() {
+            return {
+                btn: $el('downloadBtn'),
+                formatSelector: $el('formatSelector'),
+                rateLimitInput: $el('rateLimitInput'),
+                status: $el('status'),
+                progress: $el('progress'),
+                controls: $el('downloadControls'),
+                hiddenFileInput: $el('fileInput'),
+                customFileBtn: $el('customFileBtn'),
+                fileInputContainer: $el('fileInputContainer'),
+                chapterRangeContainer: $el('chapterRangeContainer'),
+                fromSelect: $el('chapterFromSelect'),
+                toSelect: $el('chapterToSelect')
+            };
+        }
+
         async isInSeparateWindow() {
             try {
                 const urlParams = new URLSearchParams(window.location.search);
@@ -258,134 +281,13 @@
 
             if (maxSizeMBFromUrl) {
                 localStorage.setItem('manga_parser_max_size_mb', maxSizeMBFromUrl);
-                const maxSizeInput = document.getElementById('maxSizeInput');
+                const maxSizeInput = $el('maxSizeInput');
                 if (maxSizeInput) maxSizeInput.value = maxSizeMBFromUrl;
                 else console.warn('Max size input element not found');
             }
 
             if (rateLimitFromUrl && rateLimitInput)
                 rateLimitInput.value = rateLimitFromUrl;
-        }
-
-        async _loadChaptersAndPopulateSelects(service, slug, chapterFromUrl, chapterToUrl, branchIdFromUrl = null) {
-            try {
-                const chaptersData = await service.fetchChaptersList(slug);
-                const chapters = chaptersData.data || [];
-                this._allChapters = chapters;
-
-                const hasMultipleBranches = chapters.some(ch => ch.branches && ch.branches.length > 1);
-                let activeBranchId = null;
-
-                if (hasMultipleBranches)
-                    activeBranchId = this._setupTranslatorSelector(chapters, branchIdFromUrl);
-                else {
-                    const translatorContainer = document.getElementById('translatorContainer');
-                    if (translatorContainer) translatorContainer.style.display = 'none';
-                }
-
-                const filteredChapters = activeBranchId != null
-                    ? this._getFilteredChapters(activeBranchId)
-                    : chapters;
-
-                const chaptersCount = chapters.length;
-
-                if (filteredChapters.length > 0) {
-                    const fromSelect = document.getElementById('chapterFromSelect');
-                    const toSelect = document.getElementById('chapterToSelect');
-                    const chapterRangeContainer = document.getElementById('chapterRangeContainer');
-
-                    if (fromSelect && toSelect && chapterRangeContainer) {
-                        this._repopulateChapterSelects(filteredChapters, fromSelect, toSelect);
-
-                        if (chapterFromUrl !== null && chapterToUrl !== null) {
-                            fromSelect.value = chapterFromUrl;
-                            toSelect.value = chapterToUrl;
-                            console.log(`[PopupController] Restored chapter range from URL: ${chapterFromUrl} - ${chapterToUrl}`);
-                        } else
-                            toSelect.selectedIndex = filteredChapters.length - 1;
-
-                        chapterRangeContainer.style.display = 'block';
-                    }
-                }
-                return chaptersCount;
-            } catch (e) {
-                console.warn('[PopupController] Failed to fetch chapters count:', e);
-                return null;
-            }
-        }
-
-        _setupTranslatorSelector(chapters, branchIdFromUrl) {
-            const translatorContainer = document.getElementById('translatorContainer');
-            const translatorSelect = document.getElementById('translatorSelect');
-            if (!translatorContainer || !translatorSelect) return null;
-
-            const branchMap = new Map();
-            for (const ch of chapters) {
-                if (!ch.branches) continue;
-                for (const branch of ch.branches) {
-                    if (!branchMap.has(branch.branch_id)) {
-                        const teamName = (branch.teams && branch.teams[0] && branch.teams[0].name)
-                            ? branch.teams[0].name
-                            : `Перевод ${branch.branch_id}`;
-                        branchMap.set(branch.branch_id, teamName);
-                    }
-                }
-            }
-
-            if (branchMap.size <= 1) {
-                translatorContainer.style.display = 'none';
-                return branchMap.size === 1 ? [...branchMap.keys()][0] : null;
-            }
-
-            translatorSelect.innerHTML = '';
-            for (const [id, name] of branchMap) {
-                const opt = document.createElement('option');
-                opt.value = id;
-                opt.textContent = name;
-                translatorSelect.appendChild(opt);
-            }
-
-            const initialBranchId = branchIdFromUrl != null && branchMap.has(Number(branchIdFromUrl))
-                ? Number(branchIdFromUrl)
-                : [...branchMap.keys()][0];
-            translatorSelect.value = initialBranchId;
-
-            translatorSelect.onchange = () => {
-                const selectedBranchId = parseInt(translatorSelect.value);
-                const filtered = this._getFilteredChapters(selectedBranchId);
-                const fromSelect = document.getElementById('chapterFromSelect');
-                const toSelect = document.getElementById('chapterToSelect');
-                if (fromSelect && toSelect) {
-                    this._repopulateChapterSelects(filtered, fromSelect, toSelect);
-                    toSelect.selectedIndex = filtered.length - 1;
-                }
-            };
-
-            translatorContainer.style.display = 'block';
-            return initialBranchId;
-        }
-
-        _getFilteredChapters(branchId) {
-            return this._allChapters.filter(
-                ch => ch.branches && ch.branches.some(b => b.branch_id === branchId)
-            );
-        }
-
-        _repopulateChapterSelects(filteredChapters, fromSelect, toSelect) {
-            fromSelect.innerHTML = '';
-            toSelect.innerHTML = '';
-            filteredChapters.forEach((ch, idx) => {
-                const label = `Том ${ch.volume}, Глава ${ch.number}`;
-                const optFrom = document.createElement('option');
-                optFrom.value = idx;
-                optFrom.textContent = label;
-                fromSelect.appendChild(optFrom);
-
-                const optTo = document.createElement('option');
-                optTo.value = idx;
-                optTo.textContent = label;
-                toSelect.appendChild(optTo);
-            });
         }
 
         _renderMeta({ patched, chaptersCount, slug, coverImg, desc, releaseEl, logoInfo }) {
@@ -440,121 +342,51 @@
             if (btn) btn.disabled = true;
         }
 
-        async _getAuthToken(serviceKey, tabId = null) {
-            try {
-                const cached = await browserAPI.runtime.sendMessage({ action: 'getAuthToken', serviceKey });
-                if (cached && cached.token) return cached.token;
-            } catch (e) {
-                console.warn('[PopupController] Failed to get cached auth token:', e);
-            }
-
-            if (tabId != null && browserAPI.scripting) {
-                try {
-                    const results = await browserAPI.scripting.executeScript({
-                        target: { tabId },
-                        func: () => {
-                            const RE = /^eyJ[\w\-+=/]+\.eyJ[\w\-+=/]+\.[\w\-+=/]+$/;
-
-                            function findJwt(val) {
-                                if (typeof val !== 'string' || !val) return null;
-                                if (RE.test(val)) return val;
-                                const bare = val.startsWith('Bearer ') ? val.slice(7) : null;
-                                if (bare && RE.test(bare)) return bare;
-                                try { return scanObj(JSON.parse(val)); } catch { return null; }
-                            }
-
-                            function scanObj(o) {
-                                if (!o || typeof o !== 'object') return null;
-                                for (const v of Object.values(o)) {
-                                    const f = typeof v === 'string'
-                                        ? findJwt(v)
-                                        : scanObj(typeof v === 'object' && v ? v : null);
-                                    if (f) return f;
-                                }
-                                return null;
-                            }
-
-                            for (const s of [localStorage, sessionStorage]) {
-                                for (let i = 0; i < s.length; i++) {
-                                    const f = findJwt(s.getItem(s.key(i)));
-                                    if (f) return f;
-                                }
-                            }
-                            return null;
-                        }
-                    });
-                    if (results && results[0] && results[0].result) {
-                        const token = results[0].result;
-                        browserAPI.runtime.sendMessage({ action: 'cacheAuthToken', serviceKey, token }).catch(() => {});
-                        return token;
-                    }
-                } catch (e) {
-                    console.warn('[PopupController] Failed to extract auth token via executeScript:', e);
-                }
-            }
-
-            return null;
-        }
-
-        async _applyAuthToken(serviceKey, activeTabId, service) {
-            this.authToken = null;
-            try {
-                const token = await this._getAuthToken(serviceKey, activeTabId);
-                if (token) {
-                    this.authToken = token;
-                    service.config.headers = { ...service.config.headers, 'Authorization': `Bearer ${token}` };
-                    console.log('[PopupController] Auth token applied');
-                }
-            } catch (e) {
-                console.warn('[PopupController] Could not get auth token:', e);
-            }
-        }
-
         async _showWrongServiceState() {
             await global.TemplateLoader.show('wrong-service');
-            const logoInfo = document.getElementById('logoInfo');
+            const logoInfo = $el('logoInfo');
             if (logoInfo) logoInfo.textContent = '';
 
-            const siteLogo = document.getElementById('siteLogo');
+            const siteLogo = $el('siteLogo');
 
-            document.getElementById('openMangaLib')?.addEventListener('click', async () => {
+            $el('openMangaLib')?.addEventListener('click', async () => {
                 browserAPI.tabs.create({ url: 'https://mangalib.me' });
                 this._applyServiceTheme('mangalib', siteLogo);
                 await this._showNoTitleState();
             });
 
-            document.getElementById('openRanobeLib')?.addEventListener('click', async () => {
+            $el('openRanobeLib')?.addEventListener('click', async () => {
                 browserAPI.tabs.create({ url: 'https://ranobelib.me' });
                 this._applyServiceTheme('ranobelib', siteLogo);
                 await this._showNoTitleState();
             });
 
-            document.getElementById('openGithub')?.addEventListener('click', () => {
+            $el('openGithub')?.addEventListener('click', () => {
                 browserAPI.tabs.create({ url: 'https://github.com/ivanvit100/DownloadLib' });
             });
         }
 
         async _showNoTitleState() {
             await global.TemplateLoader.show('no-title');
-            const logoInfo = document.getElementById('logoInfo');
+            const logoInfo = $el('logoInfo');
             if (logoInfo) logoInfo.textContent = '';
 
-            document.getElementById('openGithub')?.addEventListener('click', () => {
+            $el('openGithub')?.addEventListener('click', () => {
                 browserAPI.tabs.create({ url: 'https://github.com/ivanvit100/DownloadLib' });
             });
         }
 
         async loadMetadata() {
             await Promise.resolve();
-            const status = document.getElementById('status');
-            const btn = document.getElementById('downloadBtn');
-            const logoInfo = document.getElementById('logoInfo');
-            const coverImg = document.getElementById('cover');
-            const desc = document.getElementById('description');
-            const releaseEl = document.getElementById('releaseDate');
-            const siteLogo = document.getElementById('siteLogo');
-            const customFileBtn = document.getElementById('customFileBtn');
-            const hiddenFileInput = document.getElementById('fileInput');
+            const status = $el('status');
+            const btn = $el('downloadBtn');
+            const logoInfo = $el('logoInfo');
+            const coverImg = $el('cover');
+            const desc = $el('description');
+            const releaseEl = $el('releaseDate');
+            const siteLogo = $el('siteLogo');
+            const customFileBtn = $el('customFileBtn');
+            const hiddenFileInput = $el('fileInput');
             const uiElements = { logoInfo, coverImg, desc, releaseEl, btn, status };
 
             const urlParams = new URLSearchParams(window.location.search);
@@ -571,9 +403,11 @@
                 ? parseInt(urlParams.get('branchId'))
                 : null;
 
-            const formatSelector = document.getElementById('formatSelector');
-            const rateLimitInput = document.getElementById('rateLimitInput');
-            this._applyUrlParams({ formatFromUrl, maxSizeMBFromUrl, rateLimitFromUrl, formatSelector, rateLimitInput });
+            this._applyUrlParams({
+                formatFromUrl, maxSizeMBFromUrl, rateLimitFromUrl,
+                formatSelector: $el('formatSelector'),
+                rateLimitInput: $el('rateLimitInput')
+            });
 
             if (btn) btn.disabled = true;
             if (status) status.textContent = 'Получаем информацию...';
@@ -610,7 +444,7 @@
                     serviceKey = service.name;
                 }
 
-                await this._applyAuthToken(serviceKey, activeTabId, service);
+                this.authToken = await global.AuthManager.apply(serviceKey, activeTabId, service);
 
                 this._applyServiceTheme(serviceKey, siteLogo);
 
@@ -630,7 +464,7 @@
 
                 const meta = rawResp.data || rawResp;
                 const patched = global.MangaPatcher.patch(meta);
-                const chaptersCount = await this._loadChaptersAndPopulateSelects(
+                const chaptersCount = await this.chapterController.loadAndPopulate(
                     service, slug, chapterFromUrl, chapterToUrl, branchIdFromUrl
                 );
 
@@ -647,6 +481,8 @@
                                 if (status) status.textContent = 'Выберите файл для обновления';
                                 hiddenFileInput.click();
                             } else {
+                                const formatSelector = $el('formatSelector');
+                                const rateLimitInput = $el('rateLimitInput');
                                 const format = formatSelector ? formatSelector.value : 'fb2';
                                 const rateLimit = rateLimitInput ? parseInt(rateLimitInput.value) || 100 : 100;
 
@@ -684,24 +520,24 @@
         }
 
         setupEventListeners() {
-            const downloadBtn = document.getElementById('downloadBtn');
-            const pauseBtn = document.getElementById('pauseBtn');
-            const stopBtn = document.getElementById('stopBtn');
+            const downloadBtn = $el('downloadBtn');
+            const pauseBtn = $el('pauseBtn');
+            const stopBtn = $el('stopBtn');
 
             if (downloadBtn) {
                 downloadBtn.addEventListener('click', async () => {
                     const inSeparateWindow = await this.isInSeparateWindow();
 
                     if (!this.loadedFile && !inSeparateWindow) {
-                        const formatSelector = document.getElementById('formatSelector');
-                        const rateLimitInput = document.getElementById('rateLimitInput');
-                        const fromSelect = document.getElementById('chapterFromSelect');
-                        const toSelect = document.getElementById('chapterToSelect');
-                        const chapterRangeContainer = document.getElementById('chapterRangeContainer');
+                        const formatSelector = $el('formatSelector');
+                        const rateLimitInput = $el('rateLimitInput');
+                        const fromSelect = $el('chapterFromSelect');
+                        const toSelect = $el('chapterToSelect');
+                        const chapterRangeContainer = $el('chapterRangeContainer');
 
                         const format = formatSelector ? formatSelector.value : 'fb2';
                         const rateLimit = rateLimitInput ? parseInt(rateLimitInput.value) || 100 : 100;
-                        const maxSizeMB = document.getElementById('maxSizeInput')?.value || '200';
+                        const maxSizeMB = $el('maxSizeInput')?.value || '200';
 
                         let urlParams = `?download=true&slug=${encodeURIComponent(this.currentSlug)}&service=${encodeURIComponent(this.currentServiceKey)}&format=${encodeURIComponent(format)}&rateLimit=${encodeURIComponent(rateLimit)}&maxSizeMB=${encodeURIComponent(maxSizeMB)}`;
 
@@ -711,8 +547,8 @@
                             urlParams += `&chapterFrom=${encodeURIComponent(fromSelect.value)}&chapterTo=${encodeURIComponent(toSelect.value)}`;
                         else console.warn(`Chapter range selectors not found or not visible when constructing URL parameters for download`);
 
-                        const translatorSelect = document.getElementById('translatorSelect');
-                        const translatorContainer = document.getElementById('translatorContainer');
+                        const translatorSelect = $el('translatorSelect');
+                        const translatorContainer = $el('translatorContainer');
                         if (translatorSelect && translatorContainer &&
                             translatorContainer.style.display !== 'none')
                             urlParams += `&branchId=${encodeURIComponent(translatorSelect.value)}`;
@@ -732,7 +568,7 @@
                 pauseBtn.addEventListener('click', () => {
                     this.isPaused = !this.isPaused;
                     pauseBtn.textContent = this.isPaused ? 'Продолжить' : 'Пауза';
-                    const status = document.getElementById('status');
+                    const status = $el('status');
                     if (status) status.textContent = this.isPaused ? 'Пауза...' : 'Загрузка...';
                     else console.warn('Status element not found when updating status on pause/resume');
                 });
@@ -764,55 +600,38 @@
             return null;
         }
 
-        _setDownloadingUIState({ btn, hiddenFileInput,
-            customFileBtn, fileInputContainer, progress, controlsContainer, chapterRangeContainer, status }) {
+        _setDownloadingUIState({ btn, hiddenFileInput, customFileBtn,
+            fileInputContainer, progress, controls, chapterRangeContainer, status }) {
             btn.disabled = true;
             btn.style.display = 'none';
-            const formatContainer = document.getElementById('formatContainer');
-            if (formatContainer) formatContainer.style.display = 'none';
-            else console.warn('Format container not found when hiding during download');
-            const rateLimitContainer = document.getElementById('rateLimitContainer');
-            if (rateLimitContainer) rateLimitContainer.style.display = 'none';
-            else console.warn('Rate limit container not found when hiding during download');
+            this._setVisibility('formatContainer', 'none');
+            this._setVisibility('rateLimitContainer', 'none');
+            this._setVisibility('translatorContainer', 'none');
+            this._setVisibility('splitModeContainer', 'none');
             if (hiddenFileInput) hiddenFileInput.disabled = true;
-            else console.warn('Hidden file input not found when disabling during download');
             if (customFileBtn) customFileBtn.disabled = true;
-            else console.warn('Custom file button not found when disabling during download');
             if (fileInputContainer) fileInputContainer.style.display = 'none';
-            else console.warn('File input container not found when disabling during download');
             if (progress) progress.style.display = 'block';
-            else console.warn('Progress element not found when showing during download');
-            if (controlsContainer) controlsContainer.style.display = 'block';
-            else console.warn('Controls container not found when showing during download');
+            if (controls) controls.style.display = 'block';
             if (chapterRangeContainer) chapterRangeContainer.style.display = 'none';
-            else console.warn('Chapter range container not found when hiding during download');
-            const translatorContainerDl = document.getElementById('translatorContainer');
-            if (translatorContainerDl) translatorContainerDl.style.display = 'none';
-            else console.warn('Translator container not found when hiding during download');
-            const splitModeContainer = document.getElementById('splitModeContainer');
-            if (splitModeContainer) splitModeContainer.style.display = 'none';
-            else console.warn('Split mode container not found when hiding during download');
 
-            const downloadInfoPanel = document.getElementById('downloadInfoPanel');
+            const downloadInfoPanel = $el('downloadInfoPanel');
             if (downloadInfoPanel) {
-                const formatSelector = document.getElementById('formatSelector');
-                const rateLimitInput = document.getElementById('rateLimitInput');
-                const maxSizeInput = document.getElementById('maxSizeInput');
+                const formatSelector = $el('formatSelector');
+                const rateLimitInput = $el('rateLimitInput');
+                const maxSizeInput = $el('maxSizeInput');
                 const formatLabel = formatSelector
                     ? (formatSelector.options[formatSelector.selectedIndex]?.text || formatSelector.value)
                     : '';
-                const rateLabel = rateLimitInput ? rateLimitInput.value : '';
-                const sizeLabel = maxSizeInput ? maxSizeInput.value : '';
                 downloadInfoPanel.innerHTML =
                     `<div class="info-row"><span class="info-label">Формат</span><span class="info-value">${formatLabel}</span></div>` +
-                    `<div class="info-row"><span class="info-label">Запросов в минуту</span><span class="info-value">${rateLabel}</span></div>` +
-                    `<div class="info-row"><span class="info-label">Макс. размер части</span><span class="info-value">${sizeLabel} МБ</span></div>`;
+                    `<div class="info-row"><span class="info-label">Запросов в минуту</span><span class="info-value">${rateLimitInput ? rateLimitInput.value : ''}</span></div>` +
+                    `<div class="info-row"><span class="info-label">Макс. размер части</span><span class="info-value">${maxSizeInput ? maxSizeInput.value : ''} МБ</span></div>`;
                 downloadInfoPanel.style.display = 'block';
             }
 
             const statusText = this.loadedFile ? 'Запуск обновления...' : 'Запуск скачивания...';
             if (status) status.textContent = statusText;
-            else console.warn('Status element not found when setting initial status for download start');
         }
 
         _handleDownloadResult(result, status) {
@@ -830,18 +649,9 @@
                 return;
             }
 
-            const btn = document.getElementById('downloadBtn');
-            const formatSelector = document.getElementById('formatSelector');
-            const rateLimitInput = document.getElementById('rateLimitInput');
-            const status = document.getElementById('status');
-            const progress = document.getElementById('progress');
-            const controlsContainer = document.getElementById('downloadControls');
-            const hiddenFileInput = document.getElementById('fileInput');
-            const customFileBtn = document.getElementById('customFileBtn');
-            const fileInputContainer = document.getElementById('fileInputContainer');
-            const chapterRangeContainer = document.getElementById('chapterRangeContainer');
-            const fromSelect = document.getElementById('chapterFromSelect');
-            const toSelect = document.getElementById('chapterToSelect');
+            const { btn, formatSelector, rateLimitInput, status, progress,
+                controls, hiddenFileInput, customFileBtn, fileInputContainer,
+                chapterRangeContainer, fromSelect, toSelect } = this._getDownloadElements();
 
             try {
                 const { chapterRange, branchId, historyParams } = await this._prepareDownload({
@@ -853,12 +663,12 @@
                 this.shouldStop = false;
 
                 this._setDownloadingUIState({
-                    btn, hiddenFileInput,
-                    customFileBtn, fileInputContainer, progress, controlsContainer, chapterRangeContainer, status
+                    btn, hiddenFileInput, customFileBtn, fileInputContainer,
+                    progress, controls, chapterRangeContainer, status
                 });
 
                 const format = formatSelector?.value || 'fb2';
-                const maxSizeMB = parseInt(document.getElementById('maxSizeInput')?.value) || 200;
+                const maxSizeMB = parseInt($el('maxSizeInput')?.value) || 200;
 
                 const result = await this.downloadManager.startDownload({
                     slug: this.currentSlug,
@@ -908,8 +718,8 @@
 
             const chapterRange = this._buildChapterRange(fromSelect, toSelect, chapterRangeContainer);
 
-            const translatorSelect = document.getElementById('translatorSelect');
-            const translatorContainer = document.getElementById('translatorContainer');
+            const translatorSelect = $el('translatorSelect');
+            const translatorContainer = $el('translatorContainer');
             const translatorVisible = !!(translatorSelect && translatorContainer &&
                 translatorContainer.style.display !== 'none');
             const branchId = translatorVisible ? parseInt(translatorSelect.value) : null;
@@ -930,15 +740,14 @@
             this.isDownloading = false;
             if (this.currentDownloadId)
                 this.downloadManager.stop(this.currentDownloadId);
-            const status = document.getElementById('status');
+            const status = $el('status');
             if (status) status.textContent = 'Досрочное завершение...';
             else console.warn('Status element not found when setting status on download stop');
         }
 
         updateProgress(message, percent) {
-            const statusEl = document.getElementById('status');
-            const progressEl = document.getElementById('progress');
-
+            const statusEl = $el('status');
+            const progressEl = $el('progress');
             if (statusEl) statusEl.textContent = message;
             else console.warn('Status element not found when updating progress status');
             if (progressEl) progressEl.value = percent;
@@ -950,30 +759,20 @@
             this.isPaused = false;
             this.shouldStop = false;
             this.loadedFile = null;
+            this.currentDownloadId = null;
 
-            const btn = document.getElementById('downloadBtn');
-            const progress = document.getElementById('progress');
-            const controls = document.getElementById('downloadControls');
-            const hiddenFileInput = document.getElementById('fileInput');
-            const customFileBtn = document.getElementById('customFileBtn');
+            const { btn, progress, controls, hiddenFileInput, customFileBtn } = this._getDownloadElements();
 
             if (btn) {
                 btn.style.display = 'block';
                 btn.disabled = false;
                 btn.textContent = 'Скачать';
             } else console.warn('Download button not found when resetting UI');
-            const formatContainer = document.getElementById('formatContainer');
-            if (formatContainer) formatContainer.style.display = '';
-            else console.warn('Format container not found when resetting UI');
-            const rateLimitContainer = document.getElementById('rateLimitContainer');
-            if (rateLimitContainer) rateLimitContainer.style.display = '';
-            else console.warn('Rate limit container not found when resetting UI');
-            const downloadInfoPanel = document.getElementById('downloadInfoPanel');
-            if (downloadInfoPanel) downloadInfoPanel.style.display = 'none';
-            if (hiddenFileInput) {
-                hiddenFileInput.disabled = false;
-                hiddenFileInput.value = '';
-            } else console.warn('Hidden file input not found when resetting UI');
+            this._setVisibility('formatContainer', '');
+            this._setVisibility('rateLimitContainer', '');
+            this._setVisibility('downloadInfoPanel', 'none');
+            if (hiddenFileInput) { hiddenFileInput.disabled = false; hiddenFileInput.value = ''; }
+            else console.warn('Hidden file input not found when resetting UI');
             if (customFileBtn) {
                 customFileBtn.disabled = false;
                 customFileBtn.textContent = 'Загрузить файл для обновления';
@@ -982,32 +781,27 @@
             else console.warn('Progress element not found when resetting UI');
             if (controls) controls.style.display = 'none';
             else console.warn('Controls container not found when resetting UI');
+            this._setVisibility('fileInputContainer', 'block');
 
-            const fileInputContainer = document.getElementById('fileInputContainer');
-            if (fileInputContainer) fileInputContainer.style.display = 'block';
-            else console.warn('File input container not found when resetting UI');
-
-            const chapterRangeContainer = document.getElementById('chapterRangeContainer');
-            const fromSelectReset = document.getElementById('chapterFromSelect');
+            const chapterRangeContainer = $el('chapterRangeContainer');
+            const fromSelectReset = $el('chapterFromSelect');
             if (chapterRangeContainer) {
                 chapterRangeContainer.style.display =
                     (fromSelectReset && fromSelectReset.options.length > 0) ? 'block' : 'none';
             } else console.warn('Chapter range container not found when resetting UI');
-            const translatorContainerReset = document.getElementById('translatorContainer');
-            const translatorSelectReset = document.getElementById('translatorSelect');
+
+            const translatorContainerReset = $el('translatorContainer');
+            const translatorSelectReset = $el('translatorSelect');
             if (translatorContainerReset) {
                 translatorContainerReset.style.display =
                     (translatorSelectReset && translatorSelectReset.options.length > 1) ? 'block' : 'none';
             } else console.warn('Translator container not found when resetting UI');
-            const splitModeContainer = document.getElementById('splitModeContainer');
-            if (splitModeContainer) splitModeContainer.style.display = 'block';
-            else console.warn('Split mode container not found when resetting UI');
 
-            this.currentDownloadId = null;
+            this._setVisibility('splitModeContainer', 'block');
         }
 
         showError(message) {
-            const errorEl = document.getElementById('error');
+            const errorEl = $el('error');
             if (errorEl) {
                 errorEl.textContent = message;
                 errorEl.classList.remove('hidden');
@@ -1016,7 +810,7 @@
         }
 
         showSuccess(message) {
-            const successEl = document.getElementById('success');
+            const successEl = $el('success');
             if (successEl) {
                 successEl.textContent = message;
                 successEl.classList.remove('hidden');
@@ -1068,7 +862,7 @@
             });
             warning.appendChild(link);
 
-            const downloadBtn = document.getElementById('downloadBtn');
+            const downloadBtn = $el('downloadBtn');
             if (downloadBtn && downloadBtn.parentNode)
                 downloadBtn.parentNode.insertBefore(warning, downloadBtn);
         }

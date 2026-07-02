@@ -134,6 +134,13 @@ beforeEach(async () => {
         ]),
     };
     global.DownloadHistory = { add: vi.fn(), getAll: vi.fn(() => []), clear: vi.fn() };
+    global.AuthManager = { getToken: vi.fn(async () => null), apply: vi.fn(async () => null) };
+    global.ChapterController = class {
+        constructor() { this._allChapters = []; }
+        loadAndPopulate = vi.fn(async () => 2);
+        getFilteredChapters = vi.fn(() => []);
+        repopulateSelects = vi.fn();
+    };
     global.TemplateLoader = {
         init: vi.fn(),
         show: vi.fn(async () => {}),
@@ -753,8 +760,9 @@ it('Sets formatSelector value from localStorage', async () => {
         expect(document.getElementById('description').innerHTML).toContain('Описание отсутствует');
     });
 
-    it('Warns if failed to fetch chapters count', async () => {
+    it('Completes loadMetadata without crashing when chapter loading returns null', async () => {
         const controller = new PopupController();
+        controller.chapterController.loadAndPopulate = vi.fn(async () => null);
         global.serviceRegistry.getServiceByUrl = vi.fn(() => ({
             name: 'ranobelib',
             fetchMangaMetadata: vi.fn(async () => ({
@@ -767,13 +775,9 @@ it('Sets formatSelector value from localStorage', async () => {
                     releaseDate: '2020'
                 },
                 image: 'cover.png'
-            })),
-            fetchChaptersList: vi.fn(async () => { throw new Error('fail chapters'); })
+            }))
         }));
-        const consoleWarnSpy = vi.spyOn(console, 'warn');
-        await controller.loadMetadata();
-        expect(consoleWarnSpy).toHaveBeenCalledWith('[PopupController] Failed to fetch chapters count:', expect.any(Error));
-        consoleWarnSpy.mockRestore();
+        await expect(controller.loadMetadata()).resolves.not.toThrow();
     });
 
     it('Warns if no valid cover URL found in meta.cover object', async () => {
@@ -1462,175 +1466,20 @@ it('Sets formatSelector value from localStorage', async () => {
         window.location.search = originalSearch;
     });
 
-    it('Warns when splitModeContainer not found during startDownload', async () => {
+    it('Completes without error when splitModeContainer not found during startDownload', async () => {
         const controller = new PopupController();
         controller.currentSlug = 'slug';
         controller.currentServiceKey = 'ranobelib';
         const sc = document.getElementById('splitModeContainer');
         if (sc) sc.parentNode.removeChild(sc);
-        const warnSpy = vi.spyOn(console, 'warn');
-        await controller.startDownload();
-        expect(warnSpy).toHaveBeenCalledWith('Split mode container not found when hiding during download');
-        warnSpy.mockRestore();
+        await expect(controller.startDownload()).resolves.not.toThrow();
     });
 
-    it('Warns when splitModeContainer not found during resetUI', () => {
+    it('Completes without error when splitModeContainer not found during resetUI', () => {
         const controller = new PopupController();
         const sc = document.getElementById('splitModeContainer');
         if (sc) sc.parentNode.removeChild(sc);
-        const warnSpy = vi.spyOn(console, 'warn');
-        controller.resetUI();
-        expect(warnSpy).toHaveBeenCalledWith('Split mode container not found when resetting UI');
-        warnSpy.mockRestore();
-    });
-
-    it('_getAuthToken returns cached token from sendMessage', async () => {
-        global.browser.runtime.sendMessage = vi.fn(async () => ({ token: 'cached-token' }));
-        const controller = new PopupController();
-        const result = await controller._getAuthToken('mangalib', 1);
-        expect(result).toBe('cached-token');
-    });
-
-    it('_getAuthToken falls back to executeScript when cache returns no token', async () => {
-        global.browser.runtime.sendMessage = vi.fn(async (msg) => {
-            if (msg.action === 'getAuthToken') return { token: null };
-            return {};
-        });
-        global.browser.scripting = {
-            executeScript: vi.fn(async () => [{ result: 'script-token' }])
-        };
-        const controller = new PopupController();
-        const result = await controller._getAuthToken('mangalib', 1);
-        expect(result).toBe('script-token');
-    });
-
-    it('_getAuthToken returns null when executeScript returns no result', async () => {
-        global.browser.runtime.sendMessage = vi.fn(async () => ({ token: null }));
-        global.browser.scripting = {
-            executeScript: vi.fn(async () => [{ result: null }])
-        };
-        const controller = new PopupController();
-        const result = await controller._getAuthToken('mangalib', 1);
-        expect(result).toBeNull();
-    });
-
-    it('_getAuthToken returns null and warns when executeScript throws', async () => {
-        global.browser.runtime.sendMessage = vi.fn(async () => ({ token: null }));
-        global.browser.scripting = {
-            executeScript: vi.fn(async () => { throw new Error('script error'); })
-        };
-        const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
-        const controller = new PopupController();
-        const result = await controller._getAuthToken('mangalib', 1);
-        expect(result).toBeNull();
-        expect(warnSpy).toHaveBeenCalledWith(
-            '[PopupController] Failed to extract auth token via executeScript:',
-            expect.any(Error)
-        );
-        warnSpy.mockRestore();
-    });
-
-    it('_applyAuthToken sets authToken and updates service headers when token found', async () => {
-        global.browser.runtime.sendMessage = vi.fn(async () => ({ token: 'the-token' }));
-        const controller = new PopupController();
-        const service = { config: { headers: { 'Content-Type': 'application/json' } } };
-        await controller._applyAuthToken('mangalib', 1, service);
-        expect(controller.authToken).toBe('the-token');
-        expect(service.config.headers['Authorization']).toBe('Bearer the-token');
-    });
-
-    it('_applyAuthToken catches exception from _getAuthToken and warns', async () => {
-        const controller = new PopupController();
-        vi.spyOn(controller, '_getAuthToken').mockRejectedValue(new Error('get token failed'));
-        const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
-        const service = { config: { headers: {} } };
-        await controller._applyAuthToken('mangalib', 1, service);
-        expect(controller.authToken).toBeNull();
-        expect(warnSpy).toHaveBeenCalledWith(
-            '[PopupController] Could not get auth token:',
-            expect.any(Error)
-        );
-        warnSpy.mockRestore();
-    });
-
-    it('_getAuthToken warns when sendMessage throws', async () => {
-        global.browser.runtime.sendMessage = vi.fn(async () => { throw new Error('send error'); });
-        const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
-        const controller = new PopupController();
-        const result = await controller._getAuthToken('mangalib', null);
-        expect(result).toBeNull();
-        expect(warnSpy).toHaveBeenCalledWith(
-            '[PopupController] Failed to get cached auth token:',
-            expect.any(Error)
-        );
-        warnSpy.mockRestore();
-    });
-
-    it('_getAuthToken executeScript func finds JWT directly in localStorage', async () => {
-        const jwt = 'eyJhbGciOiJIUzI1NiJ9.eyJzdWIiOiIxMjM0NTY3ODkwIn0.dozjgNryP4J3jVmNHl0w5N_XgL0n3I8PLt4bWhFBYwI';
-        global.browser.runtime.sendMessage = vi.fn(async () => ({ token: null }));
-        global.localStorage = { length: 1, key: vi.fn(() => 'auth'), getItem: vi.fn(() => jwt) };
-        global.sessionStorage = { length: 0, key: vi.fn(), getItem: vi.fn() };
-        global.browser.scripting = { executeScript: vi.fn(async ({ func }) => [{ result: func() }]) };
-        const controller = new PopupController();
-        const result = await controller._getAuthToken('mangalib', 1);
-        expect(result).toBe(jwt);
-    });
-
-    it('_getAuthToken executeScript func finds Bearer-prefixed JWT', async () => {
-        const jwt = 'eyJhbGciOiJIUzI1NiJ9.eyJzdWIiOiIxMjM0NTY3ODkwIn0.dozjgNryP4J3jVmNHl0w5N_XgL0n3I8PLt4bWhFBYwI';
-        global.browser.runtime.sendMessage = vi.fn(async () => ({ token: null }));
-        global.localStorage = { length: 1, key: vi.fn(() => 'token'), getItem: vi.fn(() => `Bearer ${jwt}`) };
-        global.sessionStorage = { length: 0, key: vi.fn(), getItem: vi.fn() };
-        global.browser.scripting = { executeScript: vi.fn(async ({ func }) => [{ result: func() }]) };
-        const controller = new PopupController();
-        const result = await controller._getAuthToken('mangalib', 1);
-        expect(result).toBe(jwt);
-    });
-
-    it('_getAuthToken executeScript func scans nested JSON objects via scanObj', async () => {
-        const jwt = 'eyJhbGciOiJIUzI1NiJ9.eyJzdWIiOiIxMjM0NTY3ODkwIn0.dozjgNryP4J3jVmNHl0w5N_XgL0n3I8PLt4bWhFBYwI';
-        global.browser.runtime.sendMessage = vi.fn(async () => ({ token: null }));
-        global.localStorage = {
-            length: 1,
-            key: vi.fn(() => 'data'),
-            getItem: vi.fn(() => JSON.stringify({ nullVal: null, nested: { inner: jwt } }))
-        };
-        global.sessionStorage = { length: 0, key: vi.fn(), getItem: vi.fn() };
-        global.browser.scripting = { executeScript: vi.fn(async ({ func }) => [{ result: func() }]) };
-        const controller = new PopupController();
-        const result = await controller._getAuthToken('mangalib', 1);
-        expect(result).toBe(jwt);
-    });
-
-    it('_getAuthToken executeScript func silently catches cacheAuthToken sendMessage rejection', async () => {
-        const jwt = 'eyJhbGciOiJIUzI1NiJ9.eyJzdWIiOiIxMjM0NTY3ODkwIn0.dozjgNryP4J3jVmNHl0w5N_XgL0n3I8PLt4bWhFBYwI';
-        global.browser.runtime.sendMessage = vi.fn(async (msg) => {
-            if (msg.action === 'cacheAuthToken') throw new Error('cache fail');
-            return { token: null };
-        });
-        global.localStorage = { length: 1, key: vi.fn(() => 'auth'), getItem: vi.fn(() => jwt) };
-        global.sessionStorage = { length: 0, key: vi.fn(), getItem: vi.fn() };
-        global.browser.scripting = { executeScript: vi.fn(async ({ func }) => [{ result: func() }]) };
-        const controller = new PopupController();
-        const result = await controller._getAuthToken('mangalib', 1);
-        expect(result).toBe(jwt);
-    });
-
-    it('_getAuthToken executeScript func handles null, invalid JSON, and plain JSON entries', async () => {
-        const values = [null, 'invalid-json', JSON.stringify({ text: 'not-a-jwt' })];
-        let idx = 0;
-        global.browser.runtime.sendMessage = vi.fn(async () => ({ token: null }));
-        global.localStorage = {
-            length: 3,
-            key: vi.fn(i => `k${i}`),
-            getItem: vi.fn(() => values[idx++])
-        };
-        global.sessionStorage = { length: 0, key: vi.fn(), getItem: vi.fn() };
-        global.browser.scripting = { executeScript: vi.fn(async ({ func }) => [{ result: func() }]) };
-        const controller = new PopupController();
-        const result = await controller._getAuthToken('mangalib', 1);
-        expect(result).toBeNull();
+        expect(() => controller.resetUI()).not.toThrow();
     });
 
     it('openInNewContext sends openWindowWithUrl to background in Chrome mode', async () => {
