@@ -666,7 +666,7 @@ describe('RanobeLibService', () => {
         const result = svc.extractText([
             { type: 'paragraph', content: [{ type: 'strong', content: [{ type: 'text', text: 'bold' }] }] }
         ]);
-        expect(result).toEqual([{ type: 'text', text: 'bold' }]);
+        expect(result).toEqual([{ type: 'text', text: 'bold', html: '<strong>bold</strong>' }]);
     });
 
     it('Extract text returns empty string for node with no content array in extractTextFromNode', () => {

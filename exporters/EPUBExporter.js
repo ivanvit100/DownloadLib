@@ -110,12 +110,20 @@
             if (blocks.length) {
                 for (const block of blocks) {
                     if (block.type === 'text' && block.text) {
-                        const lines = block.text.split('\n');
-                        for (const line of lines) {
-                            const trimmed = line.trim();
-                            body += trimmed ?
-                                `<p>${this.escapeXml(trimmed)}</p>\n` :
-                                '<p>&#160;</p>\n';
+                        const style = block.align ? ` style="text-align: ${this.escapeXml(block.align)};"` : '';
+                        if (block.html) {
+                            for (const part of block.html.split(/<br\s*\/?\s*>/i)) {
+                                const trimmed = part.trim();
+                                body += trimmed ? `<p${style}>${trimmed}</p>\n` : '<p>&#160;</p>\n';
+                            }
+                        } else {
+                            const lines = block.text.split('\n');
+                            for (const line of lines) {
+                                const trimmed = line.trim();
+                                body += trimmed ?
+                                    `<p${style}>${this.escapeXml(trimmed)}</p>\n` :
+                                    '<p>&#160;</p>\n';
+                            }
                         }
                     } else if (block.type === 'image' && block._epubImagePath) {
                         if (isImageOnlyChapter)

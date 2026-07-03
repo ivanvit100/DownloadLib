@@ -32,19 +32,75 @@
             return authors.map(author => this.createAuthorsTag(author)).join('');
         }
 
+        _htmlToFb2(html) {
+            if (!html) return '';
+            const m = '\x00';
+            return String(html)
+                .replace(/<(?:strong|b)\b[^>]*>/gi,    `${m}strong>`)
+                .replace(/<\/(?:strong|b)>/gi,          `${m}/strong>`)
+                .replace(/<(?:em|i)\b[^>]*>/gi,         `${m}emphasis>`)
+                .replace(/<\/(?:em|i)>/gi,              `${m}/emphasis>`)
+                .replace(/<(?:s|strike|del)\b[^>]*>/gi, `${m}strikethrough>`)
+                .replace(/<\/(?:s|strike|del)>/gi,      `${m}/strikethrough>`)
+                .replace(/<code\b[^>]*>/gi,             `${m}code>`)
+                .replace(/<\/code>/gi,                  `${m}/code>`)
+                .replace(/<[^>]*>/g, '')
+                .replace(/\x00/g, '<');
+        }
+
+        *_yieldFb2HtmlBlock(html, align) {
+            const parts = html.split(/<br\s*\/?\s*>/i);
+            if (align === 'center') {
+                yield '    <poem><stanza>\n';
+                for (const part of parts) {
+                    const content = this._htmlToFb2(part).trim();
+                    yield content
+                        ? `        <v>${content}</v>\n`
+                        : '        <v>&#160;</v>\n';
+                }
+                yield '    </stanza></poem>\n';
+            } else {
+                for (const part of parts) {
+                    const content = this._htmlToFb2(part).trim();
+                    if (content)
+                        yield `    <p>${content}</p>\n`;
+                    else
+                        yield '    <empty-line/>\n';
+                }
+            }
+        }
+
+        *_yieldFb2TextBlock(text, align) {
+            const lines = text.split('\n');
+            if (align === 'center') {
+                yield '    <poem><stanza>\n';
+                for (const line of lines) {
+                    const trimmed = line.trim();
+                    yield trimmed
+                        ? `        <v>${this.escapeXml(trimmed)}</v>\n`
+                        : '        <v>&#160;</v>\n';
+                }
+                yield '    </stanza></poem>\n';
+            } else {
+                for (const line of lines) {
+                    const trimmed = line.trim();
+                    if (trimmed)
+                        yield `    <p>${this.escapeXml(trimmed)}</p>\n`;
+                    else
+                        yield '    <empty-line/>\n';
+                }
+            }
+        }
+
         *_yieldChapterContent(chapter) {
             if (!chapter.content || !Array.isArray(chapter.content)) return;
 
             for (const block of chapter.content) {
                 if (block.type === 'text' && block.text) {
-                    const lines = block.text.split('\n');
-                    for (const line of lines) {
-                        const trimmed = line.trim();
-                        if (trimmed)
-                            yield `    <p>${this.escapeXml(trimmed)}</p>\n`;
-                        else
-                            yield '    <empty-line/>\n';
-                    }
+                    if (block.html)
+                        yield* this._yieldFb2HtmlBlock(block.html, block.align);
+                    else
+                        yield* this._yieldFb2TextBlock(block.text, block.align);
                 } else if (block.type === 'image' && block._fb2ImageId)
                     yield `    <p><image l:href="#${block._fb2ImageId}"/></p>\n`;
                 else console.warn(`[FB2Exporter] Unsupported block type: ${block.type}`);

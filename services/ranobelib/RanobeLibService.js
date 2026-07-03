@@ -43,6 +43,73 @@
                 .trim();
         }
 
+        _inlineTagFor(type) {
+            const map = {
+                strong: 'strong', bold: 'strong', b: 'strong',
+                em: 'em', italic: 'em', i: 'em',
+                underline: 'u', u: 'u',
+                strike: 's', s: 's', strikethrough: 's',
+                code: 'code'
+            };
+            return map[type] || null;
+        }
+
+        _nodeToHtml(node) {
+            if (!node) return '';
+            if (typeof node === 'string')
+                return String(node).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+            if (node.type === 'text') {
+                if (!node.text) return '';
+                let escaped = node.text
+                    .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+                if (Array.isArray(node.marks)) {
+                    for (const mark of node.marks) {
+                        const tag = this._inlineTagFor(mark.type);
+                        if (tag) escaped = `<${tag}>${escaped}</${tag}>`;
+                    }
+                }
+                return escaped;
+            }
+            if (node.type === 'hardBreak') return '<br/>';
+            if (Array.isArray(node.content)) {
+                const inner = node.content.map(n => this._nodeToHtml(n)).join('');
+                const tag = this._inlineTagFor(node.type);
+                return tag ? `<${tag}>${inner}</${tag}>` : inner;
+            }
+            return '';
+        }
+
+        _hasFormatting(node) {
+            if (!node) return false;
+            if (Array.isArray(node.marks) && node.marks.length > 0) return true;
+            const tag = this._inlineTagFor(node.type);
+            if (tag) return true;
+            if (Array.isArray(node.content)) return node.content.some(n => this._hasFormatting(n));
+            return false;
+        }
+
+        _sanitizeInlineHtml(html) {
+            if (!html) return '';
+            const br = '\x00br\x00';
+            const result = String(html)
+                .replace(/<script\b[^>]*>[\s\S]*?<\/script>/gi, '')
+                .replace(/<style\b[^>]*>[\s\S]*?<\/style>/gi, '')
+                .replace(/<p\b[^>]*>/gi, '')
+                .replace(/<\/p\s*>/gi, br)
+                .replace(/<br\s*\/?>/gi, br)
+                .replace(/<(\/?)(?:strong|b)\b[^>]*>/gi, (_, s) => `<${s}strong>`)
+                .replace(/<(\/?)(?:em|i)\b[^>]*>/gi, (_, s) => `<${s}em>`)
+                .replace(/<(\/?)(?:s|strike|del)\b[^>]*>/gi, (_, s) => `<${s}s>`)
+                .replace(/<(\/?)u\b[^>]*>/gi, (_, s) => `<${s}u>`)
+                .replace(/<(\/?)code\b[^>]*>/gi, (_, s) => `<${s}code>`)
+                .replace(/<[^>]*>/g, '')
+                .replace(/\0br\0/g, '<br/>')
+                .replace(/(?:<br\/>){3,}/g, '<br/><br/>')
+                .replace(/(?:<br\/>)+$/, '')
+                .trim();
+            return result;
+        }
+
         _parseHtmlString(str) {
             const result = [];
             const parts = str.split(/(<img\s[^>]*>)/i);
@@ -52,7 +119,11 @@
                     result.push({ type: 'image', src: imgMatch[1] });
                 else {
                     const stripped = this.stripHtml(part);
-                    if (stripped.trim()) result.push({ type: 'text', text: stripped });
+                    if (!stripped.trim()) continue;
+                    const block = { type: 'text', text: stripped };
+                    if (/<(?:strong|em|code|strike|del|[bius])\b/i.test(part))
+                        block.html = this._sanitizeInlineHtml(part);
+                    result.push(block);
                 }
             }
             return result;
@@ -78,17 +149,26 @@
         }
 
         _extractFromParagraph(item) {
+            const align = item.attrs?.textAlign;
             if (Array.isArray(item.content)) {
                 const imageChildren = item.content.filter(child => child && child.type === 'image');
                 if (imageChildren.length > 0)
                     return imageChildren.flatMap(child => this._extractImages(child.attrs));
                 const text = this._extractFromNode(item);
-                return text.trim() ? [{ type: 'text', text }] : [];
+                if (!text.trim()) return [];
+                const block = { type: 'text', text };
+                if (align && align !== 'left') block.align = align;
+                if (item.content.some(n => this._hasFormatting(n)))
+                    block.html = this._nodeToHtml(item);
+                return [block];
             }
 
             if (typeof item.content === 'string') {
                 const text = this.stripHtml(item.content);
-                return text.trim() ? [{ type: 'text', text }] : [];
+                if (!text.trim()) return [];
+                const block = { type: 'text', text };
+                if (align && align !== 'left') block.align = align;
+                return [block];
             }
             console.warn('[RanobeLibService] Unexpected paragraph content:', item);
             const text = this._extractFromNode(item);
