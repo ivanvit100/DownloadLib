@@ -149,6 +149,18 @@
         ${SLIDER_SELECTOR} {
             display: none !important;
         }
+        @media screen and (max-width: 1024px) {
+            .lm_be, .lq_be, .lh_ap {
+                grid-template-columns: 1fr 1fr 1fr;
+                direction: rtl;
+            }
+        }
+        @media screen and (max-width: 640px) {
+            .lm_be, .lq_be, .lh_ap {
+                display: flex;
+                flex-direction: column-reverse;
+            }
+        }
     `;
     document.documentElement.appendChild(style);
 

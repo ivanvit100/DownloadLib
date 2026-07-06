@@ -821,7 +821,7 @@
         async checkApiHealth() {
             const CACHE_KEY = 'DLoadLib_API_check';
             const CACHE_TTL = 4 * 60 * 60 * 1000;
-            const BADGE_URL = 'https://github.com/ivanvit100/DownloadLib/actions/workflows/health-check.yaml/badge.svg';
+            const API_URL = `https://api.github.com/repos/ivanvit100/DownloadLib/actions/workflows/health-check.yaml/runs?per_page=1`;
             const REPO_URL = 'https://github.com/ivanvit100/DownloadLib/issues';
 
             try {
@@ -829,9 +829,10 @@
                 const useCache = cached && (Date.now() - cached.timestamp < CACHE_TTL);
 
                 if (!useCache) {
-                    const res = await fetch(BADGE_URL, { cache: 'no-cache' });
-                    const svg = await res.text();
-                    const isFailing = svg.includes('failing');
+                    const res = await fetch(API_URL, { cache: 'no-cache' });
+                    const data = await res.json();
+                    const conclusion = data.workflow_runs?.[0]?.conclusion;
+                    const isFailing = conclusion === 'failure';
                     localStorage.setItem(CACHE_KEY, JSON.stringify({ isFailing, timestamp: Date.now() }));
                     if (isFailing) this._showApiWarning(REPO_URL);
                     return;

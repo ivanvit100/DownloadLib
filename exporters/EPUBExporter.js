@@ -112,7 +112,7 @@
                     if (block.type === 'text' && block.text) {
                         const style = block.align ? ` style="text-align: ${this.escapeXml(block.align)};"` : '';
                         if (block.html) {
-                            for (const part of block.html.split(/<br\s*\/?\s*>/i)) {
+                            for (const part of block.html.split(/<br\s*\/?>/i)) {
                                 const trimmed = part.trim();
                                 body += trimmed ? `<p${style}>${trimmed}</p>\n` : '<p>&#160;</p>\n';
                             }

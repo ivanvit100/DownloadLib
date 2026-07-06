@@ -45,11 +45,11 @@
                 .replace(/<code\b[^>]*>/gi,             `${m}code>`)
                 .replace(/<\/code>/gi,                  `${m}/code>`)
                 .replace(/<[^>]*>/g, '')
-                .replace(/\x00/g, '<');
+                .replace(/\0/g, '<');
         }
 
         *_yieldFb2HtmlBlock(html, align) {
-            const parts = html.split(/<br\s*\/?\s*>/i);
+            const parts = html.split(/<br\s*\/?>/i);
             if (align === 'center') {
                 yield '    <poem><stanza>\n';
                 for (const part of parts) {
