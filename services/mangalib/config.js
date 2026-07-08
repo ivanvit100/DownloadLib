@@ -4,7 +4,7 @@
     global.mangalibConfig = {
         name: 'mangalib',
         baseUrl: 'https://api.cdnlibs.org',
-        imagesDomain: 'https://img3.mixlib.me',
+        imagesDomain: 'https://img3.cdnlibs.org',
         siteId: '1',
 
         fields: [

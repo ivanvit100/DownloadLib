@@ -65,6 +65,7 @@ function isImageRequest(url) {
     return url.includes('mixlib.me') ||
            url.includes('imglib.info') ||
            url.includes('imgslib.link') ||
+           url.includes('img3.cdnlibs.org') ||
            url.includes('cover.cdnlibs.org') ||
            url.includes('/covers/') ||
            url.includes('/uploads/');
@@ -74,7 +75,7 @@ function detectServiceByUrl(url) {
     if (url.includes('ranobelib.me')) return 'ranobelib';
     if (url.includes('mangalib.me') || url.includes('mangalib.org')) return 'mangalib';
     if (url.includes('mixlib.me') || url.includes('imglib.info') || url.includes('imgslib.link')) return 'mangalib';
-    if (url.includes('cover.cdnlibs.org')) return 'mangalib';
+    if (url.includes('cdnlibs.org')) return 'mangalib';
     return null;
 }
 
@@ -107,6 +108,9 @@ function detectServiceByReferer(details) {
 }
 
 function isFromExtension(details) {
+    // Firefox does not set originUrl/documentUrl for background page requests
+    if (details.tabId === -1 && !details.documentUrl && !details.originUrl) return true;
+
     const extensionSchemes = ['moz-extension://', 'chrome-extension://'];
     const originCandidates = [details.originUrl, details.documentUrl, details.initiator].filter(Boolean);
     const hasExtensionOrigin = originCandidates.some(url => extensionSchemes.some(scheme => url.startsWith(scheme)));
@@ -117,9 +121,12 @@ function isFromExtension(details) {
     return originHeader?.value === 'true';
 }
 
+const pendingOrigins = new Map();
+
 const FIREFOX_WEBREQUEST_URLS = [
     'https://api.cdnlibs.org/*',
     'https://cover.cdnlibs.org/*',
+    'https://img3.cdnlibs.org/*',
     'https://*.mixlib.me/*',
     'https://*.imglib.info/*',
     'https://*.imgslib.link/*',
@@ -136,6 +143,14 @@ if (isFirefox && browserAPI && browserAPI.webRequest) {
         async (details) => {
             const fromExtension = isFromExtension(details);
             const serviceName = detectServiceByReferer(details);
+
+            // Capture Origin for all image CDN requests so onHeadersReceived can echo it back
+            if (isImageRequest(details.url)) {
+                const reqHeaders = details.requestHeaders || [];
+                const originHeader = reqHeaders.find(h => h.name.toLowerCase() === 'origin');
+                if (originHeader?.value)
+                    pendingOrigins.set(details.requestId, originHeader.value);
+            }
 
             if (!fromExtension) {
                 captureAuthToken(details, serviceName);
@@ -182,14 +197,28 @@ if (isFirefox && browserAPI && browserAPI.webRequest) {
 
     browserAPI.webRequest.onHeadersReceived.addListener(
         (details) => {
-            if (!isFromExtension(details)) return {};
             if (!isImageRequest(details.url)) return {};
 
             const headers = details.responseHeaders || [];
             const hasACAO = headers.some(h => h.name.toLowerCase() === 'access-control-allow-origin');
-            if (!hasACAO)
-                headers.push({ name: 'Access-Control-Allow-Origin', value: '*' });
 
+            if (!hasACAO) {
+                const requestOrigin = pendingOrigins.get(details.requestId);
+                if (requestOrigin) {
+                    headers.push({ name: 'Access-Control-Allow-Origin', value: requestOrigin });
+                    headers.push({ name: 'Access-Control-Allow-Credentials', value: 'true' });
+                } else if (details.tabId === -1) {
+                    headers.push({ name: 'Access-Control-Allow-Origin', value: `moz-extension://${browserAPI.runtime.id}` });
+                    headers.push({ name: 'Access-Control-Allow-Credentials', value: 'true' });
+                } else {
+                    const svc = detectServiceByUrl(details.url);
+                    const acao = svc === 'ranobelib' ? 'https://ranobelib.me' : 'https://mangalib.me';
+                    headers.push({ name: 'Access-Control-Allow-Origin', value: acao });
+                    headers.push({ name: 'Access-Control-Allow-Credentials', value: 'true' });
+                }
+            }
+
+            pendingOrigins.delete(details.requestId);
             return { responseHeaders: headers };
         },
         { urls: FIREFOX_WEBREQUEST_URLS },
@@ -253,61 +282,31 @@ if (browserAPI && browserAPI.runtime && browserAPI.runtime.onMessage) {
             (async () => {
                 try {
                     const { url } = message;
+                    const serviceKey = detectServiceByUrl(url);
 
-                    const isRanobelib = url.includes('ranobelib.me');
-                    const defaultReferer = isRanobelib
-                        ? 'https://ranobelib.me/'
-                        : 'https://mangalib.me/';
+                    if (serviceKey) await rateLimiter.trackRequest(serviceKey);
 
-                    const fetchOptions = {
-                        method: 'GET',
-                        headers: {
-                            'Referer': message.referer || defaultReferer,
-                            'Accept': 'image/avif,image/webp,image/png,image/svg+xml,image/*;q=0.8,*/*;q=0.5',
-                            'Accept-Language': 'ru,en-US;q=0.9,en;q=0.8',
-                            ...(isRanobelib ? {} : { 'X-Extension-Request': 'true' })
-                        },
-                        credentials: 'include',
-                        cache: 'no-cache',
-                        redirect: 'follow',
-                        mode: 'cors'
-                    };
+                    const patterns = serviceKey === 'ranobelib'
+                        ? ['*://ranobelib.me/*']
+                        : ['*://mangalib.me/*', '*://mangalib.org/*'];
 
-                    const MAX_RETRIES = 4;
-                    let response;
-                    for (let attempt = 0; attempt < MAX_RETRIES; attempt++) {
-                        const service = detectServiceByUrl(url);
-                        if (service) await rateLimiter.trackRequest(service);
-                        response = await fetch(url, fetchOptions);
-                        if (response.status !== 429) break;
-                        console.warn(`[Background] fetchImage 429 on attempt ${attempt + 1}, throttling 30s...`);
-                        rateLimiter.throttle(30000);
-                        await rateLimiter.trackRequest('429-retry');
-                    }
+                    const tabs = await browserAPI.tabs.query({ url: patterns });
+                    const tabId = tabs?.[0]?.id ?? null;
 
-                    if (!response.ok) {
-                        sendResponse({ ok: false, error: `HTTP ${response.status}` });
+                    if (!tabId) {
+                        sendResponse({ ok: false, error: 'No service tab found' });
                         return;
                     }
 
-                    const blob = await response.blob();
-
-                    if (blob.size === 0) {
-                        sendResponse({ ok: false, error: 'Empty response' });
-                        return;
-                    }
-
-                    const base64 = await new Promise((resolve, reject) => {
-                        const reader = new FileReader();
-                        reader.onloadend = () => {
-                            const b64 = reader.result.split(',')[1] || reader.result;
-                            resolve(b64);
-                        };
-                        reader.onerror = reject;
-                        reader.readAsDataURL(blob);
+                    const result = await browserAPI.tabs.sendMessage(tabId, {
+                        action: 'fetchImageFromTab',
+                        url
                     });
 
-                    sendResponse({ ok: true, base64, contentType: blob.type || 'image/jpeg' });
+                    if (result?.ok)
+                        sendResponse({ ok: true, base64: result.base64, contentType: result.contentType });
+                    else
+                        sendResponse({ ok: false, error: result?.error || 'Content script returned no data' });
                 } catch (err) {
                     sendResponse({ ok: false, error: String(err) });
                 }

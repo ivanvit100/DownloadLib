@@ -104,5 +104,69 @@
     global.getExtensionApi = getExtensionApi;
     global.getBrowserEnv = getBrowserEnv;
 
+    let _serviceTabId = null;
+    let _serviceTabExpiry = 0;
+
+    function setServiceTab(tabId) {
+        _serviceTabId = tabId;
+        _serviceTabExpiry = Date.now() + 3600000;
+    }
+
+    async function fetchViaTab(url, serviceKey) {
+        const api = getExtensionApi();
+        if (!api?.scripting?.executeScript) return null;
+
+        let tabId = _serviceTabId;
+        if (!tabId || Date.now() > _serviceTabExpiry) {
+            const patterns = serviceKey === 'ranobelib'
+                ? ['*://ranobelib.me/*']
+                : ['*://mangalib.me/*', '*://mangalib.org/*'];
+            try {
+                const tabs = await api.tabs.query({ url: patterns });
+                tabId = tabs?.[0]?.id ?? null;
+                if (tabId) {
+                    _serviceTabId = tabId;
+                    _serviceTabExpiry = Date.now() + 3600000;
+                }
+            } catch (e) {
+                console.warn('[BrowserApi] tabs.query failed:', e.message);
+                return null;
+            }
+        }
+
+        if (!tabId) return null;
+
+        try {
+            const results = await api.scripting.executeScript({
+                target: { tabId },
+                func: async (imageUrl) => {
+                    try {
+                        const r = await fetch(imageUrl);
+                        if (!r.ok) return null;
+                        const blob = await r.blob();
+                        const contentType = blob.type || 'image/jpeg';
+                        return await new Promise((resolve) => {
+                            const reader = new FileReader();
+                            reader.onloadend = () => resolve({
+                                ok: true,
+                                base64: reader.result.split(',')[1],
+                                contentType
+                            });
+                            reader.readAsDataURL(blob);
+                        });
+                    } catch { return null; }
+                },
+                args: [url]
+            });
+            return results?.[0]?.result ?? null;
+        } catch (e) {
+            console.warn('[BrowserApi] fetchViaTab failed:', e.message);
+            return null;
+        }
+    }
+
+    global.setServiceTab = setServiceTab;
+    global.fetchViaTab = fetchViaTab;
+
     console.log('[BrowserApi] Loaded:', global.browserEnv.nativeName);
 })(typeof window !== 'undefined' ? window : self);

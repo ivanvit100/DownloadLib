@@ -130,19 +130,10 @@
         async _fetchCoverBase64(service, cover) {
             if (!cover || typeof cover !== 'string') return '';
             try {
-                const coverHeaders = (service.config && service.config.imageHeaders) || {};
-                const response = await fetch(cover, { headers: coverHeaders });
-                if (!response.ok) {
-                    console.error('[DownloadManager] Failed to fetch cover image:', response.status);
-                    return '';
-                }
-                const blob = await response.blob();
-                const reader = new FileReader();
-                return await new Promise((resolve, reject) => {
-                    reader.onloadend = () => resolve(reader.result);
-                    reader.onerror = reject;
-                    reader.readAsDataURL(blob);
-                });
+                const result = await global.fetchViaTab(cover, service.name);
+                if (result?.ok) return `data:${result.contentType};base64,${result.base64}`;
+                console.warn('[DownloadManager] fetchViaTab returned no result for cover');
+                return '';
             } catch (e) {
                 console.warn('[DownloadManager] Failed to load cover:', e);
                 return '';

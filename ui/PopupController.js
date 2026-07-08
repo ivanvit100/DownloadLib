@@ -42,6 +42,7 @@
             this.currentTitle = null;
             this.authToken = null;
             this._shellEventsBound = false;
+            this._activeTabId = null;
 
             this.downloadManager.eventBus.on('download:started', (state) => {
                 this.currentDownloadId = state.id;
@@ -299,7 +300,7 @@
 
             if (cover) {
                 coverImg.style.display = 'block';
-                coverImg.src = cover;
+                this._fetchCover(cover).then(src => { coverImg.src = src; });
             } else
                 coverImg.style.display = 'none';
 
@@ -444,6 +445,8 @@
                     serviceKey = service.name;
                 }
 
+                this._activeTabId = activeTabId;
+                if (activeTabId) global.setServiceTab(activeTabId);
                 this.authToken = await global.AuthManager.apply(serviceKey, activeTabId, service);
 
                 this._applyServiceTheme(serviceKey, siteLogo);
@@ -510,6 +513,12 @@
             } catch (error) {
                 this._handleLoadError(error, uiElements);
             }
+        }
+
+        async _fetchCover(url) {
+            const result = await global.fetchViaTab(url, this.currentServiceKey);
+            if (result?.ok) return `data:${result.contentType};base64,${result.base64}`;
+            return url;
         }
 
         truncateText(text, maxLength = 128) {

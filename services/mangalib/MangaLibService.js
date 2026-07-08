@@ -150,11 +150,9 @@
                     return null;
                 }
 
-                const response = await new Promise((resolve, reject) => {
-                    this.extensionApi.runtime.sendMessage({
-                        action: 'fetchImage',
-                        url: url
-                    }).then(resolve).catch(reject);
+                const response = await this.extensionApi.runtime.sendMessage({
+                    action: 'fetchImage',
+                    url
                 });
 
                 if (!response || !response.ok) {
