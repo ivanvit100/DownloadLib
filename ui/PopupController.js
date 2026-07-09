@@ -300,6 +300,7 @@
 
             if (cover) {
                 coverImg.style.display = 'block';
+                coverImg.src = cover;
                 this._fetchCover(cover).then(src => { coverImg.src = src; });
             } else
                 coverImg.style.display = 'none';
@@ -516,8 +517,12 @@
         }
 
         async _fetchCover(url) {
-            const result = await global.fetchViaTab(url, this.currentServiceKey);
-            if (result?.ok) return `data:${result.contentType};base64,${result.base64}`;
+            try {
+                const result = await global.fetchViaTab(url, this.currentServiceKey);
+                if (result?.ok) return `data:${result.contentType};base64,${result.base64}`;
+            } catch (e) {
+                console.warn('[PopupController] Cover fetch failed:', e.message);
+            }
             return url;
         }
 

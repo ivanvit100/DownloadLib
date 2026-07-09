@@ -11,7 +11,7 @@ export default defineConfig({
             reporter: ['text', 'html'],
             exclude: ['**/node_modules/**', '**/lib/**', '**/background/service-worker.js', '**/**/**/config.js', '/assembly/**', '**/tests/**'],
             all: true,
-            include: ['*.js', 'core/**/*.js', 'background/**/*.js', 'exporters/**/*.js', 'services/**/*.js', 'ui/**/*.js'],
+            include: ['*.js', 'core/**/*.js', 'background/**/*.js', 'content/**/*.js', 'exporters/**/*.js', 'services/**/*.js', 'ui/**/*.js'],
         },
     },
 });

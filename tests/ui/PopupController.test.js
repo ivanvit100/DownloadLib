@@ -147,6 +147,8 @@ beforeEach(async () => {
         current: vi.fn(() => null)
     };
     global.HistoryController = { init: vi.fn() };
+    global.fetchViaTab = vi.fn(async () => null);
+    global.setServiceTab = vi.fn();
 
     await import('../../core/MangaPatcher.js');
     await import('../../ui/PopupController.js');

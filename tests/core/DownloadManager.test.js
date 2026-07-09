@@ -55,6 +55,8 @@ beforeEach(async () => {
         this.readAsText = function () { setTimeout(() => this.onload && this.onload({ target: { result: 'txt' } }), 0); };
     });
 
+    globalThis.fetchViaTab = vi.fn(async () => null);
+
     await import('../../core/DownloadManager.js');
     DownloadManager = globalThis.DownloadManager;
 });
@@ -378,32 +380,18 @@ describe('DownloadManager', () => {
     });
 
     it('Cover url selection logic', async () => {
-        globalThis.fetch = vi.fn(async () => ({
-            ok: true,
-            blob: async () => ({}),
-        }));
-        globalThis.FileReader = vi.fn(function() {
-            this.readAsDataURL = function () { this.result = 'data:img'; this.onloadend && this.onloadend(); };
-        });
+        globalThis.fetchViaTab = vi.fn(async () => ({ ok: true, contentType: 'image/jpeg', base64: 'abc123' }));
 
         serviceMock.fetchMangaMetadata = vi.fn(async () => ({ data: { cover: 'url_default' } }));
-        await import('../../core/DownloadManager.js');
-        const DownloadManager = globalThis.DownloadManager;
         const dm = new DownloadManager();
         const res = await dm.startDownload({ serviceKey: 'mangalib', url: 'https://site/manga/slug' });
         const state = dm.getDownloadState(res.downloadId);
-        expect(globalThis.fetch).toHaveBeenCalledWith('url_default', expect.any(Object));
-        expect(state.coverBase64).toBe('data:img');
+        expect(globalThis.fetchViaTab).toHaveBeenCalledWith('url_default', 'mangalib');
+        expect(state.coverBase64).toBe('data:image/jpeg;base64,abc123');
     });
 
-    it('Sets Referer to ranobelib.me for ranobelib service', async () => {
-        globalThis.fetch = vi.fn(async (url, opts) => ({
-            ok: true,
-            blob: async () => ({}),
-        }));
-        globalThis.FileReader = vi.fn(function() {
-            this.readAsDataURL = function () { this.result = 'data:img'; this.onloadend && this.onloadend(); };
-        });
+    it('Fetches cover for ranobelib service via fetchViaTab', async () => {
+        globalThis.fetchViaTab = vi.fn(async () => ({ ok: true, contentType: 'image/jpeg', base64: 'abc123' }));
 
         const ranobeMock = {
             name: 'ranobelib',
@@ -419,36 +407,22 @@ describe('DownloadManager', () => {
             createService: vi.fn(() => ranobeMock)
         };
 
-        await import('../../core/DownloadManager.js');
-        const DownloadManager = globalThis.DownloadManager;
         const dm = new DownloadManager();
         await dm.startDownload({ serviceKey: 'ranobelib', url: 'https://ranobelib.me/book/slug' });
 
-        expect(globalThis.fetch).toHaveBeenCalledWith(
-            'ranobe-cover',
-            expect.objectContaining({
-                headers: expect.objectContaining({
-                    Referer: 'https://ranobelib.me/'
-                })
-            })
-        );
+        expect(globalThis.fetchViaTab).toHaveBeenCalledWith('ranobe-cover', 'ranobelib');
     });
 
-    it('Сover fetch and unknown cover format errorы', async () => {
+    it('Cover fetch returns empty string when fetchViaTab returns null', async () => {
         const dm = new DownloadManager();
-        const ctrl = dm.createController();
-        const ds = { id: 'id', slug: 'slug', controller: ctrl };
-        const errorSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
+        const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
 
         serviceMock.fetchMangaMetadata = vi.fn(async () => ({ data: { cover: 'bad-url' } }));
-        globalThis.fetch = vi.fn(async () => ({ ok: false, status: 404, blob: async () => ({}) }));
-        globalThis.FileReader = vi.fn(function() {
-            this.readAsDataURL = function () { this.result = 'data:img'; this.onloadend && this.onloadend(); };
-        });
+        globalThis.fetchViaTab = vi.fn(async () => null);
         await dm.startDownload({ serviceKey: 'mangalib', url: 'https://site/manga/slug' });
-        expect(errorSpy).toHaveBeenCalledWith('[DownloadManager] Failed to fetch cover image:', 404);
+        expect(warnSpy).toHaveBeenCalledWith('[DownloadManager] fetchViaTab returned no result for cover');
 
-        errorSpy.mockRestore();
+        warnSpy.mockRestore();
     });
 
     it('Catches and handles error in startDownload', async () => {
@@ -1091,15 +1065,14 @@ describe('DownloadManager', () => {
         logSpy.mockRestore();
     });
 
-    it('_fetchCoverBase64 returns empty string when fetch throws', async () => {
+    it('_fetchCoverBase64 returns empty string when fetchViaTab throws', async () => {
         const dm = new DownloadManager();
-        globalThis.fetch = vi.fn(async () => { throw new Error('Network error'); });
+        globalThis.fetchViaTab = vi.fn(async () => { throw new Error('Network error'); });
         const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
-        const result = await dm._fetchCoverBase64({ config: {} }, 'https://cover.url');
+        const result = await dm._fetchCoverBase64({ name: 'mangalib' }, 'https://cover.url');
         expect(result).toBe('');
         expect(warnSpy).toHaveBeenCalledWith('[DownloadManager] Failed to load cover:', expect.any(Error));
         warnSpy.mockRestore();
-        delete globalThis.fetch;
     });
 
     it('downloadSingleChapter pushes branchId to fetchArgs when chapter.branchId is not null', async () => {
