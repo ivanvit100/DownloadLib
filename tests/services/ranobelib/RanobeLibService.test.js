@@ -938,6 +938,125 @@ describe('RanobeLibService', () => {
         delete global.browser;
     });
 
+    describe('_nodeToHtml', () => {
+        let svc;
+        beforeEach(() => { svc = new RanobeLibService(); });
+
+        it('returns empty string for null node', () => {
+            expect(svc._nodeToHtml(null)).toBe('');
+        });
+
+        it('escapes a plain string node', () => {
+            expect(svc._nodeToHtml('a <b> & string')).toBe('a &lt;b&gt; &amp; string');
+        });
+
+        it('returns empty string for text node with no text property', () => {
+            expect(svc._nodeToHtml({ type: 'text' })).toBe('');
+        });
+
+        it('wraps text in mark tag and ignores unknown mark type', () => {
+            const node = { type: 'text', text: 'X', marks: [{ type: 'strong' }, { type: 'link' }] };
+            expect(svc._nodeToHtml(node)).toBe('<strong>X</strong>');
+        });
+
+        it('returns <br/> for hardBreak node', () => {
+            expect(svc._nodeToHtml({ type: 'hardBreak' })).toBe('<br/>');
+        });
+
+        it('wraps content in tag when node type is a formatting type', () => {
+            const result = svc._nodeToHtml({ type: 'strong', content: [{ type: 'text', text: 'Bold' }] });
+            expect(result).toBe('<strong>Bold</strong>');
+        });
+
+        it('returns inner content without wrapping tag when node type is not a formatting type', () => {
+            const result = svc._nodeToHtml({ type: 'paragraph', content: [{ type: 'text', text: 'X' }] });
+            expect(result).toBe('X');
+        });
+
+        it('returns empty string for unknown node type without content array', () => {
+            expect(svc._nodeToHtml({ type: 'unknown_type' })).toBe('');
+        });
+    });
+
+    describe('_sanitizeInlineHtml', () => {
+        let svc;
+        beforeEach(() => { svc = new RanobeLibService(); });
+
+        it('returns empty string for falsy input', () => {
+            expect(svc._sanitizeInlineHtml('')).toBe('');
+            expect(svc._sanitizeInlineHtml(null)).toBe('');
+        });
+
+        it('removes scripts/styles, converts and strips all inline tags, preserves paragraph breaks as br', () => {
+            const input = '<script>x</script><style>y</style><p>A <b>b</b> <i>i</i> <s>s</s> <del>d</del> <strike>t</strike> <u>u</u> <code>c</code></p><p>Para2</p>';
+            const result = svc._sanitizeInlineHtml(input);
+            expect(result).toBe('A b i s d t u c<br/>Para2');
+            expect(result).not.toContain('<script>');
+            expect(result).not.toContain('<style>');
+        });
+
+        it('collapses triple+ br tags to double br', () => {
+            const result = svc._sanitizeInlineHtml('Line1<br/><br/><br/>Line2');
+            expect(result).toBe('Line1<br/><br/>Line2');
+        });
+    });
+
+    it('extractText sets block.html for HTML string with inline formatting tags (covers line 125)', () => {
+        const svc = new RanobeLibService();
+        const result = svc.extractText('<b>Bold</b> and <em>italic</em> text');
+        expect(result).toHaveLength(1);
+        expect(result[0].type).toBe('text');
+        expect(result[0]).toHaveProperty('html');
+        expect(result[0].html).toBe('Bold and italic text');
+    });
+
+    it('extractText with formatted paragraph sets block.html via _nodeToHtml', () => {
+        const svc = new RanobeLibService();
+        const result = svc.extractText([{
+            type: 'paragraph',
+            content: [{ type: 'text', text: 'Bold', marks: [{ type: 'strong' }] }]
+        }]);
+        expect(result).toHaveLength(1);
+        expect(result[0]).toHaveProperty('html');
+        expect(result[0].html).toContain('<strong>Bold</strong>');
+    });
+
+    describe('_hasFormatting', () => {
+        let svc;
+        beforeEach(() => { svc = new RanobeLibService(); });
+
+        it('returns false for null node', () => {
+            expect(svc._hasFormatting(null)).toBe(false);
+        });
+
+        it('recurses into content array when node has no marks and is not an inline type', () => {
+            const node = { type: 'paragraph', content: [{ type: 'text', text: 'X', marks: [{ type: 'strong' }] }] };
+            expect(svc._hasFormatting(node)).toBe(true);
+        });
+    });
+
+    it('extractText sets block.align for paragraph with non-left textAlign and array content', () => {
+        const svc = new RanobeLibService();
+        const result = svc.extractText([{
+            type: 'paragraph',
+            attrs: { textAlign: 'center' },
+            content: [{ type: 'text', text: 'Centered' }]
+        }]);
+        expect(result).toHaveLength(1);
+        expect(result[0].align).toBe('center');
+    });
+
+    it('extractText sets block.align for paragraph with non-left textAlign and string content', () => {
+        const svc = new RanobeLibService();
+        const result = svc.extractText([{
+            type: 'paragraph',
+            attrs: { textAlign: 'right' },
+            content: '<b>Right</b> text'
+        }]);
+        expect(result).toHaveLength(1);
+        expect(result[0].align).toBe('right');
+    });
+
     it('Registers with serviceRegistry when it is already defined on load', async () => {
         vi.resetModules();
         const register = vi.fn();

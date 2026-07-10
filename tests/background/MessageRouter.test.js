@@ -459,6 +459,22 @@ describe('MessageRouter', () => {
             expect(sendResponse).toHaveBeenCalledWith({ ok: false, error: expect.stringContaining('window fail') });
         });
 
+        it('Handles openDownloadWindow when windows.create returns null (ok=false)', async () => {
+            globalThis.browser.windows = {
+                create: vi.fn().mockResolvedValue(null),
+                update: vi.fn(),
+            };
+
+            const sendResponse = vi.fn();
+            capturedMessageCb(
+                { action: 'openDownloadWindow', format: 'fb2' },
+                { tab: { url: 'https://mangalib.me/manga/my-manga' } },
+                sendResponse,
+            );
+            await vi.waitFor(() => expect(sendResponse).toHaveBeenCalled());
+            expect(sendResponse).toHaveBeenCalledWith({ ok: false, error: 'window create' });
+        });
+
         it('Handles openDownloadWindow using tabs.create when windows is unavailable', async () => {
             globalThis.browser.tabs = { create: vi.fn().mockResolvedValue({ id: 5 }) };
 
@@ -587,6 +603,14 @@ describe('MessageRouter', () => {
             setupGlobals('firefox');
             delete globalThis.authTokenStore;
             await loadModule();
+            expect(globalThis.authTokenStore).toBeDefined();
+        });
+
+        it('Module itself creates authTokenStore when not pre-set before import', async () => {
+            setupGlobals('firefox');
+            vi.resetModules();
+            delete globalThis.authTokenStore;
+            await import('../../background/MessageRouter.js');
             expect(globalThis.authTokenStore).toBeDefined();
         });
 

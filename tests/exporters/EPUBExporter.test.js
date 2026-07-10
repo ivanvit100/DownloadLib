@@ -49,6 +49,16 @@ describe('EPUBExporter', () => {
         expect(html).toContain('<p>World</p>');
     });
 
+    it('Renders html property of text block splitting on br tags (covers lines 115-117)', () => {
+        const chapter = {
+            title: 'Ch',
+            content: [{ type: 'text', text: 'some', html: '<br/>Bold', align: 'center' }]
+        };
+        const html = exporter.createChapterXHTML(chapter, false);
+        expect(html).toContain('<p>&#160;</p>');
+        expect(html).toContain('<p style="text-align: center;">Bold</p>');
+    });
+
     it('Creates chapter XHTML and renders images', () => {
         const chapter = {
             title: 'Test',

@@ -302,5 +302,185 @@ describe('BrowserApi', () => {
         delete host.browser;
         delete host.chrome;
     });
-// ...existing code...
+    describe('setServiceTab / fetchViaTab', () => {
+        async function setupWithBrowser(browserApi) {
+            clearBrowserApiGlobals();
+            global.browser = browserApi;
+            if (typeof window !== 'undefined') window.browser = browserApi;
+            await loadBrowserApi();
+        }
+
+        it('fetchViaTab returns null when scripting API is absent', async () => {
+            await setupWithBrowser({ runtime: {}, tabs: { query: async () => [] } });
+            const host = getHost();
+            expect(await host.fetchViaTab('https://example.com/img.jpg', 'mangalib')).toBeNull();
+        });
+
+        it('fetchViaTab returns null when no tab found', async () => {
+            const executeScript = vi.fn(async () => [{ result: { ok: true, base64: 'x', contentType: 'image/jpeg' } }]);
+            await setupWithBrowser({
+                runtime: {},
+                tabs: { query: async () => [] },
+                scripting: { executeScript }
+            });
+            const host = getHost();
+            expect(await host.fetchViaTab('https://example.com/img.jpg', 'mangalib')).toBeNull();
+            expect(executeScript).not.toHaveBeenCalled();
+        });
+
+        it('fetchViaTab uses ranobelib URL pattern for ranobelib service', async () => {
+            const tabsQuery = vi.fn(async ({ url }) => url[0].includes('ranobelib') ? [{ id: 5 }] : []);
+            const executeScript = vi.fn(async () => [{ result: { ok: true, base64: 'xyz', contentType: 'image/png' } }]);
+            await setupWithBrowser({ runtime: {}, tabs: { query: tabsQuery }, scripting: { executeScript } });
+            const host = getHost();
+            const result = await host.fetchViaTab('https://cdn.example.com/img.jpg', 'ranobelib');
+            expect(tabsQuery).toHaveBeenCalledWith({ url: ['*://ranobelib.me/*'] });
+            expect(result).toEqual({ ok: true, base64: 'xyz', contentType: 'image/png' });
+        });
+
+        it('fetchViaTab uses mangalib URL patterns for other services', async () => {
+            const tabsQuery = vi.fn(async () => [{ id: 3 }]);
+            const executeScript = vi.fn(async () => [{ result: { ok: true, base64: 'abc', contentType: 'image/jpeg' } }]);
+            await setupWithBrowser({ runtime: {}, tabs: { query: tabsQuery }, scripting: { executeScript } });
+            const host = getHost();
+            await host.fetchViaTab('https://cdn.example.com/img.jpg', 'mangalib');
+            expect(tabsQuery).toHaveBeenCalledWith({ url: ['*://mangalib.me/*', '*://mangalib.org/*'] });
+        });
+
+        it('fetchViaTab caches found tab ID for subsequent calls', async () => {
+            const tabsQuery = vi.fn(async () => [{ id: 9 }]);
+            const executeScript = vi.fn(async () => [{ result: { ok: true, base64: 'r', contentType: 'image/jpeg' } }]);
+            await setupWithBrowser({ runtime: {}, tabs: { query: tabsQuery }, scripting: { executeScript } });
+            const host = getHost();
+            await host.fetchViaTab('https://cdn.example.com/a.jpg', 'mangalib');
+            await host.fetchViaTab('https://cdn.example.com/b.jpg', 'mangalib');
+            expect(tabsQuery).toHaveBeenCalledTimes(1);
+            expect(executeScript).toHaveBeenCalledTimes(2);
+        });
+
+        it('fetchViaTab returns null and warns when tabs.query throws', async () => {
+            await setupWithBrowser({
+                runtime: {},
+                tabs: { query: async () => { throw new Error('tabs error'); } },
+                scripting: { executeScript: vi.fn() }
+            });
+            const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
+            const host = getHost();
+            expect(await host.fetchViaTab('https://cdn.example.com/img.jpg', 'mangalib')).toBeNull();
+            expect(warnSpy).toHaveBeenCalledWith('[BrowserApi] tabs.query failed:', 'tabs error');
+            warnSpy.mockRestore();
+        });
+
+        it('fetchViaTab returns null and warns when executeScript throws', async () => {
+            await setupWithBrowser({
+                runtime: {},
+                tabs: { query: async () => [{ id: 7 }] },
+                scripting: { executeScript: async () => { throw new Error('script error'); } }
+            });
+            const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
+            const host = getHost();
+            expect(await host.fetchViaTab('https://cdn.example.com/img.jpg', 'mangalib')).toBeNull();
+            expect(warnSpy).toHaveBeenCalledWith('[BrowserApi] fetchViaTab failed:', 'script error');
+            warnSpy.mockRestore();
+        });
+
+        it('fetchViaTab returns null when executeScript returns no result', async () => {
+            await setupWithBrowser({
+                runtime: {},
+                tabs: { query: async () => [{ id: 8 }] },
+                scripting: { executeScript: async () => null }
+            });
+            const host = getHost();
+            expect(await host.fetchViaTab('https://cdn.example.com/img.jpg', 'mangalib')).toBeNull();
+        });
+
+        it('setServiceTab causes fetchViaTab to skip tabs.query', async () => {
+            const tabsQuery = vi.fn(async () => []);
+            const executeScript = vi.fn(async () => [{ result: { ok: true, base64: 'c', contentType: 'image/jpeg' } }]);
+            await setupWithBrowser({ runtime: {}, tabs: { query: tabsQuery }, scripting: { executeScript } });
+            const host = getHost();
+            host.setServiceTab(42);
+            const result = await host.fetchViaTab('https://cdn.example.com/img.jpg', 'mangalib');
+            expect(tabsQuery).not.toHaveBeenCalled();
+            expect(executeScript).toHaveBeenCalledWith(expect.objectContaining({ target: { tabId: 42 } }));
+            expect(result).toEqual({ ok: true, base64: 'c', contentType: 'image/jpeg' });
+        });
+
+        it('fetchViaTab re-queries when cached tab has expired', async () => {
+            const tabsQuery = vi.fn(async () => [{ id: 77 }]);
+            const executeScript = vi.fn(async () => [{ result: { ok: true, base64: 'e', contentType: 'image/jpeg' } }]);
+            await setupWithBrowser({ runtime: {}, tabs: { query: tabsQuery }, scripting: { executeScript } });
+            const host = getHost();
+
+            const nowSpy = vi.spyOn(Date, 'now').mockReturnValue(0);
+            host.setServiceTab(50);
+            nowSpy.mockReturnValue(3600001);
+
+            await host.fetchViaTab('https://cdn.example.com/img.jpg', 'ranobelib');
+            expect(tabsQuery).toHaveBeenCalledTimes(1);
+            nowSpy.mockRestore();
+        });
+
+        describe('fetchViaTab inner func (fetch-to-base64)', () => {
+            let capturedFunc;
+
+            beforeEach(async () => {
+                await setupWithBrowser({
+                    runtime: {},
+                    tabs: { query: async () => [{ id: 1 }] },
+                    scripting: {
+                        executeScript: async ({ func }) => {
+                            capturedFunc = func;
+                            return [{ result: null }];
+                        }
+                    }
+                });
+                await getHost().fetchViaTab('https://cdn.example.com/img.jpg', 'mangalib');
+            });
+
+            afterEach(() => {
+                vi.unstubAllGlobals();
+            });
+
+            it('returns null when fetch response is not ok', async () => {
+                vi.stubGlobal('fetch', vi.fn(async () => ({ ok: false })));
+                expect(await capturedFunc('https://example.com/img.jpg')).toBeNull();
+            });
+
+            it('returns base64 result using blob contentType', async () => {
+                vi.stubGlobal('fetch', vi.fn(async () => ({
+                    ok: true,
+                    blob: async () => ({ type: 'image/png' })
+                })));
+                vi.stubGlobal('FileReader', vi.fn(function () {
+                    this.readAsDataURL = function () {
+                        this.result = 'data:image/png;base64,abc123';
+                        this.onloadend && this.onloadend();
+                    };
+                }));
+                const result = await capturedFunc('https://example.com/img.jpg');
+                expect(result).toEqual({ ok: true, base64: 'abc123', contentType: 'image/png' });
+            });
+
+            it('falls back to image/jpeg when blob.type is empty', async () => {
+                vi.stubGlobal('fetch', vi.fn(async () => ({
+                    ok: true,
+                    blob: async () => ({ type: '' })
+                })));
+                vi.stubGlobal('FileReader', vi.fn(function () {
+                    this.readAsDataURL = function () {
+                        this.result = 'data:image/jpeg;base64,def456';
+                        this.onloadend && this.onloadend();
+                    };
+                }));
+                const result = await capturedFunc('https://example.com/img.jpg');
+                expect(result).toEqual({ ok: true, base64: 'def456', contentType: 'image/jpeg' });
+            });
+
+            it('returns null when fetch throws (catch branch)', async () => {
+                vi.stubGlobal('fetch', vi.fn(async () => { throw new Error('network fail'); }));
+                expect(await capturedFunc('https://example.com/img.jpg')).toBeNull();
+            });
+        });
+    });
 });

@@ -709,6 +709,44 @@ describe('FB2Exporter', () => {
         expect(parsed.chapters[0].number).toBe('5');
     });
 
+    it('Renders center-aligned HTML block as poem/stanza (covers _htmlToFb2 and _yieldFb2HtmlBlock center)', () => {
+        const manga = { name: 'Test', authors: ['Author'] };
+        const chapters = [{
+            title: 'Ch1',
+            content: [{ type: 'text', text: 'some', html: '<br/><b>Bold</b>', align: 'center' }]
+        }];
+        const result = Array.from(exporter.createFB2Stream(manga, chapters)).join('');
+        expect(result).toContain('<poem><stanza>');
+        expect(result).toContain('<v>&#160;</v>');
+        expect(result).toContain('<v><strong>Bold</strong></v>');
+        expect(result).toContain('</stanza></poem>');
+    });
+
+    it('Renders non-centered HTML block with empty-line for blank parts (covers _yieldFb2HtmlBlock else)', () => {
+        const manga = { name: 'Test', authors: ['Author'] };
+        const chapters = [{
+            title: 'Ch1',
+            content: [{ type: 'text', text: 'some', html: '<br/>World' }]
+        }];
+        const result = Array.from(exporter.createFB2Stream(manga, chapters)).join('');
+        expect(result).toContain('<empty-line/>');
+        expect(result).toContain('<p>World</p>');
+    });
+
+    it('Renders center-aligned text block as poem/stanza (covers _yieldFb2TextBlock center)', () => {
+        const manga = { name: 'Test', authors: ['Author'] };
+        const chapters = [{
+            title: 'Ch1',
+            content: [{ type: 'text', text: 'Hello\n\nWorld', align: 'center' }]
+        }];
+        const result = Array.from(exporter.createFB2Stream(manga, chapters)).join('');
+        expect(result).toContain('<poem><stanza>');
+        expect(result).toContain('<v>Hello</v>');
+        expect(result).toContain('<v>&#160;</v>');
+        expect(result).toContain('<v>World</v>');
+        expect(result).toContain('</stanza></poem>');
+    });
+
     it('Registers with ExporterRegistry when it is already defined on load', async () => {
         vi.resetModules();
         const register = vi.fn();

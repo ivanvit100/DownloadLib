@@ -834,6 +834,19 @@ describe('RequestInterceptor', () => {
             expect(globalThis.detectServiceByUrl('https://mangalib.me/manga/slug')).toBe('mangalib');
             expect(globalThis.detectServiceByUrl('https://example.com')).toBeNull();
         });
+
+        it('detectServiceByUrl returns mangalib for cdnlibs.org URL', () => {
+            expect(globalThis.detectServiceByUrl('https://img3.cdnlibs.org/image.jpg')).toBe('mangalib');
+            expect(globalThis.detectServiceByUrl('https://cover.cdnlibs.org/cover.jpg')).toBe('mangalib');
+        });
+
+        it('onBeforeSendHeaders handles image request with undefined requestHeaders', async () => {
+            const result = await capturedBeforeSendHeadersCb({
+                tabId: 1,
+                url: 'https://img.mixlib.me/image.jpg',
+            });
+            expect(result).toEqual({});
+        });
     });
 
     describe('No browser API available', () => {
@@ -880,6 +893,14 @@ describe('RequestInterceptor', () => {
             setupGlobals('firefox');
             delete globalThis.authTokenStore;
             await loadModule();
+            expect(globalThis.authTokenStore).toBeDefined();
+        });
+
+        it('Module itself creates authTokenStore when not pre-set before import', async () => {
+            setupGlobals('firefox');
+            vi.resetModules();
+            delete globalThis.authTokenStore;
+            await import('../../background/RequestInterceptor.js');
             expect(globalThis.authTokenStore).toBeDefined();
         });
     });

@@ -71,4 +71,54 @@ describe('Self Attachment', () => {
         if (originalSelf !== undefined) global.self = originalSelf;
         else delete global.self;
     });
+
+    it('Attaches to self in Storage', async () => {
+        const originalWindow = global.window;
+        const originalSelf = global.self;
+        delete global.window;
+        global.self = global;
+        const path = require.resolve('../../core/Storage.js');
+        delete require.cache[path];
+        await import('../../core/Storage.js');
+        expect(global.self.Storage).toBeDefined();
+        if (originalWindow !== undefined) global.window = originalWindow;
+        if (originalSelf !== undefined) global.self = originalSelf;
+        else delete global.self;
+    });
+
+    it('Attaches to self in DownloadHistory', async () => {
+        const originalWindow = global.window;
+        const originalSelf = global.self;
+        delete global.window;
+        global.self = global;
+        const storagePath = require.resolve('../../core/Storage.js');
+        delete require.cache[storagePath];
+        await import('../../core/Storage.js');
+        const histPath = require.resolve('../../core/DownloadHistory.js');
+        delete require.cache[histPath];
+        await import('../../core/DownloadHistory.js');
+        expect(global.self.DownloadHistory).toBeDefined();
+        if (originalWindow !== undefined) global.window = originalWindow;
+        if (originalSelf !== undefined) global.self = originalSelf;
+        else delete global.self;
+    });
+
+    it('Attaches to self in AuthManager', async () => {
+        const originalWindow = global.window;
+        const originalSelf = global.self;
+        const originalBrowser = global.browser;
+        delete global.window;
+        global.self = global;
+        global.browser = { runtime: { sendMessage: async () => ({ token: null }) } };
+        const path = require.resolve('../../core/AuthManager.js');
+        delete require.cache[path];
+        await import('../../core/AuthManager.js');
+        expect(global.self.AuthManager).toBeDefined();
+        if (originalWindow !== undefined) global.window = originalWindow;
+        else delete global.window;
+        if (originalSelf !== undefined) global.self = originalSelf;
+        else delete global.self;
+        if (originalBrowser !== undefined) global.browser = originalBrowser;
+        else delete global.browser;
+    });
 });

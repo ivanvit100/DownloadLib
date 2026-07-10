@@ -479,4 +479,96 @@ describe('DownloadButton', () => {
 
         expect(document.querySelector('.dl-ext-download-btn')).not.toBeNull();
     });
+
+    it('Observer ignores non-element nodes (nodeType !== 1)', async () => {
+        vi.resetModules();
+
+        let observerCallback;
+        global.MutationObserver = class {
+            constructor(cb) { observerCallback = cb; }
+            observe() {}
+            disconnect() {}
+        };
+
+        await import('../../content/DownloadButton.js');
+
+        const textNode = document.createTextNode('some text');
+        observerCallback([{ addedNodes: [textNode] }]);
+    });
+
+    it('Observer does nothing when added element does not match read button selector', async () => {
+        vi.resetModules();
+
+        document.body.innerHTML = '<div><p>no read button here</p></div>';
+
+        let observerCallback;
+        global.MutationObserver = class {
+            constructor(cb) { observerCallback = cb; }
+            observe() {}
+            disconnect() {}
+        };
+
+        await import('../../content/DownloadButton.js');
+
+        const unrelated = document.createElement('div');
+        observerCallback([{ addedNodes: [unrelated] }]);
+
+        expect(document.querySelector('.dl-ext-download-btn')).toBeNull();
+    });
+
+    it('startObserving calls requestAnimationFrame when document.body is null at load time', async () => {
+        vi.resetModules();
+
+        const savedBody = document.body;
+        document.body.remove();
+
+        const originalRaf = global.requestAnimationFrame;
+        const rafMock = vi.fn();
+        global.requestAnimationFrame = rafMock;
+
+        global.MutationObserver = class {
+            constructor() {}
+            observe() {}
+            disconnect() {}
+        };
+
+        try {
+            await import('../../content/DownloadButton.js');
+            expect(rafMock).toHaveBeenCalledWith(expect.any(Function));
+        } finally {
+            document.documentElement.appendChild(savedBody);
+            global.requestAnimationFrame = originalRaf;
+        }
+    });
+
+    it('Registers DOMContentLoaded listener when readyState is loading', async () => {
+        vi.resetModules();
+
+        document.body.innerHTML = `
+            <div id="container">
+                <a class="btn">Читать</a>
+                <span>Другое</span>
+            </div>
+        `;
+
+        Object.defineProperty(document, 'readyState', {
+            get: () => 'loading',
+            configurable: true
+        });
+
+        const addEventListenerSpy = vi.spyOn(document, 'addEventListener');
+
+        global.MutationObserver = class {
+            constructor() {}
+            observe() {}
+            disconnect() {}
+        };
+
+        try {
+            await import('../../content/DownloadButton.js');
+            expect(addEventListenerSpy).toHaveBeenCalledWith('DOMContentLoaded', expect.any(Function));
+        } finally {
+            delete document.readyState;
+        }
+    });
 });
