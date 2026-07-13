@@ -597,8 +597,6 @@
             });
 
             this.downloadManager.eventBus.on('download:completed', () => {
-                const message = this.loadedFile ? 'Файл обновлён!' : 'Загрузка завершена!';
-                this.showSuccess(message);
                 this.resetUI();
             });
 

@@ -10,15 +10,15 @@
 
 ### Контексты исполнения
 
-Код расширения работает в двух изолированных контекстах:
+Код расширения работает в трёх изолированных контекстах:
 
-**Popup-контекст** (`popup.html`) — открывается браузером при клике на иконку расширения. Имеет доступ к DOM, может делать fetch, но не может напрямую перехватывать сетевые запросы.
+**Popup-контекст** (`popup.html`) — открывается браузером при клике на иконку расширения или в отдельном окне при запуске загрузки. Имеет доступ к DOM, может делать fetch, но не может напрямую перехватывать сетевые запросы.
 
-**Background-контекст** (`background/background.html` для Firefox, `service-worker.js` для Chrome MV3) — живёт в фоне, перехватывает HTTP-запросы через `webRequest`, принимает сообщения от popup через `runtime.onMessage`.
+**Background-контекст** — для Firefox: `background/background.html`, для Chrome MV3: `background/service-worker.js`. Живёт в фоне, перехватывает HTTP-запросы через `webRequest`, принимает сообщения от popup и контент-скриптов через `runtime.onMessage`.
+
+**Content scripts** (`content/`) — три скрипта, исполняемых на страницах сайтов. Не участвуют в логике загрузки (кроме `ImageFetcher.js`, который прокидывает fetch-запросы изображений через вкладку).
 
 Общение между контекстами — исключительно через `runtime.sendMessage` / `runtime.onMessage`. Напрямую вызывать функции другого контекста нельзя.
-
-**Content script** (`background/RemoveAds.js`) — третий изолированный контекст, исполняется на страницах сайта. Не участвует в логике загрузки.
 
 ### Паттерн самостоятельной регистрации
 
@@ -45,25 +45,34 @@ if (global.ExporterRegistry) global.ExporterRegistry.register('fb2', FB2Exporter
 })(typeof window !== 'undefined' ? window : self);
 ```
 
-Это позволяет одному и тому же коду работать в `window`-контексте (popup) и `self`-контексте (Service Worker), не загрязняя глобальное пространство имён посторонними переменными.
+Это позволяет одному и тому же коду работать в `window`-контексте (popup) и `self`-контексте (Service Worker), не загрязняя глобальное пространство имён посторонними переменными. Background-скрипты (`RequestInterceptor.js`, `MessageRouter.js`) используют безаргументное IIFE — они исполняются только в `self`-контексте воркера.
 
 ### Маршрут данных при загрузке
 
 ```
 PopupController.loadMetadata()
-    → service.fetchMangaMetadata(slug)      [BaseService]
-    → MangaPatcher.patch(rawMeta)           [Core]
-    → service.fetchChaptersList(slug)       [BaseService]
+    → AuthManager.apply(serviceKey, tabId, service)
+        → runtime.sendMessage({ action: 'getAuthToken' })       [background]
+        ↓  если не найден:
+        → browserAPI.scripting.executeScript(tabId, …)          [localStorage scan]
+    → service.fetchMangaMetadata(slug)     [BaseService → fetchWithRateLimit]
+        → runtime.sendMessage({ action: 'fetchWithRateLimit' })  [background]
+    → MangaPatcher.patch(rawMeta)          [core]
+    → ChapterController.loadAndPopulate(service, slug, …)
+        → service.fetchChaptersList(slug)
 
 PopupController.startDownload()
     → DownloadManager.startDownload(options)
-        → service.fetchChapter(slug, num, vol)    [BaseService]
-        → service.extractText(rawContent)         [конкретный сервис]
-        → service.processChapterContent(...)      [конкретный сервис]
-            → runtime.sendMessage({ action: 'fetchImage', url })
-                ↓ (background)
-            → Background.js → fetch(url) → base64
+        → service.fetchChapter(slug, num, vol, branchId)
+        → service.extractText(rawContent)
+        → service.processChapterContent(extracted, …)
+            → runtime.sendMessage({ action: 'fetchImage', url })   [background]
+                ↓ (background → content script)
+            → tabs.sendMessage(tabId, { action: 'fetchImageFromTab', url })
+                ↓ (ImageFetcher content script)
+            → fetch(url) → FileReader → base64
         → ExporterRegistry.create(format).export(manga, chapters, cover)
+        → DownloadHistory.add(entry)
         → saveFile(blob, filename)
 ```
 
@@ -73,13 +82,43 @@ PopupController.startDownload()
 
 ### `core/BrowserApi.js`
 
-Выставляет три глобала: `window.extensionApi`, `window.browserEnv`, `window.getExtensionApi`, `window.getBrowserEnv`.
+Выставляет четыре глобала: `getExtensionApi`, `getBrowserEnv`, `extensionApi`, `browserEnv`.
 
-`extensionApi` — унифицированный объект с Promise-based методами: `runtime.sendMessage`, `tabs.query`, `windows.getCurrent/create/update`, `downloads.download`, `storage.local.get/set`. Firefox нативно возвращает промисы, для Chrome callback-API оборачивается вручную через `toPromise()`.
+`extensionApi` — унифицированный объект с Promise-based методами: `runtime.sendMessage`, `tabs.query/sendMessage`, `windows.getCurrent/create/update`, `downloads.download`, `storage.local.get/set`, `scripting.executeScript`. Firefox нативно возвращает промисы, для Chrome callback-API оборачивается вручную через `toPromise()`.
 
-`browserEnv` — объект `{ isFirefox, isChromium, supportsDnr }` для условной логики в Background.
+`browserEnv` — объект `{ isFirefox, isChromium, supportsDnr }` для условной логики.
 
 Все остальные модули читают API через `getExtensionApi()`, никогда не обращаясь к `browser`/`chrome` напрямую.
+
+---
+
+### `core/Storage.js`
+
+Безопасная обёртка над `localStorage`. Проверяет доступность при инициализации; все методы (`get`, `set`, `getJSON`, `setJSON`, `remove`) перехватывают исключения и возвращают `null`/`false` вместо выброса.
+
+Создаётся `window.Storage` — класс, не синглтон; `DownloadHistory` создаёт свой экземпляр.
+
+---
+
+### `core/DownloadHistory.js`
+
+Хранит до 10 последних успешных загрузок в `localStorage` (через `Storage`). Ключ `manga_parser_download_history`.
+
+Методы: `add(entry)`, `getAll()`, `clear()`. `add()` добавляет запись в начало массива (`unshift`) и обрезает до 10.
+
+Вызывается из `DownloadManager` после успешного сохранения файла.
+
+---
+
+### `core/AuthManager.js`
+
+Управляет JWT-токенами авторизации для API cdnlibs.org.
+
+`getToken(serviceKey, tabId)` — сначала запрашивает кэшированный токен у background через `getAuthToken`. Если не найден и передан `tabId` — извлекает токен из `localStorage`/`sessionStorage` страницы через `scripting.executeScript`.
+
+`apply(serviceKey, tabId, service)` — вызывает `getToken`, при успехе добавляет `Authorization: Bearer <token>` в `service.config.headers`.
+
+Кэш токенов хранится в `globalThis.authTokenStore` внутри background-процесса; синхронизируется сообщениями `getAuthToken` / `cacheAuthToken` через `MessageRouter`.
 
 ---
 
@@ -91,19 +130,21 @@ PopupController.startDownload()
 
 `on()` возвращает функцию-отписку. `emit()` оборачивает каждый вызов подписчика в `try/catch` — ошибка в одном обработчике не ломает остальные.
 
-Используется в `DownloadManager`: шина создаётся при инстанциировании и передаётся наружу как `downloadManager.eventBus`. `PopupController` подписывается на события прогресса и завершения через эту шину.
+Используется в `DownloadManager`: шина создаётся при инстанциировании и передаётся наружу как `downloadManager.eventBus`. `PopupController` подписывается на события `download:started`, `download:progress`, `download:completed`, `download:failed`.
 
 ---
 
 ### `core/RateLimiter.js`
 
-Ограничивает количество HTTP-запросов к API сервиса. Сразу при загрузке файла создаётся синглтон `window.globalRateLimiter` (85 req/min по умолчанию).
+Ограничивает количество HTTP-запросов к API сервиса. При загрузке создаётся синглтон `window.globalRateLimiter` (80 req/min по умолчанию).
 
-Метод `acquire(name)` / `trackRequest(name)` — возвращает промис, который резолвится только тогда, когда счётчик запросов за последнюю минуту не превышает лимит. Запросы встают в очередь `_pendingQueue` и обрабатываются по одному через `_processQueue()`.
+`acquire(name)` / `trackRequest(name)` — возвращает промис, который резолвится только тогда, когда счётчик запросов за последнюю минуту не превышает лимит. Запросы встают в очередь `_pendingQueue`.
 
-Метод `throttle(ms)` — принудительная пауза всех запросов на `ms` миллисекунд. Вызывается при получении HTTP 429 в `BaseService.fetchWithRateLimitRetry()` и в `Background.js`.
+`throttle(ms)` — принудительная пауза всех запросов на `ms` миллисекунд. Вызывается при HTTP 429 в `MessageRouter.fetchWithRateLimit`.
 
-Метод `recordRequest(name)` — зарегистрировать запрос без ожидания (используется Background для учёта перехваченных браузером запросов).
+`setLimit(n)` / `getStats()` — динамическое изменение лимита и диагностика.
+
+Экземпляр присутствует как в popup, так и в background; background-копия используется для учёта реальных сетевых запросов.
 
 ---
 
@@ -117,50 +158,45 @@ PopupController.startDownload()
 
 ### `core/DownloadManager.js`
 
-Оркестрирует полный жизненный цикл загрузки. Хранит активные загрузки в `Map<downloadId, downloadState>`.
+Оркестрирует полный жизненный цикл загрузки.
 
-**`startDownload(options)`** — основной метод. Принимает `{ url?, serviceKey?, slug, format, controller, loadedFile, chapterRange, branchId, maxSizeMB }`. Если передан `loadedFile` — делегирует в `updateExistingFile()`, иначе запускает стандартный flow:
+**`startDownload(options)`** — принимает `{ url?, serviceKey?, slug, format, controller, loadedFile, chapterRange, branchId, maxSizeMB }`. Если передан `loadedFile` — делегирует в `updateExistingFile()`, иначе запускает стандартный flow:
 
-1. Получает сервис из `serviceRegistry`.
+1. Применяет auth-токен через `AuthManager.apply()`.
 2. Загружает метаданные → `MangaPatcher.patch()`.
-3. Загружает обложку как base64 через обычный `fetch` с `imageHeaders`.
-4. Загружает список глав, применяет фильтры `branchId` и `chapterRange`.
-5. `downloadWithSizeLimit()` — итерирует главы, разбивая на файловые части при превышении `maxSizeMB`.
+3. Загружает обложку как base64.
+4. Загружает список глав через `ChapterController`, применяет фильтры `branchId` и `chapterRange`.
+5. `downloadWithSizeLimit()` — итерирует главы, разбивая на части при превышении `maxSizeMB`.
 
-**`downloadWithSizeLimit()`** — для каждой главы вызывает `downloadSingleChapter()`, накапливает батч и, как только оценочный размер превышает лимит, вызывает `exporter.export()` и `saveFile()` для текущего батча.
+**`downloadSingleChapter()`** — вызывает `service.fetchChapter()` → `service.extractText()` → `service.processChapterContent()`.
 
-**`downloadSingleChapter()`** — вызывает `service.fetchChapter()` → `service.extractText()` → `service.processChapterContent()`. Возвращает `{ title, content, volume, number }`.
+**`updateExistingFile()`** — режим обновления: парсит загруженный файл через `exporter.parse()`, находит отсутствующие главы и дописывает их.
 
-**`updateExistingFile()`** — режим обновления: загружает серверный список глав, парсит существующий файл через `exporter.parse()`, находит отсутствующие главы через `findMissingChapters()`, докачивает их и сохраняет объединённый файл.
-
-**`createController()`** — фабрика объекта управления `{ pause(), resume(), stop(), isPaused(), shouldStop(), waitIfPaused() }`. `waitIfPaused()` — асинхронный spin-lock, вызывается перед каждой главой.
+**`createController()`** — фабрика объекта `{ pause(), resume(), stop(), isPaused(), shouldStop(), waitIfPaused() }`. `waitIfPaused()` — асинхронный spin-lock, вызывается перед каждой главой.
 
 ---
 
 ### `services/ServiceRegistry.js`
 
-Реестр сервисов. Создаёт синглтон `window.serviceRegistry`. При своей загрузке через `document.write` (или `importScripts`) подключает все конфиги и классы сервисов.
+Реестр сервисов. Создаёт синглтон `window.serviceRegistry`. При своей загрузке через `importScripts` (background) или `<script>` (popup) подключает все конфиги и классы сервисов.
 
 Методы:
 - `register(ServiceClass)` — создаёт экземпляр, сохраняет `{ class, instance, matcher }`.
 - `getServiceByUrl(url)` — перебирает сервисы, возвращает экземпляр первого, чей `matches(url)` вернул `true`.
 - `getService(name)` — возвращает существующий экземпляр по имени.
-- `createService(name)` — создаёт **новый** экземпляр (используется в `DownloadManager` и `BackgroundDownload` для каждой загрузки).
+- `createService(name)` — создаёт **новый** экземпляр (используется в `DownloadManager` для каждой загрузки).
 
 ---
 
 ### `services/BaseService.js`
 
-Базовый класс для всех сервисов. Принимает объект `config` в конструктор, читает из него `name`, `baseUrl`, `headers`, `fields`.
+Базовый класс. Принимает объект `config` в конструктор.
 
-Реализует стандартные API-запросы к cdnlibs.org:
+Реализует API-запросы к cdnlibs.org через `runtime.sendMessage({ action: 'fetchWithRateLimit' })` — все fetch-запросы идут через background, где применяются нужные заголовки и учитывается rate limit.
+
 - `fetchMangaMetadata(slug)` — `GET /api/manga/{slug}?fields[]=...`
 - `fetchChaptersList(slug)` — `GET /api/manga/{slug}/chapters`
 - `fetchChapter(slug, number, volume, branchId)` — `GET /api/manga/{slug}/chapter?number=...`
-
-`fetchWithRateLimitRetry(url, opts, maxRetries)` — fetch с автоматическим retry при 429: читает `Retry-After`, вызывает `globalRateLimiter.throttle(ms)` и `this._on429(ms)` (коллбэк устанавливается из `DownloadManager` для обновления статуса в UI).
-
-Геттер `extensionApi` — вызывает `getExtensionApi()` при каждом обращении, что корректно работает и в popup, и в background.
 
 Абстрактный метод `static matches(url)` — обязателен в подклассе.
 
@@ -168,13 +204,13 @@ PopupController.startDownload()
 
 ### `services/*/config.js`
 
-Простой файл с объектом конфигурации сервиса, выставляемым в `global`. Содержит: `name`, `baseUrl`, `imagesDomain`, `siteId`, `fields[]`, `headers`, `imageHeaders`, опциональные `splitLongImages` и `maxImageHeight`. Загружается до класса сервиса, поэтому конструктор просто читает `global.xyzConfig`.
+Объект конфигурации сервиса, выставляемый в `global`. Содержит: `name`, `baseUrl`, `imagesDomain`, `siteId`, `fields[]`, `headers`, `imageHeaders`, опциональные `splitLongImages` и `maxImageHeight`. Загружается до класса сервиса.
 
 ---
 
 ### `exporters/ExporterRegistry.js`
 
-Реестр экспортеров со статическим приватным полем `#registry`. Аналогично `ServiceRegistry`, при загрузке подключает все файлы экспортеров через `document.write` / `importScripts`.
+Реестр экспортеров со статическим приватным полем `#registry`. При загрузке подключает все файлы экспортеров.
 
 Методы:
 - `register(format, Class, meta)` — регистрация по строковому ключу формата.
@@ -197,7 +233,80 @@ PopupController.startDownload()
 - `chapters` — `[{ title, content: Block[], volume, number }]`, где `Block` — `{ type: 'text', text: string }` или `{ type: 'image', id: string, data: { base64: string, contentType: string } }`.
 - `coverBase64` — data-URL строка или пустая строка.
 
-**Контракт возвращаемого значения `parse()`:** `{ metadata: { name, authors[], summary, genres[], tags[], releaseDate, rating }, cover: string, chapters: [{ title, content: Block[], volume, number }] }`.
+**Контракт `parse()`:** `{ metadata: { name, authors[], summary, genres[], tags[], releaseDate, rating }, cover: string, chapters: [{ title, content: Block[], volume, number }] }`.
+
+---
+
+### `content/AdCleaner.js`
+
+Content script. Удаляет рекламные DOM-элементы на страницах MangaLib/RanobeLib: слайдеры, рекламные попапы (по CSS-классам и маркерам), восстанавливает прокрутку страницы после закрытия попапов. Отслеживает динамически добавляемые узлы через `MutationObserver`. Не участвует в логике загрузки.
+
+---
+
+### `content/DownloadButton.js`
+
+Content script. Инжектирует кнопку «Скачать» рядом с кнопкой «Читать» на странице тайтла. При клике отправляет `{ action: 'openDownloadWindow', format }` в background. Читает последний выбранный формат из `storage.local` и обновляет подпись кнопки при его изменении через `storage.onChanged`. Отслеживает динамическое появление кнопок через `MutationObserver`.
+
+---
+
+### `content/ImageFetcher.js`
+
+Content script. Слушает сообщение `{ action: 'fetchImageFromTab', url }` от background. Делает `fetch(url)` в контексте вкладки (с cookies и заголовками сайта), конвертирует в base64 через `FileReader` и возвращает `{ ok, base64, contentType }`. Это позволяет background получать изображения, не имея собственного доступа к CDN с авторизованными cookies.
+
+---
+
+### `background/RequestInterceptor.js`
+
+Перехватчик сетевых запросов. Загружается в background-контекст до `MessageRouter`.
+
+**Firefox** (`webRequest.onBeforeSendHeaders` в режиме `blocking`): подменяет заголовки запросов от расширения на нужные из конфига сервиса, захватывает JWT-токены из запросов страницы (`captureAuthToken`), добавляет `Access-Control-Allow-Origin` к ответам изображений (`onHeadersReceived`).
+
+**Chrome**: только rate-limiting и перехват токенов без изменения заголовков (управляются через `rules.json` и `declarativeNetRequest`).
+
+В обоих браузерах блокирует запросы к рекламным URL через `webRequest.onBeforeRequest`.
+
+Выставляет `globalThis.detectServiceByUrl` — функцию определения сервиса по URL, используемую также в `MessageRouter`.
+
+---
+
+### `background/MessageRouter.js`
+
+Маршрутизатор сообщений. Слушает `runtime.onMessage` и делегирует обработку зарегистрированным хендлерам.
+
+Хендлеры (`Map<action, handler>`):
+- `getAuthToken` / `cacheAuthToken` — чтение и запись токенов из `globalThis.authTokenStore`.
+- `setRateLimit` / `getRateLimiterStats` — управление rate limiter background-процесса.
+- `fetchImage` — находит открытую вкладку нужного сервиса, отправляет ей `fetchImageFromTab`, прокидывает ответ обратно в popup.
+- `fetchWithRateLimit` — делает fetch с rate limiting и retry при 429, возвращает тело и заголовки.
+- `openDownloadWindow` / `openWindowWithUrl` — открывает popup.html с нужными параметрами в новом окне или вкладке.
+
+---
+
+### `ui/TemplateLoader.js`
+
+Загружает HTML-фрагменты из папки `templates/` в якорный элемент (`#view`). Методы: `init(anchorId)`, `async show(templateName, onReady?)`, `current()`. Один шаблон активен в один момент времени.
+
+Шаблоны: `templates/title.html` (основная форма загрузки), `templates/history.html` (история), `templates/wrong-service.html`, `templates/no-title.html`.
+
+---
+
+### `ui/ChapterController.js`
+
+Управляет выбором диапазона глав и переводчика.
+
+`loadAndPopulate(service, slug, chapterFromUrl, chapterToUrl, branchIdUrl)` — загружает список глав через `service.fetchChaptersList()`, заполняет `<select>` элементы и при наличии нескольких переводов показывает `translatorSelect`.
+
+`getFilteredChapters(branchId)` — возвращает главы, принадлежащие нужной ветке перевода.
+
+`repopulateSelects(chapters, fromSelect, toSelect)` — пересобирает `<option>` в обоих селектах при смене переводчика.
+
+---
+
+### `ui/HistoryController.js`
+
+Управляет видом истории загрузок (шаблон `history.html`).
+
+`init()` — рендерит список через `DownloadHistory.getAll()` и вешает обработчики кнопок «Назад» и «Очистить». Карточки содержат цветовую метку сервиса, формат, дату, диапазон глав и переводчика. При наличии `browserAPI.tabs` заголовок карточки становится кликабельной ссылкой на тайтл.
 
 ---
 
@@ -205,46 +314,19 @@ PopupController.startDownload()
 
 Управляет всем DOM popup-страницы. Создаётся один раз из `app.js`.
 
-**Инициализация в конструкторе:**
-1. `new DownloadManager()`.
-2. `setupUI()` — программно строит DOM, отсутствующий в HTML: `<select>` форматов (данные из `ExporterRegistry.getFormats()`), поля rate-limit и max-size, кнопки "Пауза"/"Фоном"/"Завершить", загрузчик файла для обновления, селекторы диапазона глав и переводчика.
-3. `setupEventListeners()` — обработчики кнопок.
-4. `subscribeToEvents()` — подписка на `downloadManager.eventBus`.
-5. `loadMetadata()` — определяет активный таб, распознаёт slug из URL, загружает метаданные тайтла, наполняет UI обложкой/описанием/списком глав.
+**Инициализация (`_init`):**
+1. Инициализирует `TemplateLoader` на элементе `#view`.
+2. Привязывает события оболочки (`_bindShellEvents`): кнопка истории `#historyBtn`.
+3. Загружает шаблон `title`, привязывает события формы (`_bindTitleEvents`), настраивает слушатели.
+4. Вызывает `loadMetadata()` и `checkApiHealth()`.
 
-**Логика кнопки "Скачать":** если popup открыт как overlay (не в отдельном окне) — открывает `popup.html?download=true&slug=...&service=...&format=...` в новом окне через `windows.create()`. Новое окно при инициализации читает параметры из `URLSearchParams` и сразу вызывает `startDownload()`.
+**`loadMetadata()`** — определяет активную вкладку, парсит slug из URL, применяет auth-токен, загружает метаданные тайтла, заполняет UI обложкой/описанием, передаёт управление главами в `ChapterController`. Читает URL-параметры (`download=true`, `fileUpload=true`) для автозапуска.
 
-**Логика кнопки "Фоном":** сериализует `downloadState` из `DownloadManager.getDownloadState()`, останавливает локальную загрузку, отправляет `{ action: 'takeOverDownload', ...state }` в background.
+**`openInNewContext(url)`** — открывает popup.html в новом окне/вкладке через `openWindowWithUrl` сообщение в background. Используется кнопкой «Скачать» (открывает новое окно с `download=true`) и кнопкой загрузки файла (открывает с `fileUpload=true`).
 
-**Опрос фоновых загрузок:** `setInterval` каждые 2 секунды отправляет `{ action: 'getActiveDownloads' }` и отображает счётчик.
+**Шаблонные состояния:** `_showWrongServiceState` (не та страница), `_showNoTitleState` (нет тайтла), `_setReadyState` (готов к загрузке), `_setDownloadingUIState` / `resetUI` (во время/после загрузки).
 
----
-
-### `background/Background.js`
-
-Ядро background-контекста. Запускается последним после всех зависимостей.
-
-**Перехват запросов (Firefox):** `webRequest.onBeforeSendHeaders` в режиме `blocking` — определяет сервис через `detectServiceByReferer()` (по заголовкам `X-DL-Service`, `Site-Id`, `Referer`), подменяет заголовки на нужные из `ServiceConfigs[serviceName]`, вызывает `rateLimiter.trackRequest()`. `webRequest.onHeadersReceived` — добавляет `Access-Control-Allow-Origin: *` к ответам с изображениями.
-
-**Перехват запросов (Chrome):** только rate-limiting через `webRequest.onBeforeSendHeaders` без `blocking` (заголовки управляются через `rules.json` и `declarativeNetRequest`).
-
----
-
-### `background/BackgroundDownload.js`
-
-Продолжает загрузку после передачи из popup. Хранит активные фоновые загрузки в `Map`.
-
-`takeOverDownload(options)` — принимает сериализованный `downloadState` (slug, serviceKey, format, уже скачанные главы, индекс текущей), создаёт `controller`, запускает `continueDownload()` асинхронно и немедленно возвращает `{ downloadId }`.
-
-`continueDownload(download)` — итерирует главы начиная с `currentChapterIndex`, для каждой: `service.fetchChapter()` → `extractText()` → `processChapterContent()`. По завершении: `ExporterRegistry.create(format).export()` → `extensionApi.downloads.download()` (сохраняет файл в папку загрузок без диалога).
-
-Реализует `pause()`, `resume()`, `stop()` через тот же `controller`-паттерн, что и `DownloadManager`.
-
----
-
-### `background/RemoveAds.js`
-
-Content script. Удаляет рекламные DOM-элементы на страницах MangaLib/RanobeLib. Не связан с логикой загрузки.
+**`checkApiHealth()`** — проверяет кэшированный статус API в `localStorage`. При наличии флага `isFailing` показывает предупреждение `_showApiWarning`.
 
 ---
 
@@ -324,7 +406,6 @@ Content script. Удаляет рекламные DOM-элементы на ст
 
         extractText(content) {
             // Разобрать content (формат зависит от API сервиса)
-            // Вернуть [{ type: 'text', text }, { type: 'image', src }]
             return [];
         }
 
@@ -332,10 +413,9 @@ Content script. Удаляет рекламные DOM-элементы на ст
             const result = [];
             for (const block of extracted) {
                 if (block.type === 'image') {
-                    const resp = await new Promise((res, rej) =>
-                        this.extensionApi.runtime.sendMessage({ action: 'fetchImage', url: block.src })
-                            .then(res).catch(rej)
-                    );
+                    const resp = await this.extensionApi.runtime.sendMessage({
+                        action: 'fetchImage', url: block.src
+                    });
                     if (resp?.ok)
                         result.push({ type: 'image', id: `img_${Date.now()}`, data: { base64: resp.base64, contentType: resp.contentType } });
                 } else result.push(block);
@@ -351,11 +431,15 @@ Content script. Удаляет рекламные DOM-элементы на ст
 
 3. Добавить оба пути в массив `SERVICE_SCRIPTS` в `services/ServiceRegistry.js` (конфиг — перед классом).
 
-4. В `manifest.json`: добавить домен в `host_permissions`.
+4. В `manifest.json`: добавить домен в `host_permissions` и `content_scripts.matches`.
 
-5. В `background/Background.js`: добавить домен в `FIREFOX_WEBREQUEST_URLS`, в `detectServiceByUrl()` и в `detectServiceByReferer()`. Добавить конфиг в `ServiceConfigs`:
+5. В `background/RequestInterceptor.js`:
+   - Добавить домен в `FIREFOX_WEBREQUEST_URLS`.
+   - Добавить обнаружение в `detectServiceByUrl()` и `detectServiceByReferer()`.
+   - Добавить конфиг в `ServiceConfigs`:
+     ```js
+     if (typeof newsiteConfig !== 'undefined')
+         ServiceConfigs.newsite = newsiteConfig;
+     ```
 
-```js
-if (typeof newsiteConfig !== 'undefined')
-    ServiceConfigs.newsite = newsiteConfig;
-```
+6. В `background/MessageRouter.js`: обновить массив `patterns` в хендлере `fetchImage` для новых URL-паттернов поиска вкладки.

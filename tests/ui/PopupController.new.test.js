@@ -156,7 +156,6 @@ describe('PopupController second test file', () => {
     it('Handles progress, completed and failed events from eventBus', async () => {
         const controller = new PopupController();
         const updateProgressSpy = vi.spyOn(controller, 'updateProgress');
-        const showSuccessSpy = vi.spyOn(controller, 'showSuccess');
         const resetUISpy = vi.spyOn(controller, 'resetUI');
         const showErrorSpy = vi.spyOn(controller, 'showError');
 
@@ -168,30 +167,11 @@ describe('PopupController second test file', () => {
         eventHandlers['download:progress']({ status: 'downloading', progress: 42 });
         expect(updateProgressSpy).toHaveBeenCalledWith('downloading', 42);
 
-        controller.loadedFile = null;
         eventHandlers['download:completed']();
-        expect(showSuccessSpy).toHaveBeenCalledWith('Загрузка завершена!');
         expect(resetUISpy).toHaveBeenCalled();
 
         eventHandlers['download:failed']({ error: { message: 'fail' } });
         expect(showErrorSpy).toHaveBeenCalledWith('fail');
-        expect(resetUISpy).toHaveBeenCalled();
-    });
-
-    it('Shows updated file message when completed event fires and loadedFile is set', async () => {
-        const controller = new PopupController();
-        controller.loadedFile = {};
-        const showSuccessSpy = vi.spyOn(controller, 'showSuccess');
-        const resetUISpy = vi.spyOn(controller, 'resetUI');
-
-        const eventHandlers = {};
-        controller.downloadManager.eventBus.on = (event, handler) => { eventHandlers[event] = handler; };
-
-        controller.subscribeToEvents();
-
-        eventHandlers['download:completed']();
-
-        expect(showSuccessSpy).toHaveBeenCalledWith('Файл обновлён!');
         expect(resetUISpy).toHaveBeenCalled();
     });
 

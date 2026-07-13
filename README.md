@@ -12,7 +12,7 @@
 ![Code Coverage](https://img.shields.io/badge/Coverage-100%25-brightgreen)
 [![API Check](https://github.com/ivanvit100/DownloadLib/actions/workflows/health-check.yaml/badge.svg)](https://github.com/ivanvit100/DownloadLib/actions/workflows/health-check.yaml)
 
-![Version](https://img.shields.io/badge/version-1.0.6-blue)
+![Version](https://img.shields.io/badge/version-1.0.7-blue)
 
 [📦 Скачать](#установка) · [⚠️ Сообщить об ошибке](https://github.com/ivanvit100/DownloadLib/issues) · [✏️ Участвовать в разработке](CONTRIBUTING.md)
 
@@ -46,6 +46,11 @@
         <img src="./screenshots/RanobeLib_example.png" alt="RanobeLib" width="300"/>
         <br/>
         <sub><b>RanobeLib</b></sub>
+      </td>
+      <td align="center">
+        <img src="./screenshots/history_example.png" alt="MangaLib" width="300"/>
+        <br/>
+        <sub><b>История</b></sub>
       </td>
       <td align="center">
         <img src="./screenshots/button_example.png" alt="Кнопка на сайте" width="300"/>
@@ -160,12 +165,15 @@
 ## Технические детали
 
 - Для PDF используется **html2pdf**, для EPUB и JPEG — **JSZip**.
-- Основная логика загрузки и экспорта — в папке [`core/`](core/).
+- Ядро загрузки, rate limiter, история и авторизация — в [`core/`](core/).
 - Форматтеры — в [`exporters/`](exporters/).
-- Поддерживаемые сайты — в [`services/`](services/).
-- Для Chrome/Chromium используется [`manifest.chrome.json`](manifest.chrome.json) и сервис-воркер.
-- Для Firefox — [`manifest.firefox.json`](manifest.firefox.json) и классический фон.
-- Покрытие тестами через **vitest**.
+- Адаптеры сайтов — в [`services/`](services/).
+- UI popup и шаблоны видов — в [`ui/`](ui/) и [`templates/`](templates/).
+- Контент-скрипты (блокировка рекламы, кнопка на сайте, проксирование изображений) — в [`content/`](content/).
+- Фоновые скрипты (перехват запросов, маршрутизация сообщений) — в [`background/`](background/).
+- Для Chrome/Chromium используется [`manifest.chrome.json`](manifest.chrome.json) и Service Worker.
+- Для Firefox — [`manifest.firefox.json`](manifest.firefox.json) и фоновая страница.
+- Покрытие тестами 100% через **Vitest**.
 
 ---
 
