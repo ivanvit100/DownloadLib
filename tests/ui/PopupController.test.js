@@ -27,6 +27,9 @@ function setupDOM() {
                     <select id="chapterToSelect"></select>
                 </div>
             </div>
+            <div id="splitPagesContainer" style="display:none">
+                <input type="checkbox" id="splitPagesCheckbox">
+            </div>
             <div id="splitModeContainer">
                 <input id="maxSizeInput" type="number" value="200">
             </div>
@@ -1501,5 +1504,149 @@ it('Sets formatSelector value from localStorage', async () => {
         await controller.openInNewContext('popup.html?download=true');
         await Promise.resolve();
         expect(sendMessageMock).toHaveBeenCalled();
+    });
+
+    it('splitPagesCheckbox defaults to checked when localStorage has no saved value', async () => {
+        global.localStorage.getItem = vi.fn(() => null);
+        const controller = new PopupController();
+        await Promise.resolve();
+        await Promise.resolve();
+        const checkbox = document.getElementById('splitPagesCheckbox');
+        expect(checkbox.checked).toBe(true);
+    });
+
+    it('splitPagesCheckbox restored to false when localStorage has saved false', async () => {
+        global.localStorage.getItem = vi.fn((key) =>
+            key === 'manga_parser_split_pages' ? 'false' : null
+        );
+        const controller = new PopupController();
+        await Promise.resolve();
+        await Promise.resolve();
+        const checkbox = document.getElementById('splitPagesCheckbox');
+        expect(checkbox.checked).toBe(false);
+    });
+
+    it('splitPagesCheckbox restored to true when localStorage has saved true', async () => {
+        global.localStorage.getItem = vi.fn((key) =>
+            key === 'manga_parser_split_pages' ? 'true' : null
+        );
+        const controller = new PopupController();
+        await Promise.resolve();
+        await Promise.resolve();
+        const checkbox = document.getElementById('splitPagesCheckbox');
+        expect(checkbox.checked).toBe(true);
+    });
+
+    it('splitPagesCheckbox change event saves state to localStorage', async () => {
+        const controller = new PopupController();
+        await Promise.resolve();
+        await Promise.resolve();
+        const checkbox = document.getElementById('splitPagesCheckbox');
+        const setItemSpy = vi.spyOn(global.localStorage, 'setItem');
+        checkbox.checked = false;
+        checkbox.dispatchEvent(new Event('change'));
+        expect(setItemSpy).toHaveBeenCalledWith('manga_parser_split_pages', false);
+        setItemSpy.mockRestore();
+    });
+
+    it('splitPagesContainer shown for mangalib service in loadMetadata', async () => {
+        global.MangaLibService = class {
+            fetchMangaMetadata = vi.fn(async () => ({ data: { rus_name: 'Title', summary: 'Summary', cover: 'cover.png', authors: ['Author'], ageRestriction: { label: '18+' }, releaseDate: '2020' } }));
+            fetchChaptersList = vi.fn(async () => ({ data: [{}, {}] }));
+        };
+        const controller = new PopupController();
+        Object.defineProperty(window, 'location', {
+            value: { search: '?download=true&slug=testslug&service=mangalib' },
+            writable: true
+        });
+        await controller.loadMetadata();
+        const container = document.getElementById('splitPagesContainer');
+        expect(container.style.display).toBe('block');
+    });
+
+    it('splitPagesContainer hidden for ranobelib service in loadMetadata', async () => {
+        const controller = new PopupController();
+        Object.defineProperty(window, 'location', {
+            value: { search: '' },
+            writable: true
+        });
+        global.browser.tabs.query = vi.fn(async () => ([{ url: 'https://ranobelib.me/manga/slug' }]));
+        await controller.loadMetadata();
+        const container = document.getElementById('splitPagesContainer');
+        expect(container.style.display).toBe('none');
+    });
+
+    it('splitPages URL param applied to checkbox and localStorage', async () => {
+        const controller = new PopupController();
+        global.MangaLibService = class {
+            fetchMangaMetadata = vi.fn(async () => ({ data: { rus_name: 'Title', summary: 'Summary', cover: 'cover.png', authors: ['Author'], ageRestriction: { label: '18+' }, releaseDate: '2020' } }));
+            fetchChaptersList = vi.fn(async () => ({ data: [{}, {}] }));
+        };
+        Object.defineProperty(window, 'location', {
+            value: { search: '?download=true&slug=testslug&service=mangalib&splitPages=false' },
+            writable: true
+        });
+        const setItemSpy = vi.spyOn(global.localStorage, 'setItem');
+        await controller.loadMetadata();
+        const checkbox = document.getElementById('splitPagesCheckbox');
+        expect(checkbox.checked).toBe(false);
+        expect(setItemSpy).toHaveBeenCalledWith('manga_parser_split_pages', 'false');
+        setItemSpy.mockRestore();
+    });
+
+    it('splitPages passed to downloadManager.startDownload when checkbox is visible', async () => {
+        const controller = new PopupController();
+        controller.currentSlug = 'slug';
+        controller.currentServiceKey = 'mangalib';
+        const container = document.getElementById('splitPagesContainer');
+        const checkbox = document.getElementById('splitPagesCheckbox');
+        container.style.display = 'block';
+        checkbox.checked = false;
+        await controller.startDownload();
+        expect(controller.downloadManager.startDownload).toHaveBeenCalledWith(
+            expect.objectContaining({ splitPages: false })
+        );
+    });
+
+    it('splitPages=true in URL params when splitPagesContainer is visible and checked', async () => {
+        const controller = new PopupController();
+        controller.currentSlug = 'slug';
+        controller.currentServiceKey = 'mangalib';
+        vi.spyOn(controller, 'loadMetadata').mockResolvedValue();
+        const isInSeparateWindowSpy = vi.spyOn(controller, 'isInSeparateWindow').mockResolvedValue(false);
+        const openInNewContextSpy = vi.spyOn(controller, 'openInNewContext').mockResolvedValue();
+        document.getElementById('splitPagesContainer').style.display = 'block';
+        document.getElementById('splitPagesCheckbox').checked = true;
+        await Promise.resolve();
+        document.getElementById('downloadBtn').click();
+        await Promise.resolve();
+        expect(openInNewContextSpy).toHaveBeenCalledWith(expect.stringContaining('splitPages=true'));
+        isInSeparateWindowSpy.mockRestore();
+        openInNewContextSpy.mockRestore();
+    });
+
+    it('startDownload hides splitPagesContainer when present', async () => {
+        window.location.search = '';
+        const container = document.getElementById('splitPagesContainer');
+        container.style.display = 'block';
+        const controller = new PopupController();
+        controller.currentSlug = 'slug';
+        controller.currentServiceKey = 'ranobelib';
+        await controller.startDownload();
+        expect(container.style.display).toBe('none');
+    });
+
+    it('resetUI shows splitPagesContainer for mangalib', () => {
+        const controller = new PopupController();
+        controller.currentServiceKey = 'mangalib';
+        controller.resetUI();
+        expect(document.getElementById('splitPagesContainer').style.display).toBe('block');
+    });
+
+    it('resetUI hides splitPagesContainer for non-mangalib', () => {
+        const controller = new PopupController();
+        controller.currentServiceKey = 'ranobelib';
+        controller.resetUI();
+        expect(document.getElementById('splitPagesContainer').style.display).toBe('none');
     });
 });

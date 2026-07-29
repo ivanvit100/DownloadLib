@@ -38,7 +38,8 @@
         }
 
         _createDownloadState(options, service) {
-            const { url, format = 'fb2', slug, serviceKey, controller, loadedFile, maxSizeMB = 200 } = options;
+            const { url, format = 'fb2', slug, serviceKey, controller,
+                loadedFile, maxSizeMB = 200, splitPages = true } = options;
             const downloadId = this.generateId();
             return {
                 id: downloadId,
@@ -47,6 +48,7 @@
                 slug: slug || this.extractSlug(url),
                 format,
                 maxSizeMB,
+                splitPages,
                 status: 'initializing',
                 progress: 0,
                 controller: controller || this.createController(),
@@ -235,7 +237,7 @@
                             chapterObj: chapter,
                             mangaSlug: downloadState.slug,
                             mangaId: downloadState.mangaId,
-                            splitLongImages: downloadState.format !== 'simple'
+                            splitLongImages: downloadState.splitPages && downloadState.format !== 'simple'
                         }
                       )
                     : extractedContent;
@@ -479,7 +481,7 @@
                                 chapterObj: chapter,
                                 mangaSlug: downloadState.slug,
                                 mangaId: downloadState.mangaId,
-                                splitLongImages: downloadState.format !== 'simple'
+                                splitLongImages: downloadState.splitPages && downloadState.format !== 'simple'
                             }
                           )
                         : extractedContent;
@@ -616,7 +618,7 @@
                                     chapterObj: chapter,
                                     mangaSlug: downloadState.slug,
                                     mangaId: downloadState.mangaId,
-                                    splitLongImages: downloadState.format !== 'simple'
+                                    splitLongImages: downloadState.splitPages && downloadState.format !== 'simple'
                                 }
                             )
                             : extractedContent;

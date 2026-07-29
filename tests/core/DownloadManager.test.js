@@ -1204,4 +1204,106 @@ describe('DownloadManager', () => {
         const result = await dm.parseFile({}, 'simple');
         expect(result).toHaveProperty('chapters');
     });
+
+    it('downloadSpecificChapters passes splitLongImages true when splitPages=true and format is not simple', async () => {
+        const dm = new DownloadManager();
+        const ctrl = dm.createController();
+        const processContentSpy = vi.fn(async (content, status, opts) => content);
+        const service = {
+            fetchChapter: vi.fn(async () => ({ data: { content: [{ type: 'text', text: 'ok' }] } })),
+            extractText: vi.fn(c => c),
+            processChapterContent: processContentSpy
+        };
+        const ds = { id: 'id', slug: 'slug', controller: ctrl, splitPages: true, format: 'fb2', mangaId: null };
+        await dm.downloadSpecificChapters(service, ds, [createChapter('1', '1')], 1);
+        expect(processContentSpy).toHaveBeenCalledWith(
+            expect.anything(),
+            expect.anything(),
+            expect.objectContaining({ splitLongImages: true })
+        );
+    });
+
+    it('downloadSpecificChapters passes splitLongImages false when splitPages=false', async () => {
+        const dm = new DownloadManager();
+        const ctrl = dm.createController();
+        const processContentSpy = vi.fn(async (content, status, opts) => content);
+        const service = {
+            fetchChapter: vi.fn(async () => ({ data: { content: [{ type: 'text', text: 'ok' }] } })),
+            extractText: vi.fn(c => c),
+            processChapterContent: processContentSpy
+        };
+        const ds = { id: 'id', slug: 'slug', controller: ctrl, splitPages: false, format: 'fb2', mangaId: null };
+        await dm.downloadSpecificChapters(service, ds, [createChapter('1', '1')], 1);
+        expect(processContentSpy).toHaveBeenCalledWith(
+            expect.anything(),
+            expect.anything(),
+            expect.objectContaining({ splitLongImages: false })
+        );
+    });
+
+    it('downloadChapters passes splitLongImages true when splitPages=true and format is not simple', async () => {
+        const dm = new DownloadManager();
+        const ctrl = dm.createController();
+        const processContentSpy = vi.fn(async (content, status, opts) => content);
+        const service = {
+            fetchChapter: vi.fn(async () => ({ data: { content: [{ type: 'text', text: 'ok' }] } })),
+            extractText: vi.fn(c => c),
+            processChapterContent: processContentSpy
+        };
+        const ds = { id: 'id', slug: 'slug', controller: ctrl, chapterContents: [], splitPages: true, format: 'fb2', mangaId: null };
+        await dm.downloadChapters(service, ds, [createChapter('1', '1')], () => {});
+        expect(processContentSpy).toHaveBeenCalledWith(
+            expect.anything(),
+            expect.anything(),
+            expect.objectContaining({ splitLongImages: true })
+        );
+    });
+
+    it('downloadChapters passes splitLongImages false when splitPages=false', async () => {
+        const dm = new DownloadManager();
+        const ctrl = dm.createController();
+        const processContentSpy = vi.fn(async (content, status, opts) => content);
+        const service = {
+            fetchChapter: vi.fn(async () => ({ data: { content: [{ type: 'text', text: 'ok' }] } })),
+            extractText: vi.fn(c => c),
+            processChapterContent: processContentSpy
+        };
+        const ds = { id: 'id', slug: 'slug', controller: ctrl, chapterContents: [], splitPages: false, format: 'fb2', mangaId: null };
+        await dm.downloadChapters(service, ds, [createChapter('1', '1')], () => {});
+        expect(processContentSpy).toHaveBeenCalledWith(
+            expect.anything(),
+            expect.anything(),
+            expect.objectContaining({ splitLongImages: false })
+        );
+    });
+
+    it('startDownload passes splitPages=true by default to downloadState', async () => {
+        const dm = new DownloadManager();
+        const processContentSpy = vi.fn(async (content, status, opts) => {
+            return content;
+        });
+        serviceMock.processChapterContent = processContentSpy;
+        const delaySpy = vi.spyOn(dm, 'delay').mockResolvedValue();
+        await dm.startDownload({ serviceKey: 'mangalib', url: 'https://site/manga/slug' });
+        expect(processContentSpy).toHaveBeenCalledWith(
+            expect.anything(),
+            expect.anything(),
+            expect.objectContaining({ splitLongImages: true })
+        );
+        delaySpy.mockRestore();
+    });
+
+    it('startDownload passes splitPages=false when explicitly set', async () => {
+        const dm = new DownloadManager();
+        const processContentSpy = vi.fn(async (content, status, opts) => content);
+        serviceMock.processChapterContent = processContentSpy;
+        const delaySpy = vi.spyOn(dm, 'delay').mockResolvedValue();
+        await dm.startDownload({ serviceKey: 'mangalib', url: 'https://site/manga/slug', splitPages: false });
+        expect(processContentSpy).toHaveBeenCalledWith(
+            expect.anything(),
+            expect.anything(),
+            expect.objectContaining({ splitLongImages: false })
+        );
+        delaySpy.mockRestore();
+    });
 });

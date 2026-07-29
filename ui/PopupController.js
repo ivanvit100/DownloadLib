@@ -153,6 +153,16 @@
                 });
             }
 
+            const SPLIT_PAGES_KEY = 'manga_parser_split_pages';
+            const splitPagesCheckbox = $el('splitPagesCheckbox');
+            if (splitPagesCheckbox) {
+                const saved = localStorage.getItem(SPLIT_PAGES_KEY);
+                splitPagesCheckbox.checked = saved !== null ? saved === 'true' : true;
+                splitPagesCheckbox.addEventListener('change', () => {
+                    localStorage.setItem(SPLIT_PAGES_KEY, splitPagesCheckbox.checked);
+                });
+            }
+
             if (hiddenFileInput && customFileBtn && formatSelector) {
                 hiddenFileInput.addEventListener('change', (e) => {
                     e.stopPropagation();
@@ -274,7 +284,8 @@
             else console.warn('Site logo element not found when setting logo for service:', serviceKey);
         }
 
-        _applyUrlParams({ formatFromUrl, maxSizeMBFromUrl, rateLimitFromUrl, formatSelector, rateLimitInput }) {
+        _applyUrlParams({ formatFromUrl, maxSizeMBFromUrl, rateLimitFromUrl,
+            splitPagesFromUrl, formatSelector, rateLimitInput }) {
             if (formatFromUrl && formatSelector) {
                 formatSelector.value = formatFromUrl;
                 localStorage.setItem('manga_parser_selected_format', formatFromUrl);
@@ -289,6 +300,12 @@
 
             if (rateLimitFromUrl && rateLimitInput)
                 rateLimitInput.value = rateLimitFromUrl;
+
+            if (splitPagesFromUrl !== null) {
+                const splitPagesCheckbox = $el('splitPagesCheckbox');
+                if (splitPagesCheckbox) splitPagesCheckbox.checked = splitPagesFromUrl === 'true';
+                localStorage.setItem('manga_parser_split_pages', splitPagesFromUrl);
+            }
         }
 
         _renderMeta({ patched, chaptersCount, slug, coverImg, desc, releaseEl, logoInfo }) {
@@ -378,6 +395,76 @@
             });
         }
 
+        async _resolveService({ autoDownload, fileUploadMode, slugFromUrl, serviceFromUrl }) {
+            if ((autoDownload || fileUploadMode) && slugFromUrl && serviceFromUrl) {
+                const serviceKey = serviceFromUrl;
+                let service;
+                if (serviceKey === 'ranobelib')
+                    service = new global.RanobeLibService();
+                else if (serviceKey === 'mangalib')
+                    service = new global.MangaLibService();
+                else throw new Error(`Unknown service: ${serviceKey}`);
+                return { slug: slugFromUrl, serviceKey, service, activeTabId: null };
+            }
+
+            const tabs = await browserAPI.tabs.query({ active: true, currentWindow: true });
+            if (!tabs || !tabs[0]) throw new Error('No active tab found');
+            const currentUrl = tabs[0].url;
+            const activeTabId = tabs[0].id;
+            console.log('[PopupController] Current URL:', currentUrl);
+
+            const match = currentUrl.match(/\/(?:manga|book)\/([^/?]+)/);
+            const slug = match ? match[1] : null;
+
+            const service = global.serviceRegistry.getServiceByUrl(currentUrl);
+            if (!service) {
+                await this._showWrongServiceState();
+                return null;
+            }
+
+            return { slug, serviceKey: service.name, service, activeTabId };
+        }
+
+        _setupFileUploadButton({ customFileBtn, status, hiddenFileInput, slug, serviceKey }) {
+            if (!customFileBtn) {
+                console.warn('[PopupController] customFileBtn not found');
+                return;
+            }
+
+            customFileBtn.onclick = async () => {
+                try {
+                    const inSeparateWindow = await this.isInSeparateWindow();
+                    console.log(`[PopupController] In separate window: ${inSeparateWindow}`);
+
+                    if (inSeparateWindow) {
+                        if (status) status.textContent = 'Выберите файл для обновления';
+                        hiddenFileInput.click();
+                    } else {
+                        const formatSelector = $el('formatSelector');
+                        const rateLimitInput = $el('rateLimitInput');
+                        const format = formatSelector ? formatSelector.value : 'fb2';
+                        const rateLimit = rateLimitInput ? parseInt(rateLimitInput.value) || 100 : 100;
+
+                        try {
+                            const fileUploadParams = new URLSearchParams({
+                                fileUpload: 'true', slug, service: serviceKey, format, rateLimit
+                            });
+                            const fileUploadUrl = `${browserAPI.runtime.getURL('popup.html')}?${fileUploadParams}`;
+                            await this.openInNewContext(fileUploadUrl);
+                        } catch (createError) {
+                            console.error('Failed to create window:', createError);
+                            if (status) status.textContent = 'Не удалось открыть окно, используем текущее';
+                            hiddenFileInput.click();
+                        }
+                    }
+                } catch (e) {
+                    console.error('Failed to handle file upload:', e);
+                    if (status) status.textContent = 'Выберите файл для обновления';
+                    hiddenFileInput.click();
+                }
+            };
+        }
+
         async loadMetadata() {
             await Promise.resolve();
             const status = $el('status');
@@ -404,9 +491,10 @@
             const branchIdFromUrl = urlParams.get('branchId')
                 ? parseInt(urlParams.get('branchId'))
                 : null;
+            const splitPagesFromUrl = urlParams.get('splitPages');
 
             this._applyUrlParams({
-                formatFromUrl, maxSizeMBFromUrl, rateLimitFromUrl,
+                formatFromUrl, maxSizeMBFromUrl, rateLimitFromUrl, splitPagesFromUrl,
                 formatSelector: $el('formatSelector'),
                 rateLimitInput: $el('rateLimitInput')
             });
@@ -415,42 +503,21 @@
             if (status) status.textContent = 'Получаем информацию...';
 
             try {
-                let currentUrl, slug, serviceKey, service;
-                let activeTabId = null;
-
-                if ((autoDownload || fileUploadMode) && slugFromUrl && serviceFromUrl) {
-                    slug = slugFromUrl;
-                    serviceKey = serviceFromUrl;
-
-                    if (serviceKey === 'ranobelib')
-                        service = new global.RanobeLibService();
-                    else if (serviceKey === 'mangalib')
-                        service = new global.MangaLibService();
-                    else throw new Error(`Unknown service: ${serviceKey}`);
-                } else {
-                    const tabs = await browserAPI.tabs.query({ active: true, currentWindow: true });
-                    if (!tabs || !tabs[0]) throw new Error('No active tab found');
-                    currentUrl = tabs[0].url;
-                    activeTabId = tabs[0].id;
-                    console.log('[PopupController] Current URL:', currentUrl);
-
-                    const match = currentUrl.match(/\/(?:manga|book)\/([^/?]+)/);
-                    slug = match ? match[1] : null;
-
-                    service = global.serviceRegistry.getServiceByUrl(currentUrl);
-                    if (!service) {
-                        await this._showWrongServiceState();
-                        return;
-                    }
-
-                    serviceKey = service.name;
-                }
+                const resolved = await this._resolveService({
+                    autoDownload, fileUploadMode, slugFromUrl, serviceFromUrl
+                });
+                if (resolved === null) return;
+                const { slug, serviceKey, service, activeTabId } = resolved;
 
                 this._activeTabId = activeTabId;
                 if (activeTabId) global.setServiceTab(activeTabId);
                 this.authToken = await global.AuthManager.apply(serviceKey, activeTabId, service);
 
                 this._applyServiceTheme(serviceKey, siteLogo);
+
+                const splitPagesContainer = $el('splitPagesContainer');
+                if (splitPagesContainer)
+                    splitPagesContainer.style.display = serviceKey === 'mangalib' ? 'block' : 'none';
 
                 if (!slug) {
                     await this._showNoTitleState();
@@ -475,40 +542,7 @@
                 this._renderMeta({ patched, chaptersCount, slug, coverImg, desc, releaseEl, logoInfo });
                 this._setReadyState({ btn, status, fileUploadMode, hiddenFileInput });
 
-                if (customFileBtn) {
-                    customFileBtn.onclick = async () => {
-                        try {
-                            const inSeparateWindow = await this.isInSeparateWindow();
-                            console.log(`[PopupController] In separate window: ${inSeparateWindow}`);
-
-                            if (inSeparateWindow) {
-                                if (status) status.textContent = 'Выберите файл для обновления';
-                                hiddenFileInput.click();
-                            } else {
-                                const formatSelector = $el('formatSelector');
-                                const rateLimitInput = $el('rateLimitInput');
-                                const format = formatSelector ? formatSelector.value : 'fb2';
-                                const rateLimit = rateLimitInput ? parseInt(rateLimitInput.value) || 100 : 100;
-
-                                try {
-                                    const fileUploadParams = new URLSearchParams({
-                                        fileUpload: 'true', slug, service: serviceKey, format, rateLimit
-                                    });
-                                    const fileUploadUrl = `${browserAPI.runtime.getURL('popup.html')}?${fileUploadParams}`;
-                                    await this.openInNewContext(fileUploadUrl);
-                                } catch (createError) {
-                                    console.error('Failed to create window:', createError);
-                                    if (status) status.textContent = 'Не удалось открыть окно, используем текущее';
-                                    hiddenFileInput.click();
-                                }
-                            }
-                        } catch (e) {
-                            console.error('Failed to handle file upload:', e);
-                            if (status) status.textContent = 'Выберите файл для обновления';
-                            hiddenFileInput.click();
-                        }
-                    };
-                } else console.warn('[PopupController] customFileBtn not found');
+                this._setupFileUploadButton({ customFileBtn, status, hiddenFileInput, slug, serviceKey });
 
                 if (autoDownload) setTimeout(() => this.startDownload(), 500);
             } catch (error) {
@@ -553,7 +587,14 @@
                         const rateLimit = rateLimitInput ? parseInt(rateLimitInput.value) || 100 : 100;
                         const maxSizeMB = $el('maxSizeInput')?.value || '200';
 
-                        let urlParams = `?download=true&slug=${encodeURIComponent(this.currentSlug)}&service=${encodeURIComponent(this.currentServiceKey)}&format=${encodeURIComponent(format)}&rateLimit=${encodeURIComponent(rateLimit)}&maxSizeMB=${encodeURIComponent(maxSizeMB)}`;
+                        const splitPagesCheckboxEl = $el('splitPagesCheckbox');
+                        const splitPagesContainerEl = $el('splitPagesContainer');
+                        const splitPages = splitPagesCheckboxEl && splitPagesContainerEl &&
+                            splitPagesContainerEl.style.display !== 'none'
+                            ? splitPagesCheckboxEl.checked
+                            : false;
+
+                        let urlParams = `?download=true&slug=${encodeURIComponent(this.currentSlug)}&service=${encodeURIComponent(this.currentServiceKey)}&format=${encodeURIComponent(format)}&rateLimit=${encodeURIComponent(rateLimit)}&maxSizeMB=${encodeURIComponent(maxSizeMB)}&splitPages=${encodeURIComponent(splitPages)}`;
 
                         if (fromSelect && toSelect &&
                             chapterRangeContainer &&
@@ -620,6 +661,7 @@
             this._setVisibility('rateLimitContainer', 'none');
             this._setVisibility('translatorContainer', 'none');
             this._setVisibility('splitModeContainer', 'none');
+            this._setVisibility('splitPagesContainer', 'none');
             if (hiddenFileInput) hiddenFileInput.disabled = true;
             if (customFileBtn) customFileBtn.disabled = true;
             if (fileInputContainer) fileInputContainer.style.display = 'none';
@@ -682,6 +724,9 @@
                 const format = formatSelector?.value || 'fb2';
                 const maxSizeMB = parseInt($el('maxSizeInput')?.value) || 200;
 
+                const splitPagesEl = $el('splitPagesCheckbox');
+                const splitPages = splitPagesEl ? splitPagesEl.checked : false;
+
                 const result = await this.downloadManager.startDownload({
                     slug: this.currentSlug,
                     serviceKey: this.currentServiceKey,
@@ -690,6 +735,7 @@
                     chapterRange,
                     branchId,
                     maxSizeMB,
+                    splitPages,
                     authToken: this.authToken,
                     controller: {
                         isPaused: () => this.isPaused,
@@ -783,6 +829,7 @@
             this._setVisibility('formatContainer', '');
             this._setVisibility('rateLimitContainer', '');
             this._setVisibility('downloadInfoPanel', 'none');
+            this._setVisibility('splitPagesContainer', this.currentServiceKey === 'mangalib' ? 'block' : 'none');
             if (hiddenFileInput) { hiddenFileInput.disabled = false; hiddenFileInput.value = ''; }
             else console.warn('Hidden file input not found when resetting UI');
             if (customFileBtn) {

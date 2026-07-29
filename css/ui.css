@@ -244,6 +244,50 @@ input[type="number"] {
     color: #fff;
     font-weight: bold;
 }
+#splitPagesContainer {
+    text-align: center;
+    margin-top: 10px;
+    margin-bottom: 5px;
+}
+#splitPagesCheckbox {
+    appearance: none;
+    -webkit-appearance: none;
+    -moz-appearance: none;
+    width: 18px;
+    height: 18px;
+    background: #252527;
+    border: 1px solid #444;
+    border-radius: 4px;
+    cursor: pointer;
+    vertical-align: middle;
+    margin-left: 8px;
+    position: relative;
+    display: inline-block;
+}
+#splitPagesCheckbox:hover {
+    border-color: var(--primary-color);
+    box-shadow: 0 0 5px var(--primary-color);
+}
+#splitPagesCheckbox:focus {
+    outline: none;
+    border-color: var(--primary-color);
+    box-shadow: 0 0 5px var(--primary-color);
+}
+#splitPagesCheckbox:checked {
+    background: var(--primary-color);
+    border-color: var(--primary-color);
+}
+#splitPagesCheckbox:checked::after {
+    content: '✓';
+    position: absolute;
+    color: white;
+    font-size: 16px;
+    font-weight: bold;
+    top: 50%;
+    left: 50%;
+    transform: translate(-50%, -50%);
+    line-height: 1;
+}
 #splitModeContainer {
 	text-align: center;
 	margin-top: 10px;
