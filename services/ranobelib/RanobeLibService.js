@@ -4,7 +4,7 @@
  * @module services/ranobelib/RanobeLibService
  * @license MIT
  * @author ivanvit
- * @version 1.0.6
+ * @version 1.0.9
  */
 
 'use strict';
@@ -245,7 +245,7 @@
             return { base64: response.base64, contentType: response.contentType || 'image/png' };
         }
 
-        async _processImageBlock(block, attachmentMap, mangaId, chapterId) {
+        async _processImageBlock(block, attachmentMap, mangaId, chapterId, compressOpts = {}) {
             const isFullUrl = /^https?:\/\//i.test(block.src);
             const isAbsolutePath = /^(?:\/\/|\/)/.test(block.src);
             const isPlainUuid = !isFullUrl && !isAbsolutePath && !/\.(?:jpg|jpeg|png|webp)$/i.test(block.src);
@@ -260,8 +260,13 @@
 
             for (const ext of extensions) {
                 try {
-                    const data = await this._fetchImageWithExt(baseUrl, ext);
-                    if (data) return { type: 'image', data };
+                    const raw = await this._fetchImageWithExt(baseUrl, ext);
+                    if (raw) {
+                        const data = global.ImageCompressor
+                            ? await global.ImageCompressor.compress(raw.base64, raw.contentType, compressOpts)
+                            : raw;
+                        return { type: 'image', data };
+                    }
                 } catch (e) {
                     console.warn('[RanobeLibService] Failed ext:', ext, e);
                 }
@@ -275,6 +280,10 @@
             const mangaId = opts.mangaId || chapterMeta.manga_id;
             const chapterId = chapterMeta.id;
             const attachmentMap = this._buildAttachmentMap(chapterMeta.attachments);
+            const compressOpts = {
+                format: opts.compressionFormat || 'image/jpeg',
+                quality: opts.compressionQuality || 0.92
+            };
 
             const result = [];
             for (const block of extracted) {
@@ -283,7 +292,8 @@
                         result.push(block);
                     else console.warn('[RanobeLibService] Skipping empty text block');
                 } else if (block.type === 'image' && block.src) {
-                    const imageResult = await this._processImageBlock(block, attachmentMap, mangaId, chapterId);
+                    const imageResult = await this._processImageBlock(
+                        block, attachmentMap, mangaId, chapterId, compressOpts);
                     if (imageResult) result.push(imageResult);
                 } else console.warn('[RanobeLibService] Unknown block type:', block);
             }

@@ -305,6 +305,7 @@ describe('MangaLibService', () => {
             createElement: () => ({
                 getContext: () => ({
                     clearRect: () => {},
+                    fillRect: () => {},
                     drawImage: () => {}
                 }),
                 toDataURL: () => 'data:image/jpeg;base64,part'
@@ -627,6 +628,7 @@ describe('MangaLibService', () => {
             createElement: () => ({
                 getContext: () => ({
                     clearRect: () => {},
+                    fillRect: () => {},
                     drawImage: () => {}
                 }),
                 toDataURL: (type) => {

@@ -4,7 +4,7 @@
  * @module services/mangalib/MangaLibService
  * @license MIT
  * @author ivanvit
- * @version 1.0.6
+ * @version 1.0.9
  */
 
 'use strict';
@@ -68,10 +68,12 @@
             return `${this.config.imagesDomain}/${filenameStr}`;
         }
 
-        splitLongImage(base64Data, contentType) {
+        splitLongImage(base64Data, contentType, compressOpts = {}) {
             return new Promise((resolve) => {
                 const img = new Image();
                 const dataUrl = `data:${contentType};base64,${base64Data}`;
+                const outputFormat = compressOpts.format || contentType || 'image/jpeg';
+                const quality = compressOpts.quality || 0.92;
 
                 img.onload = () => {
                     const A4_RATIO = 297 / 210;
@@ -96,15 +98,16 @@
 
                         canvas.height = h;
                         ctx.clearRect(0, 0, canvas.width, canvas.height);
+                        if (outputFormat === 'image/jpeg') {
+                            ctx.fillStyle = '#ffffff';
+                            ctx.fillRect(0, 0, canvas.width, h);
+                        }
                         ctx.drawImage(img, 0, y, img.width, h, 0, 0, img.width, h);
 
-                        const partDataUrl = canvas.toDataURL(contentType || 'image/jpeg', 0.95);
+                        const partDataUrl = canvas.toDataURL(outputFormat, quality);
                         const [, partBase64] = partDataUrl.split(',');
 
-                        parts.push({
-                            base64: partBase64,
-                            contentType: contentType || 'image/jpeg'
-                        });
+                        parts.push({ base64: partBase64, contentType: outputFormat });
                     }
 
                     console.log(`[MangaLibService] Split image into ${parts.length} parts (ratio: ${imgRatio.toFixed(2)})`);
@@ -120,61 +123,65 @@
             });
         }
 
+        _resolveRefUrl(ref) {
+            if (typeof ref === 'string') return this.resolvePageUrl(ref);
+            if (ref.filename) return this.resolvePageUrl(ref.filename);
+            if (ref.url) {
+                const { url } = ref;
+                return /^https?:\/\//i.test(url) ? url : this.resolvePageUrl(url);
+            }
+            if (ref.src) return this.resolvePageUrl(ref.src);
+            return null;
+        }
+
+        async _processImage(base64Data, contentType, compressOpts, splitLongImages) {
+            if (splitLongImages) {
+                const parts = await this.splitLongImage(base64Data, contentType, compressOpts);
+                if (parts.length > 1) return parts;
+                const [raw] = parts;
+                return global.ImageCompressor
+                    ? global.ImageCompressor.compress(raw.base64, raw.contentType, compressOpts)
+                    : raw;
+            }
+            return global.ImageCompressor
+                ? global.ImageCompressor.compress(base64Data, contentType, compressOpts)
+                : { base64: base64Data, contentType };
+        }
+
         async loadPageAsBase64(ref, opts = {}) {
             try {
                 if (!ref) return null;
 
-                let url = null;
-
-                if (typeof ref === 'string')
-                    url = this.resolvePageUrl(ref);
-                else if (ref.filename)
-                    url = this.resolvePageUrl(ref.filename);
-                else if (ref.url) {
-                    ({ url } = ref);
-                    if (!/^https?:\/\//i.test(url))
-                        url = this.resolvePageUrl(url);
-                } else if (ref.src)
-                    url = this.resolvePageUrl(ref.src);
-
+                const url = this._resolveRefUrl(ref);
                 if (!url) {
                     console.warn('[MangaLibService] Could not resolve page url for', ref);
                     return null;
                 }
 
-                if (this._imageCache.has(url))
-                    return this._imageCache.get(url);
+                if (this._imageCache.has(url)) return this._imageCache.get(url);
 
                 if (!this.extensionApi?.runtime?.sendMessage) {
                     console.error('[MangaLibService] browser.runtime not available!');
                     return null;
                 }
 
-                const response = await this.extensionApi.runtime.sendMessage({
-                    action: 'fetchImage',
-                    url
-                });
-
+                const response = await this.extensionApi.runtime.sendMessage({ action: 'fetchImage', url });
                 if (!response || !response.ok) {
                     console.warn(`[MangaLibService] Failed to fetch ${url}:`, response?.error);
                     return null;
                 }
 
-                const base64Data = response.base64;
-                const contentType = response.contentType || 'image/jpeg';
+                const compressOpts = {
+                    format: opts.compressionFormat || 'image/jpeg',
+                    quality: opts.compressionQuality || 0.92
+                };
+                const result = await this._processImage(
+                    response.base64,
+                    response.contentType || 'image/jpeg',
+                    compressOpts,
+                    opts.splitLongImages !== false
+                );
 
-                if (opts.splitLongImages !== false) {
-                    const parts = await this.splitLongImage(base64Data, contentType);
-                    if (parts.length > 1) {
-                        this._imageCache.set(url, parts);
-                        return parts;
-                    }
-                    const [result] = parts;
-                    this._imageCache.set(url, result);
-                    return result;
-                }
-
-                const result = { base64: base64Data, contentType };
                 this._imageCache.set(url, result);
                 return result;
             } catch (e) {
@@ -197,7 +204,9 @@
             }
 
             const loadOpts = {
-                splitLongImages: opts.splitLongImages !== false
+                splitLongImages: opts.splitLongImages !== false,
+                compressionFormat: opts.compressionFormat || 'image/jpeg',
+                compressionQuality: opts.compressionQuality || 0.92
             };
 
             const result = [];
