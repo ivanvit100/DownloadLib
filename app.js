@@ -56,8 +56,16 @@
         }
     }
 
+    async function initApp() {
+        if (window.PluginManager)
+            await window.PluginManager.loadAll();
+        else
+            console.warn('[App] PluginManager not available, skipping plugins');
+        initUI();
+    }
+
     if (document.readyState === 'loading')
-        document.addEventListener('DOMContentLoaded', initUI);
+        document.addEventListener('DOMContentLoaded', () => initApp());
     else
-        setTimeout(initUI, 100);
+        setTimeout(() => initApp(), 100);
 })();
