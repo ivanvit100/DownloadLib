@@ -938,6 +938,38 @@ describe('RanobeLibService', () => {
         delete global.browser;
     });
 
+    it('_processImageBlock uses default compressOpts when called without 5th argument', async () => {
+        const svc = new RanobeLibService();
+        global.browser = {
+            runtime: {
+                sendMessage: vi.fn().mockResolvedValue({ ok: true, base64: 'imgdata', contentType: 'image/jpeg' })
+            }
+        };
+        const result = await svc._processImageBlock({ src: 'img.jpg' }, {}, 1, 2);
+        expect(result).toEqual({ type: 'image', data: { base64: 'imgdata', contentType: 'image/jpeg' } });
+        delete global.browser;
+    });
+
+    it('_processImageBlock compresses image when global.ImageCompressor is defined', async () => {
+        const svc = new RanobeLibService();
+        global.browser = {
+            runtime: {
+                sendMessage: vi.fn().mockResolvedValue({ ok: true, base64: 'raw', contentType: 'image/jpeg' })
+            }
+        };
+        const compress = vi.fn().mockResolvedValue({ base64: 'compressed', contentType: 'image/jpeg' });
+        global.ImageCompressor = { compress };
+        const result = await svc.processChapterContent(
+            [{ type: 'image', src: 'img.jpg' }],
+            {},
+            { chapterMeta: { id: 1, manga_id: 2 } }
+        );
+        expect(compress).toHaveBeenCalled();
+        expect(result).toEqual([{ type: 'image', data: { base64: 'compressed', contentType: 'image/jpeg' } }]);
+        delete global.browser;
+        delete global.ImageCompressor;
+    });
+
     describe('_nodeToHtml', () => {
         let svc;
         beforeEach(() => { svc = new RanobeLibService(); });

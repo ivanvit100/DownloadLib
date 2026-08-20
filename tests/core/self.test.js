@@ -103,6 +103,20 @@ describe('Self Attachment', () => {
         else delete global.self;
     });
 
+    it('Attaches to self in ImageCompressor', async () => {
+        const originalWindow = global.window;
+        const originalSelf = global.self;
+        delete global.window;
+        global.self = global;
+        const path = require.resolve('../../core/ImageCompressor.js');
+        delete require.cache[path];
+        await import('../../core/ImageCompressor.js');
+        expect(global.self.ImageCompressor).toBeDefined();
+        if (originalWindow !== undefined) global.window = originalWindow;
+        if (originalSelf !== undefined) global.self = originalSelf;
+        else delete global.self;
+    });
+
     it('Attaches to self in AuthManager', async () => {
         const originalWindow = global.window;
         const originalSelf = global.self;

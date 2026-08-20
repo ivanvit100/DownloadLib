@@ -821,6 +821,62 @@ describe('MangaLibService', () => {
         warnSpy.mockRestore();
     });
 
+    it('Split long image does not fill white background for non-JPEG format', async () => {
+        const svc = new MangaLibService();
+        global.Image = class {
+            set src(_val) { setTimeout(() => this.onload(), 0); }
+            get height() { return 1000; }
+            get width() { return 210; }
+        };
+        const fillRect = vi.fn();
+        global.document = {
+            createElement: () => ({
+                getContext: () => ({ clearRect: () => {}, fillRect, drawImage: () => {} }),
+                toDataURL: (type) => `data:${type};base64,part`
+            })
+        };
+        const result = await svc.splitLongImage('abc', 'image/jpeg', { format: 'image/webp' });
+        expect(fillRect).not.toHaveBeenCalled();
+        expect(result.every(p => p.contentType === 'image/webp')).toBe(true);
+        delete global.Image;
+        delete global.document;
+    });
+
+    it('_processImage calls ImageCompressor.compress for single part when splitLongImages is true', async () => {
+        const svc = new MangaLibService();
+        global.browser = {
+            runtime: {
+                sendMessage: vi.fn().mockResolvedValue({ ok: true, base64: 'raw', contentType: 'image/jpeg' })
+            }
+        };
+        svc.splitLongImage = vi.fn().mockResolvedValue([
+            { base64: 'raw', contentType: 'image/jpeg' }
+        ]);
+        const compress = vi.fn().mockResolvedValue({ base64: 'compressed', contentType: 'image/jpeg' });
+        global.ImageCompressor = { compress };
+        const result = await svc.loadPageAsBase64('img.jpg', { splitLongImages: true });
+        expect(compress).toHaveBeenCalled();
+        expect(result).toEqual({ base64: 'compressed', contentType: 'image/jpeg' });
+        delete global.browser;
+        delete global.ImageCompressor;
+    });
+
+    it('_processImage calls ImageCompressor.compress when splitLongImages is false', async () => {
+        const svc = new MangaLibService();
+        global.browser = {
+            runtime: {
+                sendMessage: vi.fn().mockResolvedValue({ ok: true, base64: 'raw', contentType: 'image/jpeg' })
+            }
+        };
+        const compress = vi.fn().mockResolvedValue({ base64: 'compressed', contentType: 'image/jpeg' });
+        global.ImageCompressor = { compress };
+        const result = await svc.loadPageAsBase64('img.jpg', { splitLongImages: false });
+        expect(compress).toHaveBeenCalled();
+        expect(result).toEqual({ base64: 'compressed', contentType: 'image/jpeg' });
+        delete global.browser;
+        delete global.ImageCompressor;
+    });
+
     it('Registers with serviceRegistry when it is already defined on load', async () => {
         vi.resetModules();
         const register = vi.fn();
