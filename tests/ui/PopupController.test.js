@@ -526,16 +526,14 @@ it('Sets formatSelector value from localStorage', async () => {
         window.location.search = originalSearch;
     });
 
-    it('Sets rateLimitInput value from url param', async () => {
+    it('Accepts rateLimit url param without error (rate limit now comes from settings)', async () => {
         const controller = new PopupController();
-        const rateLimitInput = document.getElementById('rateLimitInput');
         const originalSearch = window.location.search;
         Object.defineProperty(window, 'location', {
             value: { search: '?rateLimit=77' },
             writable: true
         });
-        await controller.loadMetadata();
-        expect(rateLimitInput.value).toBe('77');
+        await expect(controller.loadMetadata()).resolves.toBeUndefined();
         window.location.search = originalSearch;
     });
 
@@ -1303,32 +1301,15 @@ it('Sets formatSelector value from localStorage', async () => {
         windowsCreateSpy.mockRestore();
     });
 
-    it('Defaults rateLimit to 100 if rateLimitInput is missing', async () => {
+    it('File upload URL does not include rateLimit since it is read from settings', async () => {
         const controller = new PopupController();
         const customFileBtn = document.getElementById('customFileBtn');
-        const rateLimitInput = document.getElementById('rateLimitInput');
-        if (rateLimitInput && rateLimitInput.parentNode) rateLimitInput.parentNode.removeChild(rateLimitInput);
         const isInSeparateWindowSpy = vi.spyOn(controller, 'isInSeparateWindow').mockResolvedValue(false);
         const windowsCreateSpy = vi.spyOn(global.browser.windows, 'create');
         await controller.loadMetadata();
         await customFileBtn.onclick();
         const urlArg = windowsCreateSpy.mock.calls[0][0].url;
-        expect(urlArg).toContain('rateLimit=100');
-        isInSeparateWindowSpy.mockRestore();
-        windowsCreateSpy.mockRestore();
-    });
-
-    it('Defaults rateLimit to 100 if rateLimitInput value is empty or invalid', async () => {
-        const controller = new PopupController();
-        const customFileBtn = document.getElementById('customFileBtn');
-        const rateLimitInput = document.getElementById('rateLimitInput');
-        rateLimitInput.value = '';
-        const isInSeparateWindowSpy = vi.spyOn(controller, 'isInSeparateWindow').mockResolvedValue(false);
-        const windowsCreateSpy = vi.spyOn(global.browser.windows, 'create');
-        await controller.loadMetadata();
-        await customFileBtn.onclick();
-        const urlArg = windowsCreateSpy.mock.calls[0][0].url;
-        expect(urlArg).toContain('rateLimit=100');
+        expect(urlArg).not.toContain('rateLimit');
         isInSeparateWindowSpy.mockRestore();
         windowsCreateSpy.mockRestore();
     });
@@ -1425,7 +1406,7 @@ it('Sets formatSelector value from localStorage', async () => {
         expect(controller.truncateText('')).toBe('');
     });
 
-    it('Gets formatSelector and rateLimitInput elements when download button clicked', async () => {
+    it('Gets formatSelector and maxSizeInput elements when download button clicked', async () => {
         const controller = new PopupController();
         controller.currentSlug = 'slug';
         controller.currentServiceKey = 'ranobelib';
@@ -1437,7 +1418,7 @@ it('Sets formatSelector value from localStorage', async () => {
         await downloadBtn.click();
         await new Promise(resolve => setTimeout(resolve, 100));
         expect(getElementByIdSpy).toHaveBeenCalledWith('formatSelector');
-        expect(getElementByIdSpy).toHaveBeenCalledWith('rateLimitInput');
+        expect(getElementByIdSpy).toHaveBeenCalledWith('maxSizeInput');
         getElementByIdSpy.mockRestore();
         isInSeparateWindowSpy.mockRestore();
         windowsCreateSpy.mockRestore();

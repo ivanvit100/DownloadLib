@@ -175,37 +175,32 @@ describe('PopupController second test file', () => {
         expect(resetUISpy).toHaveBeenCalled();
     });
 
-    it('Uses default rate limit if rateLimitInput is empty or invalid', async () => {
+    it('Uses default rate limit of 85 when localStorage has no saved value', async () => {
         const controller = new PopupController();
         controller.currentSlug = 'slug';
         controller.currentServiceKey = 'ranobelib';
-        const rateLimitInput = document.getElementById('rateLimitInput');
-        rateLimitInput.value = '';
         const sendMessageSpy = vi.spyOn(global.browser.runtime, 'sendMessage');
 
         await controller.startDownload();
 
-        expect(sendMessageSpy).toHaveBeenCalledWith(expect.objectContaining({ action: 'setRateLimit', limit: 100 }));
-
-        rateLimitInput.value = 'notanumber';
-        await controller.startDownload();
-        expect(sendMessageSpy).toHaveBeenCalledWith(expect.objectContaining({ action: 'setRateLimit', limit: 100 }));
+        expect(sendMessageSpy).toHaveBeenCalledWith(expect.objectContaining({ action: 'setRateLimit', limit: 85 }));
     });
 
-    it('Warns in console if rateLimitInput is missing when setting rate limit', async () => {
+    it('Uses saved rate limit from localStorage when available', async () => {
+        global.localStorage.getItem = vi.fn(key =>
+            key === 'downloadlib_default_rate_limit' ? '120' : null
+        );
         const controller = new PopupController();
         controller.currentSlug = 'slug';
         controller.currentServiceKey = 'ranobelib';
-        const rateLimitInput = document.getElementById('rateLimitInput');
-        rateLimitInput.parentNode.removeChild(rateLimitInput);
-        const warnSpy = vi.spyOn(console, 'warn');
+        const sendMessageSpy = vi.spyOn(global.browser.runtime, 'sendMessage');
 
         await controller.startDownload();
 
-        expect(warnSpy).toHaveBeenCalledWith('Rate limit input not found when setting rate limit');
+        expect(sendMessageSpy).toHaveBeenCalledWith(expect.objectContaining({ action: 'setRateLimit', limit: 120 }));
     });
 
-    it('Triggers every warning when all optional elements are missing during download start', async () => {
+    it('Completes without spurious warnings when all optional elements are missing during download start', async () => {
         document.body.innerHTML = `
             <button id="downloadBtn"></button>
             <div id="status"></div>
@@ -229,21 +224,14 @@ describe('PopupController second test file', () => {
 
         await new Promise(resolve => setTimeout(resolve, 100));
 
-        const idsToRemove = [
-            'formatContainer', 'rateLimitContainer', 'fileInput', 'customFileBtn',
-            'fileInputContainer', 'progress', 'siteLogo', 'downloadControls',
-            'chapterRangeContainer'
-        ];
-        idsToRemove.forEach(id => {
-            const el = document.getElementById(id);
-            if (el) el.parentNode.removeChild(el);
-        });
-
         warnSpy.mockClear();
 
         await controller.startDownload();
 
-        expect(warnSpy).toHaveBeenCalledWith('Rate limit input not found when setting rate limit');
+        expect(warnSpy).not.toHaveBeenCalled();
+        expect(global.browser.runtime.sendMessage).toHaveBeenCalledWith(
+            expect.objectContaining({ action: 'setRateLimit', limit: 85 })
+        );
     });
 
     it('Sets update status text when loaded file is present', async () => {
@@ -996,7 +984,7 @@ describe('PopupController second test file', () => {
         expect(formatContainer.style.display).toBe('');
     });
 
-    it('Restores rateLimitContainer visibility after resetUI', async () => {
+    it('Restores splitModeContainer visibility after resetUI', async () => {
         const controller = new PopupController();
         controller.currentSlug = 'slug';
         controller.currentServiceKey = 'ranobelib';
@@ -1006,11 +994,11 @@ describe('PopupController second test file', () => {
         controller.downloadManager.startDownload = vi.fn(async () => ({}));
         await controller.startDownload();
 
-        const rateLimitContainer = document.getElementById('rateLimitContainer');
-        expect(rateLimitContainer.style.display).toBe('none');
+        const splitModeContainer = document.getElementById('splitModeContainer');
+        expect(splitModeContainer.style.display).toBe('none');
 
         controller.resetUI();
-        expect(rateLimitContainer.style.display).toBe('');
+        expect(splitModeContainer.style.display).toBe('block');
     });
 
     it('Skips panel population when downloadInfoPanel is absent from DOM during startDownload', async () => {

@@ -229,33 +229,6 @@ describe('PopupController extra coverage', () => {
             expect(global.browser.storage.local.set.mock.calls.length).toBeGreaterThan(1);
         });
 
-        it('rateLimitInput: clamps value below 2 to 2', () => {
-            const controller = new PopupController();
-            controller._bindTitleEvents();
-            const input = document.getElementById('rateLimitInput');
-            input.value = '1';
-            input.dispatchEvent(new InputEvent('input', { bubbles: true }));
-            expect(parseInt(input.value)).toBe(2);
-        });
-
-        it('rateLimitInput: clamps value above 200 to 200', () => {
-            const controller = new PopupController();
-            controller._bindTitleEvents();
-            const input = document.getElementById('rateLimitInput');
-            input.value = '300';
-            input.dispatchEvent(new InputEvent('input', { bubbles: true }));
-            expect(parseInt(input.value)).toBe(200);
-        });
-
-        it('rateLimitInput: clamps NaN to 2', () => {
-            const controller = new PopupController();
-            controller._bindTitleEvents();
-            const input = document.getElementById('rateLimitInput');
-            input.value = 'abc';
-            input.dispatchEvent(new InputEvent('input', { bubbles: true }));
-            expect(parseInt(input.value)).toBe(2);
-        });
-
         it('maxSizeInput: clamps value below 1 to 1', () => {
             const controller = new PopupController();
             controller._bindTitleEvents();
@@ -587,27 +560,11 @@ describe('PopupController extra coverage', () => {
             expect(url).toContain('format=fb2');
         });
 
-        it('uses 100 fallback when rateLimitInput value is 0', async () => {
+        it('does not include rateLimit in download URL since rate limit is read from settings', async () => {
             const controller = new PopupController();
-            controller.currentSlug = 'slug';
-            controller.currentServiceKey = 'ranobelib';
-            controller.loadedFile = null;
-            controller.isInSeparateWindow = vi.fn(async () => false);
-            const openSpy = vi.fn(async () => {});
-            controller.openInNewContext = openSpy;
-            controller.setupEventListeners();
-            document.getElementById('rateLimitInput').value = '0';
-            document.getElementById('downloadBtn').click();
-            await new Promise(r => setTimeout(r, 50));
+            const openSpy = await clickDownloadBtn(controller, []);
             const url = openSpy.mock.calls[0]?.[0] || '';
-            expect(url).toContain('rateLimit=100');
-        });
-
-        it('uses 100 fallback when rateLimitInput is missing from DOM in download button handler', async () => {
-            const controller = new PopupController();
-            const openSpy = await clickDownloadBtn(controller, ['rateLimitInput']);
-            const url = openSpy.mock.calls[0]?.[0] || '';
-            expect(url).toContain('rateLimit=100');
+            expect(url).not.toContain('rateLimit');
         });
 
         it('uses "200" fallback when maxSizeInput is missing from DOM in download button handler', async () => {

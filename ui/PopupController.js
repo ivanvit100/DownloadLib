@@ -4,7 +4,7 @@
  * @module ui/PopupController
  * @license MIT
  * @author ivanvit
- * @version 1.0.7
+ * @version 1.0.9
  */
 
 'use strict';
@@ -87,6 +87,15 @@
                     global.TemplateLoader.show('history', () => global.HistoryController.init());
                 });
             } else console.warn('[PopupController] historyBtn not found in shell');
+
+            const settingsBtn = $el('settingsBtn');
+            if (settingsBtn) {
+                settingsBtn.addEventListener('click', () => {
+                    const logoInfo = $el('logoInfo');
+                    if (logoInfo) logoInfo.textContent = '';
+                    global.TemplateLoader.show('settings', () => global.SettingsController.init());
+                });
+            } else console.warn('[PopupController] settingsBtn not found in shell');
         }
 
         _bindTitleEvents() {
@@ -97,7 +106,6 @@
             }
 
             const formatSelector = $el('formatSelector');
-            const rateLimitInput = $el('rateLimitInput');
             const maxSizeInput = $el('maxSizeInput');
             const hiddenFileInput = $el('fileInput');
             const customFileBtn = $el('customFileBtn');
@@ -130,15 +138,6 @@
                     localStorage.setItem(FORMAT_STORAGE_KEY, formatSelector.value);
                     if (browserAPI?.storage?.local)
                         browserAPI.storage.local.set({ [FORMAT_STORAGE_KEY]: formatSelector.value });
-                });
-            }
-
-            if (rateLimitInput) {
-                rateLimitInput.addEventListener('input', (e) => {
-                    let val = parseInt(e.target.value);
-                    if (isNaN(val) || val < 2) val = 2;
-                    if (val > 200) val = 200;
-                    e.target.value = Math.floor(val);
                 });
             }
 
@@ -223,7 +222,6 @@
             return {
                 btn: $el('downloadBtn'),
                 formatSelector: $el('formatSelector'),
-                rateLimitInput: $el('rateLimitInput'),
                 status: $el('status'),
                 progress: $el('progress'),
                 controls: $el('downloadControls'),
@@ -284,8 +282,7 @@
             else console.warn('Site logo element not found when setting logo for service:', serviceKey);
         }
 
-        _applyUrlParams({ formatFromUrl, maxSizeMBFromUrl, rateLimitFromUrl,
-            splitPagesFromUrl, formatSelector, rateLimitInput }) {
+        _applyUrlParams({ formatFromUrl, maxSizeMBFromUrl, splitPagesFromUrl, formatSelector }) {
             if (formatFromUrl && formatSelector) {
                 formatSelector.value = formatFromUrl;
                 localStorage.setItem('manga_parser_selected_format', formatFromUrl);
@@ -297,9 +294,6 @@
                 if (maxSizeInput) maxSizeInput.value = maxSizeMBFromUrl;
                 else console.warn('Max size input element not found');
             }
-
-            if (rateLimitFromUrl && rateLimitInput)
-                rateLimitInput.value = rateLimitFromUrl;
 
             if (splitPagesFromUrl !== null) {
                 const splitPagesCheckbox = $el('splitPagesCheckbox');
@@ -441,13 +435,11 @@
                         hiddenFileInput.click();
                     } else {
                         const formatSelector = $el('formatSelector');
-                        const rateLimitInput = $el('rateLimitInput');
                         const format = formatSelector ? formatSelector.value : 'fb2';
-                        const rateLimit = rateLimitInput ? parseInt(rateLimitInput.value) || 100 : 100;
 
                         try {
                             const fileUploadParams = new URLSearchParams({
-                                fileUpload: 'true', slug, service: serviceKey, format, rateLimit
+                                fileUpload: 'true', slug, service: serviceKey, format
                             });
                             const fileUploadUrl = `${browserAPI.runtime.getURL('popup.html')}?${fileUploadParams}`;
                             await this.openInNewContext(fileUploadUrl);
@@ -484,7 +476,6 @@
             const slugFromUrl = urlParams.get('slug');
             const serviceFromUrl = urlParams.get('service');
             const formatFromUrl = urlParams.get('format');
-            const rateLimitFromUrl = urlParams.get('rateLimit');
             const chapterFromUrl = urlParams.get('chapterFrom');
             const chapterToUrl = urlParams.get('chapterTo');
             const maxSizeMBFromUrl = urlParams.get('maxSizeMB');
@@ -494,9 +485,8 @@
             const splitPagesFromUrl = urlParams.get('splitPages');
 
             this._applyUrlParams({
-                formatFromUrl, maxSizeMBFromUrl, rateLimitFromUrl, splitPagesFromUrl,
-                formatSelector: $el('formatSelector'),
-                rateLimitInput: $el('rateLimitInput')
+                formatFromUrl, maxSizeMBFromUrl, splitPagesFromUrl,
+                formatSelector: $el('formatSelector')
             });
 
             if (btn) btn.disabled = true;
@@ -578,13 +568,11 @@
 
                     if (!this.loadedFile && !inSeparateWindow) {
                         const formatSelector = $el('formatSelector');
-                        const rateLimitInput = $el('rateLimitInput');
                         const fromSelect = $el('chapterFromSelect');
                         const toSelect = $el('chapterToSelect');
                         const chapterRangeContainer = $el('chapterRangeContainer');
 
                         const format = formatSelector ? formatSelector.value : 'fb2';
-                        const rateLimit = rateLimitInput ? parseInt(rateLimitInput.value) || 100 : 100;
                         const maxSizeMB = $el('maxSizeInput')?.value || '200';
 
                         const splitPagesCheckboxEl = $el('splitPagesCheckbox');
@@ -594,7 +582,7 @@
                             ? splitPagesCheckboxEl.checked
                             : false;
 
-                        let urlParams = `?download=true&slug=${encodeURIComponent(this.currentSlug)}&service=${encodeURIComponent(this.currentServiceKey)}&format=${encodeURIComponent(format)}&rateLimit=${encodeURIComponent(rateLimit)}&maxSizeMB=${encodeURIComponent(maxSizeMB)}&splitPages=${encodeURIComponent(splitPages)}`;
+                        let urlParams = `?download=true&slug=${encodeURIComponent(this.currentSlug)}&service=${encodeURIComponent(this.currentServiceKey)}&format=${encodeURIComponent(format)}&maxSizeMB=${encodeURIComponent(maxSizeMB)}&splitPages=${encodeURIComponent(splitPages)}`;
 
                         if (fromSelect && toSelect &&
                             chapterRangeContainer &&
@@ -658,7 +646,6 @@
             btn.disabled = true;
             btn.style.display = 'none';
             this._setVisibility('formatContainer', 'none');
-            this._setVisibility('rateLimitContainer', 'none');
             this._setVisibility('translatorContainer', 'none');
             this._setVisibility('splitModeContainer', 'none');
             this._setVisibility('splitPagesContainer', 'none');
@@ -672,14 +659,14 @@
             const downloadInfoPanel = $el('downloadInfoPanel');
             if (downloadInfoPanel) {
                 const formatSelector = $el('formatSelector');
-                const rateLimitInput = $el('rateLimitInput');
                 const maxSizeInput = $el('maxSizeInput');
                 const formatLabel = formatSelector
                     ? (formatSelector.options[formatSelector.selectedIndex]?.text || formatSelector.value)
                     : '';
+                const rateLimit = localStorage.getItem('downloadlib_default_rate_limit') || '85';
                 downloadInfoPanel.innerHTML =
                     `<div class="info-row"><span class="info-label">Формат</span><span class="info-value">${formatLabel}</span></div>` +
-                    `<div class="info-row"><span class="info-label">Запросов в минуту</span><span class="info-value">${rateLimitInput ? rateLimitInput.value : ''}</span></div>` +
+                    `<div class="info-row"><span class="info-label">Запросов в минуту</span><span class="info-value">${rateLimit}</span></div>` +
                     `<div class="info-row"><span class="info-label">Макс. размер части</span><span class="info-value">${maxSizeInput ? maxSizeInput.value : ''} МБ</span></div>`;
                 downloadInfoPanel.style.display = 'block';
             }
@@ -703,13 +690,13 @@
                 return;
             }
 
-            const { btn, formatSelector, rateLimitInput, status, progress,
+            const { btn, formatSelector, status, progress,
                 controls, hiddenFileInput, customFileBtn, fileInputContainer,
                 chapterRangeContainer, fromSelect, toSelect } = this._getDownloadElements();
 
             try {
                 const { chapterRange, branchId, historyParams } = await this._prepareDownload({
-                    fromSelect, toSelect, chapterRangeContainer, rateLimitInput
+                    fromSelect, toSelect, chapterRangeContainer
                 });
 
                 this.isDownloading = true;
@@ -768,11 +755,9 @@
             return select.options[select.selectedIndex]?.text || null;
         }
 
-        async _prepareDownload({ fromSelect, toSelect, chapterRangeContainer, rateLimitInput }) {
-            if (rateLimitInput) {
-                const limit = parseInt(rateLimitInput.value) || 100;
-                await browserAPI.runtime.sendMessage({ action: 'setRateLimit', limit });
-            } else console.warn('Rate limit input not found when setting rate limit');
+        async _prepareDownload({ fromSelect, toSelect, chapterRangeContainer }) {
+            const limit = parseInt(localStorage.getItem('downloadlib_default_rate_limit')) || 85;
+            await browserAPI.runtime.sendMessage({ action: 'setRateLimit', limit });
 
             const chapterRange = this._buildChapterRange(fromSelect, toSelect, chapterRangeContainer);
 
@@ -827,7 +812,6 @@
                 btn.textContent = 'Скачать';
             } else console.warn('Download button not found when resetting UI');
             this._setVisibility('formatContainer', '');
-            this._setVisibility('rateLimitContainer', '');
             this._setVisibility('downloadInfoPanel', 'none');
             this._setVisibility('splitPagesContainer', this.currentServiceKey === 'mangalib' ? 'block' : 'none');
             if (hiddenFileInput) { hiddenFileInput.disabled = false; hiddenFileInput.value = ''; }

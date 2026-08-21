@@ -1,0 +1,153 @@
+/**
+ * DownloadLib ui module
+ * Controls the settings view
+ * @module ui/SettingsController
+ * @author ivanvit
+ * @version 1.0.9
+ */
+
+'use strict';
+
+(function(global) {
+    console.log('[SettingsController] Loading...');
+
+    const RATE_LIMIT_KEY = 'downloadlib_default_rate_limit';
+
+    const SettingsController = {
+        init() {
+            this._renderRateLimit();
+            this._renderPlugins();
+            this._bindEvents();
+        },
+
+        _renderRateLimit() {
+            const input = document.getElementById('settingsRateLimit');
+            if (!input) return;
+            input.value = localStorage.getItem(RATE_LIMIT_KEY) || '85';
+        },
+
+        async _renderPlugins() {
+            const list = document.getElementById('pluginList');
+            const empty = document.getElementById('pluginEmpty');
+            if (!list) return;
+
+            list.innerHTML = '';
+
+            if (!global.PluginManager) {
+                if (empty) {
+                    empty.textContent = 'PluginManager недоступен';
+                    empty.style.display = 'block';
+                }
+                return;
+            }
+
+            const plugins = await global.PluginManager.list();
+
+            if (!plugins.length) {
+                if (empty) empty.style.display = 'block';
+                return;
+            }
+
+            if (empty) empty.style.display = 'none';
+            plugins.forEach(plugin => list.appendChild(this._createPluginCard(plugin)));
+        },
+
+        _createPluginCard(plugin) {
+            const card = document.createElement('div');
+            card.className = 'plugin-card';
+
+            const info = document.createElement('div');
+            info.className = 'plugin-info';
+
+            const name = document.createElement('span');
+            name.className = 'plugin-name';
+            name.textContent = plugin.name;
+            info.appendChild(name);
+            card.appendChild(info);
+
+            const actions = document.createElement('div');
+            actions.className = 'plugin-actions';
+
+            const toggle = document.createElement('input');
+            toggle.type = 'checkbox';
+            toggle.className = 'plugin-toggle';
+            toggle.checked = plugin.enabled !== false;
+            toggle.title = 'Включить/отключить';
+            toggle.addEventListener('change', async () => {
+                if (global.PluginManager) await global.PluginManager.toggle(plugin.id, toggle.checked);
+            });
+
+            const removeBtn = document.createElement('button');
+            removeBtn.className = 'plugin-remove-btn';
+            removeBtn.textContent = '✕';
+            removeBtn.title = 'Удалить плагин';
+            removeBtn.addEventListener('click', async () => {
+                if (!global.PluginManager) return;
+                await global.PluginManager.remove(plugin.id);
+                await this._renderPlugins();
+            });
+
+            actions.appendChild(toggle);
+            actions.appendChild(removeBtn);
+            card.appendChild(actions);
+
+            return card;
+        },
+
+        _bindEvents() {
+            const backBtn = document.getElementById('settingsBackBtn');
+            if (backBtn) {
+                backBtn.addEventListener('click', () => {
+                    const logoInfo = document.getElementById('logoInfo');
+                    if (logoInfo) logoInfo.textContent = '';
+                    if (global.popupController) global.popupController._restoreMainView();
+                    else console.error('[SettingsController] popupController not found');
+                });
+            }
+
+            const saveBtn = document.getElementById('saveRateLimitBtn');
+            const rateLimitInput = document.getElementById('settingsRateLimit');
+            if (saveBtn && rateLimitInput) {
+                saveBtn.addEventListener('click', () => {
+                    let val = parseInt(rateLimitInput.value);
+                    if (isNaN(val) || val < 2) val = 2;
+                    if (val > 200) val = 200;
+                    rateLimitInput.value = val;
+                    localStorage.setItem(RATE_LIMIT_KEY, String(val));
+                    if (global.globalRateLimiter) global.globalRateLimiter.setLimit(val);
+
+                    const original = saveBtn.textContent;
+                    saveBtn.textContent = '✓ Сохранено';
+                    saveBtn.disabled = true;
+                    setTimeout(() => {
+                        saveBtn.textContent = original;
+                        saveBtn.disabled = false;
+                    }, 1500);
+                });
+            }
+
+            const addBtn = document.getElementById('addPluginBtn');
+            const fileInput = document.getElementById('pluginFileInput');
+            if (addBtn && fileInput) {
+                addBtn.addEventListener('click', () => fileInput.click());
+                fileInput.addEventListener('change', async () => {
+                    const file = fileInput.files && fileInput.files[0];
+                    if (!file || !global.PluginManager) return;
+                    const code = await file.text();
+                    const name = file.name.replace(/\.js$/i, '');
+                    await global.PluginManager.save({
+                        id: global.PluginManager.generateId(),
+                        name,
+                        code,
+                        enabled: true
+                    });
+                    fileInput.value = '';
+                    await this._renderPlugins();
+                });
+            }
+        }
+    };
+
+    global.SettingsController = SettingsController;
+    console.log('[SettingsController] Loaded');
+})(typeof window !== 'undefined' ? window : self);

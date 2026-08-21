@@ -1,0 +1,21 @@
+<div id="settingsHeader">
+    <button id="settingsBackBtn" class="history-nav-btn">&#8592; Назад</button>
+    <span id="settingsTitle">Настройки</span>
+</div>
+
+<div class="settings-section">
+    <div class="settings-section-title">Ограничитель запросов</div>
+    <div class="settings-row">
+        <label class="settings-label" for="settingsRateLimit">Запросов в минуту</label>
+        <input id="settingsRateLimit" type="number" class="settings-number-input" min="2" max="200" step="1">
+    </div>
+    <button id="saveRateLimitBtn" class="settings-btn-outline">Применить</button>
+</div>
+
+<div class="settings-section">
+    <div class="settings-section-title">Плагины</div>
+    <div id="pluginList" class="plugin-list"></div>
+    <div id="pluginEmpty" class="plugin-empty">Плагины не установлены</div>
+    <input type="file" id="pluginFileInput" accept=".js" style="display:none">
+    <button id="addPluginBtn" class="settings-btn-outline">+ Добавить плагин</button>
+</div>
