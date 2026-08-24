@@ -4,7 +4,7 @@
  * @module background/MessageRouter
  * @license MIT
  * @author ivanvit
- * @version 1.0.7
+ * @version 1.0.9
  */
 
 'use strict';
@@ -186,6 +186,87 @@
             return true;
         }]
     ]);
+
+    const _inSWContext = typeof importScripts === 'function';
+
+    function _storePluginInIDB(format, code) {
+        return new Promise((res, rej) => {
+            const req = indexedDB.open('dl-plugins', 1);
+            req.onupgradeneeded = e => e.target.result.createObjectStore('plugins', { keyPath: 'format' });
+            req.onsuccess = e => {
+                const db = e.target.result;
+                const tx = db.transaction('plugins', 'readwrite');
+                tx.objectStore('plugins').put({ format, code });
+                tx.oncomplete = () => {
+                    db.close();
+                    res();
+                };
+
+                tx.onerror = ev => {
+                    db.close();
+                    rej(ev.target.error);
+                };
+            };
+            req.onerror = ev => rej(ev.target.error);
+        });
+    }
+
+    async function _getSwStatus() {
+        if (_inSWContext) return 'sw-background';
+        if (typeof navigator === 'undefined' || !navigator.serviceWorker) return 'no-navigator-sw';
+        try {
+            const reg = await navigator.serviceWorker.getRegistration('/sw.js');
+            if (!reg) return 'not-registered';
+            const state = reg.active?.state || reg.installing?.state || reg.waiting?.state || 'unknown';
+            return `registered:${state}`;
+        } catch (e) {
+            return `error:${e.message}`;
+        }
+    }
+
+    handlers.set('plugin:cache', (msg, _sender, respond) => {
+        const { format, code } = msg;
+        (async () => {
+            const swStatus = await _getSwStatus();
+            try {
+                if (_inSWContext) {
+                    const cache = await caches.open('dl-plugins-v1');
+                    await cache.put(
+                        `/plugin-runtime/${format}.js`,
+                        new Response(code, { headers: { 'Content-Type': 'text/javascript' } })
+                    );
+                } else await _storePluginInIDB(format, code);
+                console.log(`[MessageRouter] Plugin "${format}" stored (${_inSWContext ? 'Cache' : 'IDB'}), SW: ${swStatus}`);
+                respond({ ok: true, swStatus });
+            } catch (e) {
+                console.warn('[MessageRouter] Plugin storage failed:', e.message);
+                respond({ ok: false, error: e.message, swStatus });
+            }
+        })();
+        return true;
+    });
+
+    handlers.set('plugin:exec', (msg, _sender, respond) => {
+        const { tabId, code } = msg;
+        (async () => {
+            try {
+                if (!browserAPI.scripting?.executeScript)
+                    throw new Error('scripting.executeScript not available');
+                if (!tabId)
+                    throw new Error('No tabId provided');
+                await browserAPI.scripting.executeScript({
+                    target: { tabId },
+                    func: pluginCode => { (0, eval)(pluginCode); }, // eslint-disable-line no-eval
+                    args:  [code]
+                });
+                respond({ ok: true });
+            } catch (e) {
+                console.warn('[MessageRouter] plugin:exec failed:', e.message);
+                respond({ ok: false, error: e.message });
+            }
+        })();
+        return true;
+    });
 
     if (browserAPI && browserAPI.runtime && browserAPI.runtime.onMessage) {
         browserAPI.runtime.onMessage.addListener((message, sender, sendResponse) => {

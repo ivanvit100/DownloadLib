@@ -98,6 +98,8 @@
             const backBtn = document.getElementById('settingsBackBtn');
             if (backBtn) {
                 backBtn.addEventListener('click', () => {
+                    if (new URLSearchParams(window.location.search).has('settings'))
+                        return window.close();
                     const logoInfo = document.getElementById('logoInfo');
                     if (logoInfo) logoInfo.textContent = '';
                     if (global.popupController) global.popupController._restoreMainView();
@@ -126,10 +128,8 @@
                 });
             }
 
-            const addBtn = document.getElementById('addPluginBtn');
             const fileInput = document.getElementById('pluginFileInput');
-            if (addBtn && fileInput) {
-                addBtn.addEventListener('click', () => fileInput.click());
+            if (fileInput) {
                 fileInput.addEventListener('change', async () => {
                     const file = fileInput.files && fileInput.files[0];
                     if (!file || !global.PluginManager) return;

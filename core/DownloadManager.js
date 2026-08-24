@@ -4,7 +4,7 @@
  * @module core/DownloadManager
  * @license MIT
  * @author ivanvit
- * @version 1.0.6
+ * @version 1.0.9
  */
 
 'use strict';
@@ -17,6 +17,15 @@
             this.activeDownloads = new Map();
             this.eventBus = new global.EventBus();
             console.log('[DownloadManager] Instance created');
+        }
+
+        async _createExporter(format) {
+            if (!global.ExporterRegistry.getSupportedFormats().includes(format.toLowerCase()) &&
+                global.PluginManager) {
+                console.log(`[DownloadManager] Format "${format}" not registered, loading plugins...`);
+                await global.PluginManager.loadAll();
+            }
+            return global.ExporterRegistry.create(format);
         }
 
         _resolveService(serviceKey, url, authToken) {
@@ -183,7 +192,7 @@
 
                     if (currentBatch.length > 0 && currentSize + chapterSize > maxSizeBytes) {
                         partIndex += 1;
-                        const exporter = global.ExporterRegistry.create(format);
+                        const exporter = await this._createExporter(format);
                         const partSuffix = ` (Часть ${partIndex})`;
                         this.updateStatus(downloadId, `Сохранение части ${partIndex}...`, progress);
                         const file = await exporter.export({ ...manga, name: manga.name + partSuffix },
@@ -206,7 +215,7 @@
 
             if (currentBatch.length > 0) {
                 partIndex += 1;
-                const exporter = global.ExporterRegistry.create(format);
+                const exporter = await this._createExporter(format);
                 const partSuffix = partIndex > 1 ? ` (Часть ${partIndex})` : '';
                 this.updateStatus(downloadId, `Создание ${format.toUpperCase()}...`, 95);
                 const file = await exporter.export(partSuffix ? { ...manga, name: manga.name + partSuffix } :
@@ -268,7 +277,7 @@
                 const serverChapters = this.sortChapters(chaptersData.data || []);
 
                 this.updateStatus(downloadId, 'Анализ существующего файла...', 10);
-                const exporter = global.ExporterRegistry.create(format);
+                const exporter = await this._createExporter(format);
 
                 const existingData = exporter.parse ?
                     await exporter.parse(loadedFile) :

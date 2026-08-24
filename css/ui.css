@@ -534,6 +534,7 @@ input[type="number"] {
     margin: 0 !important;
 }
 .settings-btn-outline {
+    display: block;
     width: 100%;
     padding: 8px 16px;
     font-size: 14px;
@@ -543,6 +544,9 @@ input[type="number"] {
     border: 1px solid #444 !important;
     border-radius: 4px !important;
     transition: all 0.3s ease;
+    cursor: pointer;
+    text-align: center;
+    box-sizing: border-box;
 }
 .settings-btn-outline:hover {
     background: #252527 !important;

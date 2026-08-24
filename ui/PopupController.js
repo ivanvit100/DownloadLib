@@ -55,20 +55,61 @@
             console.log('[PopupController] Initialized');
         }
 
+        async _loadPluginFormats() {
+            if (!global.PluginManager) return;
+            const sel = $el('formatSelector');
+            if (!sel) return;
+            const pluginFormats = await global.PluginManager.getFormats();
+            pluginFormats.forEach(({ value, label }) => {
+                const opt = document.createElement('option');
+                opt.value = value;
+                opt.textContent = label;
+                sel.appendChild(opt);
+            });
+        }
+
         async _init() {
             global.TemplateLoader.init('view');
             this._bindShellEvents();
+
+            const urlParams = new URLSearchParams(window.location.search);
+            if (urlParams.has('settings')) {
+                await global.TemplateLoader.show('settings', () => global.SettingsController.init());
+                return;
+            }
+
             await global.TemplateLoader.show('title');
+            await this._loadPluginFormats();
             this._bindTitleEvents();
             this.setupEventListeners();
             await this.loadMetadata();
             this.checkApiHealth();
+
+            if (browserAPI?.storage?.onChanged) {
+                browserAPI.storage.onChanged.addListener(async (changes, area) => {
+                    if (area !== 'local' || !('custom_plugins' in changes)) return;
+                    await global.PluginManager.loadAll();
+                    const sel = $el('formatSelector');
+                    if (!sel) return;
+                    const current = sel.value;
+                    sel.innerHTML = '';
+                    await this._loadPluginFormats();
+                    global.ExporterRegistry.getFormats().forEach(({ value, label }) => {
+                        const opt = document.createElement('option');
+                        opt.value = value;
+                        opt.textContent = label;
+                        sel.appendChild(opt);
+                    });
+                    if (current) sel.value = current;
+                });
+            }
         }
 
         async _restoreMainView() {
             const logoInfo = $el('logoInfo');
             if (logoInfo) logoInfo.textContent = '';
             await global.TemplateLoader.show('title');
+            await this._loadPluginFormats();
             this._bindTitleEvents();
             this.setupEventListeners();
             await this.loadMetadata();
@@ -90,10 +131,9 @@
 
             const settingsBtn = $el('settingsBtn');
             if (settingsBtn) {
-                settingsBtn.addEventListener('click', () => {
-                    const logoInfo = $el('logoInfo');
-                    if (logoInfo) logoInfo.textContent = '';
-                    global.TemplateLoader.show('settings', () => global.SettingsController.init());
+                settingsBtn.addEventListener('click', async () => {
+                    const url = `${browserAPI.runtime.getURL('popup.html')}?settings=true`;
+                    await this.openInNewContext(url);
                 });
             } else console.warn('[PopupController] settingsBtn not found in shell');
         }

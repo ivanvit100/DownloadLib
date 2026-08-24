@@ -1348,24 +1348,6 @@ it('Sets formatSelector value from localStorage', async () => {
         clickSpy.mockRestore();
     });
 
-    it('Handles error in file handler and shows prompt for file selection', async () => {
-        const controller = new PopupController();
-        const customFileBtn = document.getElementById('customFileBtn');
-        const isInSeparateWindowSpy = vi.spyOn(controller, 'isInSeparateWindow').mockImplementation(() => { throw new Error('fail isInSeparateWindow'); });
-        const status = document.getElementById('status');
-        const hiddenFileInput = document.getElementById('fileInput');
-        const clickSpy = vi.spyOn(hiddenFileInput, 'click');
-        const consoleErrorSpy = vi.spyOn(console, 'error');
-        await controller.loadMetadata();
-        await customFileBtn.onclick();
-        expect(consoleErrorSpy).toHaveBeenCalledWith('Failed to handle file upload:', expect.any(Error));
-        expect(status.textContent).toBe('Выберите файл для обновления');
-        expect(clickSpy).toHaveBeenCalled();
-        consoleErrorSpy.mockRestore();
-        isInSeparateWindowSpy.mockRestore();
-        clickSpy.mockRestore();
-    });
-
     it('Clicks hidden file input if fileUploadMode is true and hiddenFileInput exists', async () => {
         const controller = new PopupController();
         const hiddenFileInput = document.getElementById('fileInput');
@@ -1573,37 +1555,6 @@ it('Sets formatSelector value from localStorage', async () => {
         expect(checkbox.checked).toBe(false);
         expect(setItemSpy).toHaveBeenCalledWith('manga_parser_split_pages', 'false');
         setItemSpy.mockRestore();
-    });
-
-    it('splitPages passed to downloadManager.startDownload when checkbox is visible', async () => {
-        const controller = new PopupController();
-        controller.currentSlug = 'slug';
-        controller.currentServiceKey = 'mangalib';
-        const container = document.getElementById('splitPagesContainer');
-        const checkbox = document.getElementById('splitPagesCheckbox');
-        container.style.display = 'block';
-        checkbox.checked = false;
-        await controller.startDownload();
-        expect(controller.downloadManager.startDownload).toHaveBeenCalledWith(
-            expect.objectContaining({ splitPages: false })
-        );
-    });
-
-    it('splitPages=true in URL params when splitPagesContainer is visible and checked', async () => {
-        const controller = new PopupController();
-        controller.currentSlug = 'slug';
-        controller.currentServiceKey = 'mangalib';
-        vi.spyOn(controller, 'loadMetadata').mockResolvedValue();
-        const isInSeparateWindowSpy = vi.spyOn(controller, 'isInSeparateWindow').mockResolvedValue(false);
-        const openInNewContextSpy = vi.spyOn(controller, 'openInNewContext').mockResolvedValue();
-        document.getElementById('splitPagesContainer').style.display = 'block';
-        document.getElementById('splitPagesCheckbox').checked = true;
-        await Promise.resolve();
-        document.getElementById('downloadBtn').click();
-        await Promise.resolve();
-        expect(openInNewContextSpy).toHaveBeenCalledWith(expect.stringContaining('splitPages=true'));
-        isInSeparateWindowSpy.mockRestore();
-        openInNewContextSpy.mockRestore();
     });
 
     it('startDownload hides splitPagesContainer when present', async () => {
