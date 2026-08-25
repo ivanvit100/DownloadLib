@@ -42,6 +42,12 @@
             'Sec-Fetch-Mode': 'no-cors',
             'Sec-Fetch-Site': 'same-origin',
             'Connection': 'keep-alive'
-        }
+        },
+
+        label: 'RanobeLib',
+        siteUrl: 'https://ranobelib.me',
+        primaryColor: '#2196f3',
+        secondaryColor: '#1f82d3',
+        logo: 'icons/logo3.png'
     };
 })(typeof window !== 'undefined' ? window : self);

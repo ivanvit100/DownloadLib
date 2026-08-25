@@ -315,10 +315,10 @@
         }
 
         _applyServiceTheme(serviceKey, siteLogo) {
-            const isRanobeLib = serviceKey === 'ranobelib';
-            document.body.style.setProperty('--primary-color', isRanobeLib ? '#2196f3' : '#ff9100');
-            document.body.style.setProperty('--secondary-color', isRanobeLib ? '#1f82d3ff' : '#c77101');
-            if (siteLogo) siteLogo.src = isRanobeLib ? 'icons/logo3.png' : 'icons/logo1.png';
+            const cfg = global.serviceRegistry?.getService(serviceKey)?.config || {};
+            document.body.style.setProperty('--primary-color', cfg.primaryColor || '#ff9100');
+            document.body.style.setProperty('--secondary-color', cfg.secondaryColor || '#c77101');
+            if (siteLogo) siteLogo.src = cfg.logo || 'icons/logo1.png';
             else console.warn('Site logo element not found when setting logo for service:', serviceKey);
         }
 
@@ -401,18 +401,23 @@
             if (logoInfo) logoInfo.textContent = '';
 
             const siteLogo = $el('siteLogo');
+            const serviceLinks = $el('serviceLinks');
 
-            $el('openMangaLib')?.addEventListener('click', async () => {
-                browserAPI.tabs.create({ url: 'https://mangalib.me' });
-                this._applyServiceTheme('mangalib', siteLogo);
-                await this._showNoTitleState();
-            });
-
-            $el('openRanobeLib')?.addEventListener('click', async () => {
-                browserAPI.tabs.create({ url: 'https://ranobelib.me' });
-                this._applyServiceTheme('ranobelib', siteLogo);
-                await this._showNoTitleState();
-            });
+            if (serviceLinks && global.serviceRegistry) {
+                for (const service of global.serviceRegistry.getAllServices()) {
+                    const { name, siteUrl } = service.config || {};
+                    if (!siteUrl) continue;
+                    const btn = document.createElement('button');
+                    btn.className = `service-link-btn ${name}-link-btn`;
+                    btn.textContent = service.config.label || name;
+                    btn.addEventListener('click', async () => {
+                        browserAPI.tabs.create({ url: siteUrl });
+                        this._applyServiceTheme(name, siteLogo);
+                        await this._showNoTitleState();
+                    });
+                    serviceLinks.appendChild(btn);
+                }
+            }
 
             $el('openGithub')?.addEventListener('click', () => {
                 browserAPI.tabs.create({ url: 'https://github.com/ivanvit100/DownloadLib' });
@@ -437,7 +442,9 @@
                     service = new global.RanobeLibService();
                 else if (serviceKey === 'mangalib')
                     service = new global.MangaLibService();
-                else throw new Error(`Unknown service: ${serviceKey}`);
+                else
+                    service = global.serviceRegistry?.getService(serviceKey) ?? null;
+                if (!service) throw new Error(`Unknown service: ${serviceKey}`);
                 return { slug: slugFromUrl, serviceKey, service, activeTabId: null };
             }
 

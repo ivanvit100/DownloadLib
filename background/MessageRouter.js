@@ -278,5 +278,50 @@
         console.log('[MessageRouter] Message listener installed');
     }
 
+    const PLUGIN_CONTENT_SCRIPTS = [
+        '/content/AdCleaner.js',
+        '/content/DownloadButton.js',
+        '/content/ImageFetcher.js'
+    ];
+    const PLUGIN_SCRIPT_ID_PREFIX = 'dl-plugin-';
+
+    async function _syncPluginContentScripts() {
+        if (!browserAPI?.scripting?.registerContentScripts) return;
+        try {
+            const result = await browserAPI.storage.local.get('custom_plugins');
+            const plugins = (result?.custom_plugins || []).filter(
+                p => p.enabled !== false && Array.isArray(p.hosts) && p.hosts.length
+            );
+
+            const existing = await browserAPI.scripting.getRegisteredContentScripts();
+            const oldIds = existing
+                .filter(s => s.id.startsWith(PLUGIN_SCRIPT_ID_PREFIX))
+                .map(s => s.id);
+            if (oldIds.length) await browserAPI.scripting.unregisterContentScripts({ ids: oldIds });
+
+            for (const p of plugins) {
+                const key = p.service || p.format;
+                if (!key) continue;
+                await browserAPI.scripting.registerContentScripts([{
+                    id: `${PLUGIN_SCRIPT_ID_PREFIX}${key}`,
+                    matches: p.hosts.map(h => `https://${h}/*`),
+                    js: PLUGIN_CONTENT_SCRIPTS,
+                    runAt: 'document_idle'
+                }]);
+                console.log(`[MessageRouter] Registered content scripts for plugin: ${key}`);
+            }
+        } catch (e) {
+            console.warn('[MessageRouter] Failed to sync plugin content scripts:', e.message);
+        }
+    }
+
+    if (browserAPI?.storage?.onChanged) {
+        browserAPI.storage.onChanged.addListener((changes, area) => {
+            if (area === 'local' && changes.custom_plugins) _syncPluginContentScripts();
+        });
+    }
+
+    _syncPluginContentScripts();
+
     console.log('[MessageRouter] Script loaded');
 })();

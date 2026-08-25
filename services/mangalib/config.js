@@ -46,6 +46,12 @@
         },
 
         splitLongImages: true,
-        maxImageHeight: 1800
+        maxImageHeight: 1800,
+
+        label: 'MangaLib',
+        siteUrl: 'https://mangalib.me',
+        primaryColor: '#ff9100',
+        secondaryColor: '#c77101',
+        logo: 'icons/logo1.png'
     };
 })(typeof window !== 'undefined' ? window : self);
