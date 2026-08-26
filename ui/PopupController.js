@@ -434,7 +434,7 @@
             });
         }
 
-        async _resolveService({ autoDownload, fileUploadMode, slugFromUrl, serviceFromUrl }) {
+        async _resolveService({ autoDownload, fileUploadMode, slugFromUrl, serviceFromUrl, tabIdFromUrl }) {
             if ((autoDownload || fileUploadMode) && slugFromUrl && serviceFromUrl) {
                 const serviceKey = serviceFromUrl;
                 let service;
@@ -445,7 +445,7 @@
                 else
                     service = global.serviceRegistry?.getService(serviceKey) ?? null;
                 if (!service) throw new Error(`Unknown service: ${serviceKey}`);
-                return { slug: slugFromUrl, serviceKey, service, activeTabId: null };
+                return { slug: slugFromUrl, serviceKey, service, activeTabId: tabIdFromUrl };
             }
 
             const tabs = await browserAPI.tabs.query({ active: true, currentWindow: true });
@@ -530,6 +530,7 @@
                 ? parseInt(urlParams.get('branchId'))
                 : null;
             const splitPagesFromUrl = urlParams.get('splitPages');
+            const tabIdFromUrl = urlParams.get('tabId') ? parseInt(urlParams.get('tabId')) : null;
 
             this._applyUrlParams({
                 formatFromUrl, maxSizeMBFromUrl, splitPagesFromUrl,
@@ -541,7 +542,7 @@
 
             try {
                 const resolved = await this._resolveService({
-                    autoDownload, fileUploadMode, slugFromUrl, serviceFromUrl
+                    autoDownload, fileUploadMode, slugFromUrl, serviceFromUrl, tabIdFromUrl
                 });
                 if (resolved === null) return;
                 const { slug, serviceKey, service, activeTabId } = resolved;

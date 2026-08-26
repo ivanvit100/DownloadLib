@@ -375,6 +375,7 @@
             }
             const config = plugin.serviceConfig || { name: plugin.service };
             const hosts = new Set((plugin.hosts || []).map(h => h.toLowerCase()));
+            const serviceName = plugin.service;
 
             class PluginServiceProxy extends global.BaseService {
                 constructor() { super(config); }
@@ -384,6 +385,81 @@
                         const h = new URL(url).hostname.toLowerCase();
                         return hosts.has(h) || [...hosts].some(ph => h.endsWith(`.${ph}`));
                     } catch { return false; }
+                }
+
+                extractText(content) {
+                    const pages = this.extractPages(content);
+                    return pages.map(page => ({
+                        type: 'image',
+                        src: page.url || page.filename || page.src || String(page)
+                    }));
+                }
+
+                resolvePageUrl(ref) {
+                    if (!ref) return null;
+                    const str = String(ref?.src || ref);
+                    if (/^https?:\/\//i.test(str)) return str;
+                    const domain = config.imagesDomain || '';
+                    return str.startsWith('/') ? `${domain}${str}` : `${domain}/${str}`;
+                }
+
+                async loadPageAsBase64(ref, opts = {}) {
+                    const url = this.resolvePageUrl(ref?.src || ref);
+                    if (!url) return null;
+                    const api = this.extensionApi;
+                    if (!api?.runtime?.sendMessage) return null;
+                    const response = await api.runtime.sendMessage({
+                        action: 'fetchImage', url, serviceKey: serviceName
+                    });
+                    if (!response?.ok) {
+                        console.warn(`[${serviceName}] Failed to fetch ${url}:`, response?.error);
+                        return null;
+                    }
+
+                    if (global.ImageCompressor) {
+                        const compressOpts = {
+                            format: opts.compressionFormat || 'image/jpeg',
+                            quality: opts.compressionQuality || 0.92
+                        };
+                        return global.ImageCompressor.compress(response.base64, response.contentType, compressOpts);
+                    }
+                    return { base64: response.base64, contentType: response.contentType };
+                }
+
+                async processChapterContent(extracted, status, opts = {}) {
+                    const pages = Array.isArray(extracted) ? extracted : [];
+                    const loadOpts = {
+                        compressionFormat: opts.compressionFormat || 'image/jpeg',
+                        compressionQuality: opts.compressionQuality || 0.92
+                    };
+                    const result = [];
+                    let completed = 0;
+                    const concurrency = 5;
+                    for (let i = 0; i < pages.length; i += concurrency) {
+                        const batch = pages.slice(i, Math.min(i + concurrency, pages.length));
+                        const batchResults = await Promise.all(
+                            batch.map((page, batchIdx) =>
+                                this.loadPageAsBase64(page, loadOpts)
+                                    .then(img => ({ img, index: i + batchIdx }))
+                                    .catch(() => ({ img: null, index: i + batchIdx }))
+                            )
+                        );
+                        for (const { img, index } of batchResults) {
+                            if (!img)
+                                result.push({ type: 'text', text: `[Ошибка загрузки изображения ${index + 1}]` });
+                            else {
+                                result.push({
+                                    type: 'image',
+                                    id: `img_${Date.now()}_${index}`,
+                                    data: img,
+                                    originalIndex: index
+                                });
+                            }
+                            completed += 1;
+                            if (status) status.textContent = `Загружено страниц: ${completed}/${pages.length}`;
+                        }
+                    }
+                    return result;
                 }
             }
 

@@ -76,13 +76,24 @@
             (async () => {
                 try {
                     const { url } = msg;
-                    const serviceKey = detectServiceByUrl(url);
+                    const serviceKey = msg.serviceKey || detectServiceByUrl(url);
 
                     if (serviceKey) await rateLimiter.trackRequest(serviceKey);
 
-                    const patterns = serviceKey === 'ranobelib'
-                        ? ['*://ranobelib.me/*']
-                        : ['*://mangalib.me/*', '*://mangalib.org/*'];
+                    let patterns;
+                    if (serviceKey === 'ranobelib')
+                        patterns = ['*://ranobelib.me/*'];
+                    else if (!serviceKey || serviceKey === 'mangalib')
+                        patterns = ['*://mangalib.me/*', '*://mangalib.org/*'];
+                    else {
+                        const pluginHosts = globalThis.pluginServiceHosts?.[serviceKey] || [];
+                        patterns = pluginHosts.map(h => `*://${h}/*`);
+                    }
+
+                    if (!patterns.length) {
+                        respond({ ok: false, error: `No tab patterns for service: ${serviceKey}` });
+                        return;
+                    }
 
                     const tabs = await browserAPI.tabs.query({ url: patterns });
                     const tabId = tabs?.[0]?.id ?? null;
@@ -152,13 +163,23 @@
 
                     const slugMatch = tabUrl.match(/\/(?:manga|book)\/([^/?#]+)/);
                     const slug = slugMatch ? slugMatch[1] : null;
-                    const serviceKey = detectServiceByUrl(tabUrl);
-                    if (!slug || !serviceKey) {
-                        respond({ ok: false, error: 'Cannot detect slug or service' }); return;
+                    let serviceKey = detectServiceByUrl(tabUrl);
+                    if (!serviceKey) {
+                        const { hostname } = new URL(tabUrl);
+                        const h = hostname.toLowerCase();
+                        serviceKey = Object.entries(globalThis.pluginServiceHosts || {})
+                            .find(([, hosts]) => hosts.some(ph => h === ph || h.endsWith(`.${ph}`)))?.[0] ?? null;
                     }
 
+                    if (!slug || !serviceKey) {
+                        respond({ ok: false, error: 'Cannot detect slug or service' });
+                        return;
+                    }
+
+                    const tabId = sender.tab?.id ?? null;
                     const format = encodeURIComponent(msg.format || 'fb2');
-                    const urlParams = `?download=true&slug=${encodeURIComponent(slug)}&service=${encodeURIComponent(serviceKey)}&format=${format}&rateLimit=85&maxSizeMB=200`;
+                    let urlParams = `?download=true&slug=${encodeURIComponent(slug)}&service=${encodeURIComponent(serviceKey)}&format=${format}&rateLimit=85&maxSizeMB=200`;
+                    if (tabId != null) urlParams += `&tabId=${tabId}`;
                     const popupUrl = browserAPI.runtime.getURL('popup.html') + urlParams;
 
                     const ok = await openPopupWindow(popupUrl);
@@ -292,6 +313,10 @@
             const plugins = (result?.custom_plugins || []).filter(
                 p => p.enabled !== false && Array.isArray(p.hosts) && p.hosts.length
             );
+
+            globalThis.pluginServiceHosts = {};
+            for (const p of plugins)
+                if (p.service) globalThis.pluginServiceHosts[p.service] = p.hosts;
 
             const existing = await browserAPI.scripting.getRegisteredContentScripts();
             const oldIds = existing

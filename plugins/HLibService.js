@@ -62,7 +62,7 @@
  *   "siteUrl": "https://hentailib.me",
  *   "primaryColor": "#e53935",
  *   "secondaryColor": "#c62828",
- *   "logo": "icons/logo1.png"
+ *   "logo": "https://github.com/ivanvit100/DownloadLib/blob/master/icons/logo3.png?raw=true"
  * }
  */
 
@@ -144,7 +144,7 @@
         siteUrl: 'https://hentailib.me',
         primaryColor: '#e53935',
         secondaryColor: '#c62828',
-        logo: 'icons/logo1.png'
+        logo: 'https://github.com/ivanvit100/DownloadLib/blob/master/icons/logo4.png?raw=true'
     };
 
     class MyService extends global.BaseService {
