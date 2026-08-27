@@ -12,10 +12,12 @@
     console.log('[SettingsController] Loading...');
 
     const RATE_LIMIT_KEY = 'downloadlib_default_rate_limit';
+    const MAX_SIZE_KEY = 'manga_parser_max_size_mb';
 
     const SettingsController = {
         init() {
             this._renderRateLimit();
+            this._renderMaxSize();
             this._renderPlugins();
             this._bindEvents();
         },
@@ -24,6 +26,12 @@
             const input = document.getElementById('settingsRateLimit');
             if (!input) return;
             input.value = localStorage.getItem(RATE_LIMIT_KEY) || '85';
+        },
+
+        _renderMaxSize() {
+            const input = document.getElementById('settingsMaxSize');
+            if (!input) return;
+            input.value = localStorage.getItem(MAX_SIZE_KEY) || '200';
         },
 
         async _renderPlugins() {
@@ -124,6 +132,25 @@
                     setTimeout(() => {
                         saveBtn.textContent = original;
                         saveBtn.disabled = false;
+                    }, 1500);
+                });
+            }
+
+            const saveMaxSizeBtn = document.getElementById('saveMaxSizeBtn');
+            const maxSizeInput = document.getElementById('settingsMaxSize');
+            if (saveMaxSizeBtn && maxSizeInput) {
+                saveMaxSizeBtn.addEventListener('click', () => {
+                    let val = parseInt(maxSizeInput.value);
+                    if (isNaN(val) || val < 1) val = 1;
+                    maxSizeInput.value = val;
+                    localStorage.setItem(MAX_SIZE_KEY, String(val));
+
+                    const original = saveMaxSizeBtn.textContent;
+                    saveMaxSizeBtn.textContent = '✓ Сохранено';
+                    saveMaxSizeBtn.disabled = true;
+                    setTimeout(() => {
+                        saveMaxSizeBtn.textContent = original;
+                        saveMaxSizeBtn.disabled = false;
                     }, 1500);
                 });
             }

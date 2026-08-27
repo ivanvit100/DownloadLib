@@ -55,19 +55,6 @@
             console.log('[PopupController] Initialized');
         }
 
-        async _loadPluginFormats() {
-            if (!global.PluginManager) return;
-            const sel = $el('formatSelector');
-            if (!sel) return;
-            const pluginFormats = await global.PluginManager.getFormats();
-            pluginFormats.forEach(({ value, label }) => {
-                const opt = document.createElement('option');
-                opt.value = value;
-                opt.textContent = label;
-                sel.appendChild(opt);
-            });
-        }
-
         async _init() {
             global.TemplateLoader.init('view');
             this._bindShellEvents();
@@ -79,7 +66,6 @@
             }
 
             await global.TemplateLoader.show('title');
-            await this._loadPluginFormats();
             this._bindTitleEvents();
             this.setupEventListeners();
             await this.loadMetadata();
@@ -93,7 +79,6 @@
                     if (!sel) return;
                     const current = sel.value;
                     sel.innerHTML = '';
-                    await this._loadPluginFormats();
                     global.ExporterRegistry.getFormats().forEach(({ value, label }) => {
                         const opt = document.createElement('option');
                         opt.value = value;
@@ -109,7 +94,6 @@
             const logoInfo = $el('logoInfo');
             if (logoInfo) logoInfo.textContent = '';
             await global.TemplateLoader.show('title');
-            await this._loadPluginFormats();
             this._bindTitleEvents();
             this.setupEventListeners();
             await this.loadMetadata();
@@ -146,7 +130,6 @@
             }
 
             const formatSelector = $el('formatSelector');
-            const maxSizeInput = $el('maxSizeInput');
             const hiddenFileInput = $el('fileInput');
             const customFileBtn = $el('customFileBtn');
             const status = $el('status');
@@ -178,17 +161,6 @@
                     localStorage.setItem(FORMAT_STORAGE_KEY, formatSelector.value);
                     if (browserAPI?.storage?.local)
                         browserAPI.storage.local.set({ [FORMAT_STORAGE_KEY]: formatSelector.value });
-                });
-            }
-
-            const MAX_SIZE_KEY = 'manga_parser_max_size_mb';
-            if (maxSizeInput) {
-                maxSizeInput.value = localStorage.getItem(MAX_SIZE_KEY) || '200';
-                maxSizeInput.addEventListener('input', (e) => {
-                    let val = parseInt(e.target.value);
-                    if (isNaN(val) || val < 1) val = 1;
-                    e.target.value = Math.floor(val);
-                    localStorage.setItem(MAX_SIZE_KEY, e.target.value);
                 });
             }
 
@@ -328,12 +300,8 @@
                 localStorage.setItem('manga_parser_selected_format', formatFromUrl);
             }
 
-            if (maxSizeMBFromUrl) {
+            if (maxSizeMBFromUrl)
                 localStorage.setItem('manga_parser_max_size_mb', maxSizeMBFromUrl);
-                const maxSizeInput = $el('maxSizeInput');
-                if (maxSizeInput) maxSizeInput.value = maxSizeMBFromUrl;
-                else console.warn('Max size input element not found');
-            }
 
             if (splitPagesFromUrl !== null) {
                 const splitPagesCheckbox = $el('splitPagesCheckbox');
@@ -409,6 +377,9 @@
                     if (!siteUrl) continue;
                     const btn = document.createElement('button');
                     btn.className = `service-link-btn ${name}-link-btn`;
+                    btn.style.flex = '1';
+                    if (service.config.primaryColor)
+                        btn.style.border = `2px solid ${service.config.primaryColor}`;
                     btn.textContent = service.config.label || name;
                     btn.addEventListener('click', async () => {
                         browserAPI.tabs.create({ url: siteUrl });
@@ -554,8 +525,10 @@
                 this._applyServiceTheme(serviceKey, siteLogo);
 
                 const splitPagesContainer = $el('splitPagesContainer');
-                if (splitPagesContainer)
-                    splitPagesContainer.style.display = serviceKey === 'mangalib' ? 'block' : 'none';
+                if (splitPagesContainer) {
+                    const showSplit = serviceKey === 'mangalib' || !!service?.config?.splitLongImages;
+                    splitPagesContainer.style.display = showSplit ? 'block' : 'none';
+                }
 
                 if (!slug) {
                     await this._showNoTitleState();
@@ -621,7 +594,7 @@
                         const chapterRangeContainer = $el('chapterRangeContainer');
 
                         const format = formatSelector ? formatSelector.value : 'fb2';
-                        const maxSizeMB = $el('maxSizeInput')?.value || '200';
+                        const maxSizeMB = localStorage.getItem('manga_parser_max_size_mb') || '200';
 
                         const splitPagesCheckboxEl = $el('splitPagesCheckbox');
                         const splitPagesContainerEl = $el('splitPagesContainer');
@@ -695,7 +668,6 @@
             btn.style.display = 'none';
             this._setVisibility('formatContainer', 'none');
             this._setVisibility('translatorContainer', 'none');
-            this._setVisibility('splitModeContainer', 'none');
             this._setVisibility('splitPagesContainer', 'none');
             if (hiddenFileInput) hiddenFileInput.disabled = true;
             if (customFileBtn) customFileBtn.disabled = true;
@@ -707,15 +679,15 @@
             const downloadInfoPanel = $el('downloadInfoPanel');
             if (downloadInfoPanel) {
                 const formatSelector = $el('formatSelector');
-                const maxSizeInput = $el('maxSizeInput');
                 const formatLabel = formatSelector
                     ? (formatSelector.options[formatSelector.selectedIndex]?.text || formatSelector.value)
                     : '';
                 const rateLimit = localStorage.getItem('downloadlib_default_rate_limit') || '85';
+                const maxSizeMBDisplay = localStorage.getItem('manga_parser_max_size_mb') || '200';
                 downloadInfoPanel.innerHTML =
                     `<div class="info-row"><span class="info-label">Формат</span><span class="info-value">${formatLabel}</span></div>` +
                     `<div class="info-row"><span class="info-label">Запросов в минуту</span><span class="info-value">${rateLimit}</span></div>` +
-                    `<div class="info-row"><span class="info-label">Макс. размер части</span><span class="info-value">${maxSizeInput ? maxSizeInput.value : ''} МБ</span></div>`;
+                    `<div class="info-row"><span class="info-label">Макс. размер части</span><span class="info-value">${maxSizeMBDisplay} МБ</span></div>`;
                 downloadInfoPanel.style.display = 'block';
             }
 
@@ -757,7 +729,7 @@
                 });
 
                 const format = formatSelector?.value || 'fb2';
-                const maxSizeMB = parseInt($el('maxSizeInput')?.value) || 200;
+                const maxSizeMB = parseInt(localStorage.getItem('manga_parser_max_size_mb')) || 200;
 
                 const splitPagesEl = $el('splitPagesCheckbox');
                 const splitPages = splitPagesEl ? splitPagesEl.checked : false;
@@ -861,7 +833,9 @@
             } else console.warn('Download button not found when resetting UI');
             this._setVisibility('formatContainer', '');
             this._setVisibility('downloadInfoPanel', 'none');
-            this._setVisibility('splitPagesContainer', this.currentServiceKey === 'mangalib' ? 'block' : 'none');
+            const showSplitOnReset =
+                this.currentServiceKey === 'mangalib' || !!this.currentService?.config?.splitLongImages;
+            this._setVisibility('splitPagesContainer', showSplitOnReset ? 'block' : 'none');
             if (hiddenFileInput) { hiddenFileInput.disabled = false; hiddenFileInput.value = ''; }
             else console.warn('Hidden file input not found when resetting UI');
             if (customFileBtn) {
@@ -887,8 +861,6 @@
                 translatorContainerReset.style.display =
                     (translatorSelectReset && translatorSelectReset.options.length > 1) ? 'block' : 'none';
             } else console.warn('Translator container not found when resetting UI');
-
-            this._setVisibility('splitModeContainer', 'block');
         }
 
         showError(message) {

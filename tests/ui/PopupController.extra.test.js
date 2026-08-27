@@ -88,6 +88,7 @@ beforeEach(async () => {
             })),
             fetchChaptersList: vi.fn(async () => ({ data: [] }))
         })),
+        getService: vi.fn(() => null),
     };
     global.RanobeLibService = class {
         name = 'ranobelib';
@@ -229,23 +230,6 @@ describe('PopupController extra coverage', () => {
             expect(global.browser.storage.local.set.mock.calls.length).toBeGreaterThan(1);
         });
 
-        it('maxSizeInput: clamps value below 1 to 1', () => {
-            const controller = new PopupController();
-            controller._bindTitleEvents();
-            const input = document.getElementById('maxSizeInput');
-            input.value = '0';
-            input.dispatchEvent(new InputEvent('input', { bubbles: true }));
-            expect(parseInt(input.value)).toBe(1);
-        });
-
-        it('maxSizeInput: accepts valid value and saves to localStorage', () => {
-            const controller = new PopupController();
-            controller._bindTitleEvents();
-            const input = document.getElementById('maxSizeInput');
-            input.value = '150';
-            input.dispatchEvent(new InputEvent('input', { bubbles: true }));
-            expect(global.localStorage.setItem).toHaveBeenCalledWith('manga_parser_max_size_mb', '150');
-        });
 
         it('hiddenFileInput change: no file resets btn text', () => {
             const controller = new PopupController();
@@ -347,23 +331,30 @@ describe('PopupController extra coverage', () => {
     });
 
     describe('_applyUrlParams', () => {
-        it('warns when maxSizeMBFromUrl is set but maxSizeInput element is missing', () => {
+        it('saves maxSizeMBFromUrl to localStorage when set', () => {
             const controller = new PopupController();
-            const el = document.getElementById('maxSizeInput');
-            if (el) el.parentNode.removeChild(el);
-            const warnSpy = vi.spyOn(console, 'warn');
             controller._applyUrlParams({ maxSizeMBFromUrl: '100' });
-            expect(warnSpy).toHaveBeenCalledWith('Max size input element not found');
+            expect(global.localStorage.setItem).toHaveBeenCalledWith('manga_parser_max_size_mb', '100');
+        });
+
+        it('does not write maxSizeMBFromUrl to localStorage when not set', () => {
+            const controller = new PopupController();
+            controller._applyUrlParams({ maxSizeMBFromUrl: null });
+            expect(global.localStorage.setItem).not.toHaveBeenCalledWith('manga_parser_max_size_mb', expect.anything());
         });
     });
 
     describe('_showWrongServiceState', () => {
         beforeEach(() => {
+            global.serviceRegistry.getAllServices = vi.fn(() => [
+                { config: { name: 'mangalib', siteUrl: 'https://mangalib.me', label: 'MangaLib', primaryColor: '#00bcd4' } },
+                { config: { name: 'ranobelib', siteUrl: 'https://ranobelib.me', label: 'RanobeLib', primaryColor: '#ff5722' } }
+            ]);
+            global.serviceRegistry.getService = vi.fn(() => null);
             global.TemplateLoader.show = vi.fn(async (name) => {
                 if (name === 'wrong-service') {
                     document.body.innerHTML += `
-                        <button id="openMangaLib"></button>
-                        <button id="openRanobeLib"></button>
+                        <div id="serviceLinks"></div>
                         <button id="openGithub"></button>
                     `;
                 }
@@ -373,20 +364,20 @@ describe('PopupController extra coverage', () => {
             });
         });
 
-        it('shows wrong-service template and binds openMangaLib click', async () => {
+        it('shows wrong-service template and binds mangalib service button click', async () => {
             const controller = new PopupController();
             controller._showNoTitleState = vi.fn(async () => {});
             await controller._showWrongServiceState();
-            document.getElementById('openMangaLib').click();
+            document.querySelector('.mangalib-link-btn').click();
             await new Promise(r => setTimeout(r, 10));
             expect(global.browser.tabs.create).toHaveBeenCalledWith({ url: 'https://mangalib.me' });
         });
 
-        it('binds openRanobeLib click', async () => {
+        it('binds ranobelib service button click', async () => {
             const controller = new PopupController();
             controller._showNoTitleState = vi.fn(async () => {});
             await controller._showWrongServiceState();
-            document.getElementById('openRanobeLib').click();
+            document.querySelector('.ranobelib-link-btn').click();
             await new Promise(r => setTimeout(r, 10));
             expect(global.browser.tabs.create).toHaveBeenCalledWith({ url: 'https://ranobelib.me' });
         });

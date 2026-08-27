@@ -13,6 +13,15 @@
 </div>
 
 <div class="settings-section">
+    <div class="settings-section-title">Загрузка</div>
+    <div class="settings-row">
+        <label class="settings-label" for="settingsMaxSize">Макс. размер части (МБ)</label>
+        <input id="settingsMaxSize" type="number" class="settings-number-input" min="1" max="9999" step="1">
+    </div>
+    <button id="saveMaxSizeBtn" class="settings-btn-outline">Применить</button>
+</div>
+
+<div class="settings-section">
     <div class="settings-section-title">Плагины</div>
     <div id="pluginList" class="plugin-list"></div>
     <div id="pluginEmpty" class="plugin-empty">Плагины не установлены</div>

@@ -102,6 +102,7 @@ beforeEach(async () => {
                 data: [{}, {}]
             }))
         })),
+        getService: vi.fn(() => null),
     };
     global.RanobeLibService = class {
         fetchMangaMetadata = vi.fn(async () => ({ data: { rus_name: 'Title', summary: 'Summary', cover: 'cover.png', authors: ['Author'], ageRestriction: { label: '18+' }, releaseDate: '2020' }, image: 'cover.png' }));
@@ -213,30 +214,27 @@ describe('PopupController', () => {
         expect(controller.loadedFile).toBe(null);
     });
 
-    it('resetUI hides splitModeContainer when present', () => {
+    it('resetUI does not change splitModeContainer display', () => {
         const splitModeContainer = document.getElementById('splitModeContainer');
         splitModeContainer.style.display = 'none';
         const controller = new PopupController();
         controller.resetUI();
-        expect(splitModeContainer.style.display).toBe('block');
+        expect(splitModeContainer.style.display).toBe('none');
     });
 
-    it('startDownload hides splitModeContainer when present', async () => {
-        const splitModeContainer = document.getElementById('splitModeContainer');
-        splitModeContainer.style.display = 'block';
+    it('startDownload hides splitPagesContainer', async () => {
+        const container = document.getElementById('splitPagesContainer');
+        container.style.display = 'block';
         const controller = new PopupController();
         controller.currentSlug = 'slug';
         controller.currentServiceKey = 'ranobelib';
         await controller.startDownload();
-        expect(splitModeContainer.style.display).toBe('none');
+        expect(container.style.display).toBe('none');
     });
 
-    it('startDownload uses maxSizeInput value when present', async () => {
+    it('startDownload uses maxSizeMB from localStorage', async () => {
         const controller = new PopupController();
-        await Promise.resolve();
-        await Promise.resolve();
-        const maxSizeInput = document.getElementById('maxSizeInput');
-        maxSizeInput.value = '150';
+        global.localStorage.getItem = vi.fn((key) => key === 'manga_parser_max_size_mb' ? '150' : null);
         controller.currentSlug = 'slug';
         controller.currentServiceKey = 'ranobelib';
         await controller.startDownload();
@@ -1400,7 +1398,6 @@ it('Sets formatSelector value from localStorage', async () => {
         await downloadBtn.click();
         await new Promise(resolve => setTimeout(resolve, 100));
         expect(getElementByIdSpy).toHaveBeenCalledWith('formatSelector');
-        expect(getElementByIdSpy).toHaveBeenCalledWith('maxSizeInput');
         getElementByIdSpy.mockRestore();
         isInSeparateWindowSpy.mockRestore();
         windowsCreateSpy.mockRestore();

@@ -28,6 +28,9 @@ function setupDOM() {
                     <select id="chapterToSelect"></select>
                 </div>
             </div>
+            <div id="splitPagesContainer" style="display:none">
+                <input type="checkbox" id="splitPagesCheckbox">
+            </div>
             <div id="splitModeContainer">
                 <input id="maxSizeInput" type="number" value="200">
             </div>
@@ -97,6 +100,7 @@ beforeEach(async () => {
             })),
             fetchChaptersList: vi.fn(async () => ({ data: [{}, {}] }))
         })),
+        getService: vi.fn(() => null),
     };
     global.browser = {
         runtime: {
@@ -984,21 +988,22 @@ describe('PopupController second test file', () => {
         expect(formatContainer.style.display).toBe('');
     });
 
-    it('Restores splitModeContainer visibility after resetUI', async () => {
+    it('startDownload hides splitPagesContainer, resetUI restores it for mangalib', async () => {
         const controller = new PopupController();
-        controller.currentSlug = 'slug';
-        controller.currentServiceKey = 'ranobelib';
-
         await new Promise(resolve => setTimeout(resolve, 100));
+
+        controller.currentSlug = 'slug';
+        controller.currentServiceKey = 'mangalib';
+
+        const container = document.getElementById('splitPagesContainer');
+        container.style.display = 'block';
 
         controller.downloadManager.startDownload = vi.fn(async () => ({}));
         await controller.startDownload();
-
-        const splitModeContainer = document.getElementById('splitModeContainer');
-        expect(splitModeContainer.style.display).toBe('none');
+        expect(container.style.display).toBe('none');
 
         controller.resetUI();
-        expect(splitModeContainer.style.display).toBe('block');
+        expect(container.style.display).toBe('block');
     });
 
     it('Skips panel population when downloadInfoPanel is absent from DOM during startDownload', async () => {
