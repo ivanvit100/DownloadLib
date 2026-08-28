@@ -650,4 +650,542 @@ describe('MessageRouter', () => {
             expect(globalThis.getExtensionApi).toHaveBeenCalled();
         });
     });
+
+    describe('fetchImage plugin service paths', () => {
+        beforeEach(async () => {
+            setupGlobals('firefox');
+            await loadModule();
+        });
+
+        it('Uses pluginServiceHosts patterns when serviceKey is a plugin', async () => {
+            globalThis.pluginServiceHosts = { myplugin: ['myplugin.com'] };
+            globalThis.browser.tabs = {
+                query: vi.fn().mockResolvedValue([{ id: 3 }]),
+                sendMessage: vi.fn().mockResolvedValue({ ok: true, base64: 'ZZ', contentType: 'image/webp' }),
+            };
+            const sendResponse = vi.fn();
+            capturedMessageCb(
+                { action: 'fetchImage', url: 'https://myplugin.com/img.webp', serviceKey: 'myplugin' },
+                {}, sendResponse,
+            );
+            await vi.waitFor(() => expect(sendResponse).toHaveBeenCalled());
+            expect(sendResponse).toHaveBeenCalledWith({ ok: true, base64: 'ZZ', contentType: 'image/webp' });
+            expect(globalThis.browser.tabs.query).toHaveBeenCalledWith({ url: ['*://myplugin.com/*'] });
+            delete globalThis.pluginServiceHosts;
+        });
+
+        it('Responds with error when pluginServiceHosts has no hosts for service', async () => {
+            globalThis.pluginServiceHosts = {};
+            globalThis.browser.tabs = { query: vi.fn(), sendMessage: vi.fn() };
+            const sendResponse = vi.fn();
+            capturedMessageCb(
+                { action: 'fetchImage', url: 'https://myplugin.com/img.webp', serviceKey: 'myplugin' },
+                {}, sendResponse,
+            );
+            await vi.waitFor(() => expect(sendResponse).toHaveBeenCalled());
+            expect(sendResponse).toHaveBeenCalledWith({ ok: false, error: 'No tab patterns for service: myplugin' });
+            delete globalThis.pluginServiceHosts;
+        });
+    });
+
+    describe('openDownloadWindow plugin paths', () => {
+        beforeEach(async () => {
+            setupGlobals('firefox');
+            await loadModule();
+        });
+
+        it('Detects service via pluginServiceHosts when detectServiceByUrl returns null', async () => {
+            globalThis.pluginServiceHosts = { myplugin: ['myplugin.com'] };
+            const mockCreate = vi.fn().mockResolvedValue({ id: 1 });
+            globalThis.browser.windows = { create: mockCreate, update: vi.fn() };
+            const sendResponse = vi.fn();
+            capturedMessageCb(
+                { action: 'openDownloadWindow', format: 'epub' },
+                { tab: { url: 'https://myplugin.com/manga/my-slug' } },
+                sendResponse,
+            );
+            await vi.waitFor(() => expect(sendResponse).toHaveBeenCalled());
+            expect(sendResponse).toHaveBeenCalledWith({ ok: true });
+            const urlArg = mockCreate.mock.calls[0][0].url;
+            expect(urlArg).toContain('service=myplugin');
+            expect(urlArg).toContain('slug=my-slug');
+            delete globalThis.pluginServiceHosts;
+        });
+
+        it('Detects service via pluginServiceHosts using subdomain match', async () => {
+            globalThis.pluginServiceHosts = { myplugin: ['myplugin.com'] };
+            const mockCreate = vi.fn().mockResolvedValue({ id: 1 });
+            globalThis.browser.windows = { create: mockCreate, update: vi.fn() };
+            const sendResponse = vi.fn();
+            capturedMessageCb(
+                { action: 'openDownloadWindow', format: 'epub' },
+                { tab: { url: 'https://sub.myplugin.com/manga/my-slug' } },
+                sendResponse,
+            );
+            await vi.waitFor(() => expect(sendResponse).toHaveBeenCalled());
+            expect(sendResponse).toHaveBeenCalledWith({ ok: true });
+            delete globalThis.pluginServiceHosts;
+        });
+
+        it('Fails when hostname matches no pluginServiceHosts entry', async () => {
+            globalThis.pluginServiceHosts = { myplugin: ['myplugin.com'] };
+            const sendResponse = vi.fn();
+            capturedMessageCb(
+                { action: 'openDownloadWindow', format: 'epub' },
+                { tab: { url: 'https://other.com/manga/my-slug' } },
+                sendResponse,
+            );
+            await vi.waitFor(() => expect(sendResponse).toHaveBeenCalled());
+            expect(sendResponse).toHaveBeenCalledWith({ ok: false, error: 'Cannot detect slug or service' });
+            delete globalThis.pluginServiceHosts;
+        });
+
+        it('Falls back to empty object when pluginServiceHosts is not defined', async () => {
+            delete globalThis.pluginServiceHosts;
+            const sendResponse = vi.fn();
+            capturedMessageCb(
+                { action: 'openDownloadWindow', format: 'epub' },
+                { tab: { url: 'https://other.com/manga/my-slug' } },
+                sendResponse,
+            );
+            await vi.waitFor(() => expect(sendResponse).toHaveBeenCalled());
+            expect(sendResponse).toHaveBeenCalledWith({ ok: false, error: 'Cannot detect slug or service' });
+        });
+
+        it('Includes tabId in popup URL when sender.tab.id is present', async () => {
+            const mockCreate = vi.fn().mockResolvedValue({ id: 1 });
+            globalThis.browser.windows = { create: mockCreate, update: vi.fn() };
+            const sendResponse = vi.fn();
+            capturedMessageCb(
+                { action: 'openDownloadWindow', format: 'epub' },
+                { tab: { url: 'https://mangalib.me/manga/my-manga', id: 7 } },
+                sendResponse,
+            );
+            await vi.waitFor(() => expect(sendResponse).toHaveBeenCalled());
+            const urlArg = mockCreate.mock.calls[0][0].url;
+            expect(urlArg).toContain('tabId=7');
+        });
+    });
+
+    describe('plugin:cache handler', () => {
+        function makeMockIdb({ failOpen = false, failTx = false } = {}) {
+            const mockObjectStore = { put: vi.fn() };
+            const mockTx = { objectStore: vi.fn(() => mockObjectStore), oncomplete: null, onerror: null };
+            const mockDb = { transaction: vi.fn(() => mockTx), close: vi.fn(), createObjectStore: vi.fn() };
+            const mockReq = { onsuccess: null, onerror: null, onupgradeneeded: null };
+            globalThis.indexedDB = {
+                open: vi.fn(() => {
+                    Promise.resolve().then(() => {
+                        if (failOpen) {
+                            mockReq.onerror({ target: { error: new Error('open error') } });
+                        } else {
+                            mockReq.onupgradeneeded?.({ target: { result: mockDb } });
+                            mockReq.onsuccess({ target: { result: mockDb } });
+                            Promise.resolve().then(() => {
+                                if (failTx) mockTx.onerror({ target: { error: new Error('tx error') } });
+                                else mockTx.oncomplete();
+                            });
+                        }
+                    });
+                    return mockReq;
+                }),
+            };
+            return { mockObjectStore };
+        }
+
+        beforeEach(async () => {
+            setupGlobals('firefox');
+            globalThis.browser.storage = {
+                local: { get: vi.fn().mockResolvedValue({ custom_plugins: [] }) },
+                onChanged: { addListener: vi.fn() },
+            };
+            await loadModule();
+        });
+
+        it('Stores plugin in IDB on success', async () => {
+            const { mockObjectStore } = makeMockIdb();
+            const sendResponse = vi.fn();
+            capturedMessageCb(
+                { action: 'plugin:cache', format: 'myformat', code: 'console.log(1)' },
+                {}, sendResponse,
+            );
+            await vi.waitFor(() => expect(sendResponse).toHaveBeenCalled());
+            expect(sendResponse).toHaveBeenCalledWith({ ok: true, swStatus: expect.any(String) });
+            expect(mockObjectStore.put).toHaveBeenCalledWith({ format: 'myformat', code: 'console.log(1)' });
+        });
+
+        it('Handles IDB transaction error', async () => {
+            vi.spyOn(console, 'warn').mockImplementation(() => {});
+            makeMockIdb({ failTx: true });
+            const sendResponse = vi.fn();
+            capturedMessageCb(
+                { action: 'plugin:cache', format: 'myformat', code: 'code' },
+                {}, sendResponse,
+            );
+            await vi.waitFor(() => expect(sendResponse).toHaveBeenCalled());
+            expect(sendResponse).toHaveBeenCalledWith({ ok: false, error: 'tx error', swStatus: expect.any(String) });
+        });
+
+        it('Handles IDB open error', async () => {
+            vi.spyOn(console, 'warn').mockImplementation(() => {});
+            makeMockIdb({ failOpen: true });
+            const sendResponse = vi.fn();
+            capturedMessageCb(
+                { action: 'plugin:cache', format: 'myformat', code: 'code' },
+                {}, sendResponse,
+            );
+            await vi.waitFor(() => expect(sendResponse).toHaveBeenCalled());
+            expect(sendResponse).toHaveBeenCalledWith({ ok: false, error: 'open error', swStatus: expect.any(String) });
+        });
+    });
+
+    describe('plugin:cache in SW context', () => {
+        beforeEach(async () => {
+            setupGlobals('firefox');
+            globalThis.importScripts = vi.fn();
+            globalThis.browser.storage = {
+                local: { get: vi.fn().mockResolvedValue({ custom_plugins: [] }) },
+                onChanged: { addListener: vi.fn() },
+            };
+            await loadModule();
+        });
+
+        afterEach(() => {
+            delete globalThis.importScripts;
+            delete globalThis.caches;
+        });
+
+        it('Stores plugin via Cache API in SW context', async () => {
+            const mockPut = vi.fn().mockResolvedValue();
+            globalThis.caches = { open: vi.fn().mockResolvedValue({ put: mockPut }) };
+            const sendResponse = vi.fn();
+            capturedMessageCb(
+                { action: 'plugin:cache', format: 'sw-fmt', code: 'code here' },
+                {}, sendResponse,
+            );
+            await vi.waitFor(() => expect(sendResponse).toHaveBeenCalled());
+            expect(sendResponse).toHaveBeenCalledWith({ ok: true, swStatus: 'sw-background' });
+            expect(globalThis.caches.open).toHaveBeenCalledWith('dl-plugins-v1');
+            expect(mockPut).toHaveBeenCalledWith('/plugin-runtime/sw-fmt.js', expect.any(Object));
+        });
+
+        it('Handles Cache API error in SW context', async () => {
+            vi.spyOn(console, 'warn').mockImplementation(() => {});
+            globalThis.caches = { open: vi.fn().mockRejectedValue(new Error('cache error')) };
+            const sendResponse = vi.fn();
+            capturedMessageCb(
+                { action: 'plugin:cache', format: 'sw-fmt', code: 'code' },
+                {}, sendResponse,
+            );
+            await vi.waitFor(() => expect(sendResponse).toHaveBeenCalled());
+            expect(sendResponse).toHaveBeenCalledWith({ ok: false, error: 'cache error', swStatus: 'sw-background' });
+        });
+    });
+
+    describe('_getSwStatus paths via plugin:cache', () => {
+        function makeMockIdb() {
+            const mockTx = { objectStore: vi.fn(() => ({ put: vi.fn() })), oncomplete: null, onerror: null };
+            const mockDb = { transaction: vi.fn(() => mockTx), close: vi.fn(), createObjectStore: vi.fn() };
+            const mockReq = { onsuccess: null, onerror: null, onupgradeneeded: null };
+            globalThis.indexedDB = {
+                open: vi.fn(() => {
+                    Promise.resolve().then(() => {
+                        mockReq.onsuccess({ target: { result: mockDb } });
+                        Promise.resolve().then(() => mockTx.oncomplete());
+                    });
+                    return mockReq;
+                }),
+            };
+        }
+
+        let origNavigator;
+
+        beforeEach(async () => {
+            setupGlobals('firefox');
+            globalThis.browser.storage = {
+                local: { get: vi.fn().mockResolvedValue({ custom_plugins: [] }) },
+                onChanged: { addListener: vi.fn() },
+            };
+            makeMockIdb();
+            origNavigator = globalThis.navigator;
+            await loadModule();
+        });
+
+        afterEach(() => {
+            globalThis.navigator = origNavigator;
+        });
+
+        it('Returns not-registered when no SW registration found', async () => {
+            globalThis.navigator = { serviceWorker: { getRegistration: vi.fn().mockResolvedValue(null) } };
+            const sendResponse = vi.fn();
+            capturedMessageCb({ action: 'plugin:cache', format: 'f', code: 'c' }, {}, sendResponse);
+            await vi.waitFor(() => expect(sendResponse).toHaveBeenCalled());
+            expect(sendResponse.mock.calls[0][0].swStatus).toBe('not-registered');
+        });
+
+        it('Returns registered:activated when active SW found', async () => {
+            globalThis.navigator = {
+                serviceWorker: {
+                    getRegistration: vi.fn().mockResolvedValue({ active: { state: 'activated' }, installing: null, waiting: null }),
+                },
+            };
+            const sendResponse = vi.fn();
+            capturedMessageCb({ action: 'plugin:cache', format: 'f', code: 'c' }, {}, sendResponse);
+            await vi.waitFor(() => expect(sendResponse).toHaveBeenCalled());
+            expect(sendResponse.mock.calls[0][0].swStatus).toBe('registered:activated');
+        });
+
+        it('Returns registered:installing from installing state', async () => {
+            globalThis.navigator = {
+                serviceWorker: {
+                    getRegistration: vi.fn().mockResolvedValue({ active: null, installing: { state: 'installing' }, waiting: null }),
+                },
+            };
+            const sendResponse = vi.fn();
+            capturedMessageCb({ action: 'plugin:cache', format: 'f', code: 'c' }, {}, sendResponse);
+            await vi.waitFor(() => expect(sendResponse).toHaveBeenCalled());
+            expect(sendResponse.mock.calls[0][0].swStatus).toBe('registered:installing');
+        });
+
+        it('Returns registered:unknown when SW has no recognizable state', async () => {
+            globalThis.navigator = {
+                serviceWorker: { getRegistration: vi.fn().mockResolvedValue({}) },
+            };
+            const sendResponse = vi.fn();
+            capturedMessageCb({ action: 'plugin:cache', format: 'f', code: 'c' }, {}, sendResponse);
+            await vi.waitFor(() => expect(sendResponse).toHaveBeenCalled());
+            expect(sendResponse.mock.calls[0][0].swStatus).toBe('registered:unknown');
+        });
+
+        it('Returns error string when getRegistration throws', async () => {
+            globalThis.navigator = {
+                serviceWorker: { getRegistration: vi.fn().mockRejectedValue(new Error('sw error')) },
+            };
+            const sendResponse = vi.fn();
+            capturedMessageCb({ action: 'plugin:cache', format: 'f', code: 'c' }, {}, sendResponse);
+            await vi.waitFor(() => expect(sendResponse).toHaveBeenCalled());
+            expect(sendResponse.mock.calls[0][0].swStatus).toBe('error:sw error');
+        });
+    });
+
+    describe('plugin:exec handler', () => {
+        beforeEach(async () => {
+            setupGlobals('firefox');
+            globalThis.browser.storage = {
+                local: { get: vi.fn().mockResolvedValue({ custom_plugins: [] }) },
+                onChanged: { addListener: vi.fn() },
+            };
+            await loadModule();
+        });
+
+        it('Executes plugin script in specified tab', async () => {
+            const mockExecuteScript = vi.fn().mockResolvedValue();
+            globalThis.browser.scripting = { executeScript: mockExecuteScript };
+            const sendResponse = vi.fn();
+            capturedMessageCb(
+                { action: 'plugin:exec', tabId: 42, code: 'console.log("hi")' },
+                {}, sendResponse,
+            );
+            await vi.waitFor(() => expect(sendResponse).toHaveBeenCalled());
+            expect(sendResponse).toHaveBeenCalledWith({ ok: true });
+            expect(mockExecuteScript).toHaveBeenCalledWith({
+                target: { tabId: 42 },
+                func: expect.any(Function),
+                args: ['console.log("hi")'],
+            });
+            // Invoke the func argument to cover the eval line
+            const funcArg = mockExecuteScript.mock.calls[0][0].func;
+            expect(() => funcArg('1+1')).not.toThrow();
+        });
+
+        it('Responds with error when scripting.executeScript not available', async () => {
+            const sendResponse = vi.fn();
+            capturedMessageCb({ action: 'plugin:exec', tabId: 42, code: 'code' }, {}, sendResponse);
+            await vi.waitFor(() => expect(sendResponse).toHaveBeenCalled());
+            expect(sendResponse).toHaveBeenCalledWith({ ok: false, error: 'scripting.executeScript not available' });
+        });
+
+        it('Responds with error when tabId is missing', async () => {
+            globalThis.browser.scripting = { executeScript: vi.fn() };
+            const sendResponse = vi.fn();
+            capturedMessageCb({ action: 'plugin:exec', code: 'code' }, {}, sendResponse);
+            await vi.waitFor(() => expect(sendResponse).toHaveBeenCalled());
+            expect(sendResponse).toHaveBeenCalledWith({ ok: false, error: 'No tabId provided' });
+        });
+
+        it('Responds with error when executeScript throws', async () => {
+            vi.spyOn(console, 'warn').mockImplementation(() => {});
+            globalThis.browser.scripting = {
+                executeScript: vi.fn().mockRejectedValue(new Error('exec error')),
+            };
+            const sendResponse = vi.fn();
+            capturedMessageCb({ action: 'plugin:exec', tabId: 10, code: 'code' }, {}, sendResponse);
+            await vi.waitFor(() => expect(sendResponse).toHaveBeenCalled());
+            expect(sendResponse).toHaveBeenCalledWith({ ok: false, error: 'exec error' });
+        });
+    });
+
+    describe('_syncPluginContentScripts', () => {
+        let mockRegister;
+        let mockGetRegistered;
+        let mockUnregister;
+        let capturedStorageChangeCb;
+
+        async function setupWithScripting(plugins = []) {
+            setupGlobals('firefox');
+            mockRegister = vi.fn().mockResolvedValue();
+            mockGetRegistered = vi.fn().mockResolvedValue([]);
+            mockUnregister = vi.fn().mockResolvedValue();
+            capturedStorageChangeCb = null;
+
+            globalThis.browser.scripting = {
+                registerContentScripts: mockRegister,
+                getRegisteredContentScripts: mockGetRegistered,
+                unregisterContentScripts: mockUnregister,
+            };
+            globalThis.browser.storage = {
+                local: { get: vi.fn().mockResolvedValue({ custom_plugins: plugins }) },
+                onChanged: { addListener: vi.fn(cb => { capturedStorageChangeCb = cb; }) },
+            };
+
+            await loadModule();
+            await vi.waitFor(() => expect(mockGetRegistered).toHaveBeenCalled());
+        }
+
+        it('Returns early when scripting API not available', async () => {
+            setupGlobals('firefox');
+            globalThis.browser.storage = {
+                local: { get: vi.fn().mockResolvedValue({}) },
+                onChanged: { addListener: vi.fn() },
+            };
+            await loadModule();
+            expect(mockAddListenerOnMessage).toHaveBeenCalled();
+        });
+
+        it('Uses empty array when custom_plugins key is absent from storage', async () => {
+            setupGlobals('firefox');
+            mockRegister = vi.fn().mockResolvedValue();
+            mockGetRegistered = vi.fn().mockResolvedValue([]);
+            mockUnregister = vi.fn().mockResolvedValue();
+            globalThis.browser.scripting = {
+                registerContentScripts: mockRegister,
+                getRegisteredContentScripts: mockGetRegistered,
+                unregisterContentScripts: mockUnregister,
+            };
+            globalThis.browser.storage = {
+                local: { get: vi.fn().mockResolvedValue({}) }, // no custom_plugins key
+                onChanged: { addListener: vi.fn() },
+            };
+            await loadModule();
+            await vi.waitFor(() => expect(mockGetRegistered).toHaveBeenCalled());
+            expect(mockRegister).not.toHaveBeenCalled();
+        });
+
+        it('Registers content scripts for enabled plugins', async () => {
+            await setupWithScripting([{ service: 'myplugin', hosts: ['myplugin.com'], enabled: true }]);
+            await vi.waitFor(() => expect(mockRegister).toHaveBeenCalledWith([{
+                id: 'dl-plugin-myplugin',
+                matches: ['https://myplugin.com/*'],
+                js: ['/content/AdCleaner.js', '/content/DownloadButton.js', '/content/ImageFetcher.js'],
+                runAt: 'document_idle',
+            }]));
+            expect(globalThis.pluginServiceHosts).toEqual({ myplugin: ['myplugin.com'] });
+        });
+
+        it('Uses format as key when service is absent', async () => {
+            await setupWithScripting([{ format: 'myformat', hosts: ['myformat.com'] }]);
+            await vi.waitFor(() => expect(mockRegister).toHaveBeenCalledWith([expect.objectContaining({ id: 'dl-plugin-myformat' })]));
+        });
+
+        it('Skips plugins with no service or format key', async () => {
+            await setupWithScripting([{ hosts: ['myplugin.com'] }]);
+            expect(mockRegister).not.toHaveBeenCalled();
+        });
+
+        it('Skips disabled plugins', async () => {
+            await setupWithScripting([{ service: 'myplugin', hosts: ['myplugin.com'], enabled: false }]);
+            expect(mockRegister).not.toHaveBeenCalled();
+        });
+
+        it('Skips plugins with no hosts', async () => {
+            await setupWithScripting([{ service: 'myplugin', hosts: [] }]);
+            expect(mockRegister).not.toHaveBeenCalled();
+        });
+
+        it('Unregisters old plugin scripts before registering new ones', async () => {
+            setupGlobals('firefox');
+            mockRegister = vi.fn().mockResolvedValue();
+            mockGetRegistered = vi.fn().mockResolvedValue([
+                { id: 'dl-plugin-oldplugin' },
+                { id: 'other-script' },
+            ]);
+            mockUnregister = vi.fn().mockResolvedValue();
+
+            globalThis.browser.scripting = {
+                registerContentScripts: mockRegister,
+                getRegisteredContentScripts: mockGetRegistered,
+                unregisterContentScripts: mockUnregister,
+            };
+            globalThis.browser.storage = {
+                local: { get: vi.fn().mockResolvedValue({ custom_plugins: [{ service: 'myplugin', hosts: ['myplugin.com'] }] }) },
+                onChanged: { addListener: vi.fn() },
+            };
+
+            await loadModule();
+            await vi.waitFor(() => expect(mockRegister).toHaveBeenCalled());
+            expect(mockUnregister).toHaveBeenCalledWith({ ids: ['dl-plugin-oldplugin'] });
+        });
+
+        it('Does not call unregister when no old plugin scripts exist', async () => {
+            await setupWithScripting([{ service: 'myplugin', hosts: ['myplugin.com'] }]);
+            expect(mockUnregister).not.toHaveBeenCalled();
+        });
+
+        it('Handles error during sync gracefully', async () => {
+            const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
+            setupGlobals('firefox');
+            globalThis.browser.scripting = {
+                registerContentScripts: vi.fn(),
+                getRegisteredContentScripts: vi.fn().mockRejectedValue(new Error('scripting error')),
+                unregisterContentScripts: vi.fn(),
+            };
+            globalThis.browser.storage = {
+                local: { get: vi.fn().mockResolvedValue({ custom_plugins: [] }) },
+                onChanged: { addListener: vi.fn() },
+            };
+            await loadModule();
+            await vi.waitFor(() => expect(warnSpy).toHaveBeenCalledWith(
+                '[MessageRouter] Failed to sync plugin content scripts:', 'scripting error',
+            ));
+        });
+
+        it('Triggers sync when storage.onChanged fires with custom_plugins in local area', async () => {
+            await setupWithScripting([]);
+            mockGetRegistered.mockClear();
+            capturedStorageChangeCb({ custom_plugins: { newValue: [] } }, 'local');
+            await vi.waitFor(() => expect(mockGetRegistered).toHaveBeenCalled());
+        });
+
+        it('Does not trigger sync for non-local area changes', async () => {
+            await setupWithScripting([]);
+            mockGetRegistered.mockClear();
+            capturedStorageChangeCb({ custom_plugins: {} }, 'sync');
+            await new Promise(r => setTimeout(r, 30));
+            expect(mockGetRegistered).not.toHaveBeenCalled();
+        });
+
+        it('Does not trigger sync when changed key is not custom_plugins', async () => {
+            await setupWithScripting([]);
+            mockGetRegistered.mockClear();
+            capturedStorageChangeCb({ other_key: {} }, 'local');
+            await new Promise(r => setTimeout(r, 30));
+            expect(mockGetRegistered).not.toHaveBeenCalled();
+        });
+
+        it('Does not register storage.onChanged listener when storage API unavailable', async () => {
+            setupGlobals('firefox');
+            await loadModule();
+            expect(mockAddListenerOnMessage).toHaveBeenCalled();
+        });
+    });
 });
