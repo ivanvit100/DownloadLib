@@ -196,6 +196,12 @@
           <br/><sub><b>Dordovel</b></sub>
         </a>
       </td>
+      <td align="center">
+        <a href="https://github.com/weltora">
+          <img src="https://github.com/weltora.png" width="48" style="border-radius:50%"/>
+          <br/><sub><b>weltora</b></sub>
+        </a>
+      </td>
     </tr>
   </table>
 </div>

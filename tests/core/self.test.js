@@ -135,4 +135,19 @@ describe('Self Attachment', () => {
         if (originalBrowser !== undefined) global.browser = originalBrowser;
         else delete global.browser;
     });
+
+    it('Attaches to self in PluginManager', async () => {
+        const originalWindow = global.window;
+        const originalSelf = global.self;
+        delete global.window;
+        global.self = global;
+        const path = require.resolve('../../core/PluginManager.js');
+        delete require.cache[path];
+        await import('../../core/PluginManager.js');
+        expect(global.self.PluginManager).toBeDefined();
+        if (originalWindow !== undefined) global.window = originalWindow;
+        else delete global.window;
+        if (originalSelf !== undefined) global.self = originalSelf;
+        else delete global.self;
+    });
 });

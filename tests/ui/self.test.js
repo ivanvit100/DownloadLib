@@ -58,4 +58,15 @@ describe('PopupController attaches to self', () => {
 
         delete global.chrome;
     });
+
+    it('Attaches SettingsController to self when window is undefined', async () => {
+        delete global.window;
+        global.self = global;
+
+        const path = require.resolve('../../ui/SettingsController.js');
+        delete require.cache[path];
+        await import('../../ui/SettingsController.js');
+
+        expect(global.self.SettingsController).toBeDefined();
+    });
 });

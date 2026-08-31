@@ -84,6 +84,25 @@ describe('App initialization', () => {
         expect(addEventListenerSpy).toHaveBeenCalledWith('DOMContentLoaded', expect.any(Function));
     });
 
+    it('DOMContentLoaded callback executes initApp', async () => {
+        document.readyState = 'loading';
+        let capturedCb;
+        document.addEventListener = vi.fn((evt, cb) => { if (evt === 'DOMContentLoaded') capturedCb = cb; });
+        await import('../app.js?dom-cb');
+        expect(capturedCb).toBeDefined();
+        await capturedCb();
+        expect(window.PopupController).toHaveBeenCalled();
+    });
+
+    it('calls PluginManager.loadAll when PluginManager is present', async () => {
+        window.PluginManager = { loadAll: vi.fn().mockResolvedValue() };
+        await import('../app.js?pm-test');
+        vi.runAllTimers();
+        await Promise.resolve();
+        await Promise.resolve();
+        expect(window.PluginManager.loadAll).toHaveBeenCalled();
+    });
+
     it('Does not force assigning window.chrome from window.browser', async () => {
         const originalBrowser = global.browser;
         const originalChrome = global.chrome;
