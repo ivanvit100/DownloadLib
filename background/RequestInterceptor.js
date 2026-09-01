@@ -79,6 +79,8 @@
         return url.includes('mixlib.me') ||
             url.includes('imglib.info') ||
             url.includes('imgslib.link') ||
+            url.includes('img1.cdnlibs.org') ||
+            url.includes('img2.cdnlibs.org') ||
             url.includes('img3.cdnlibs.org') ||
             url.includes('cover.cdnlibs.org') ||
             url.includes('/covers/') ||
@@ -133,6 +135,8 @@
     const FIREFOX_WEBREQUEST_URLS = [
         'https://api.cdnlibs.org/*',
         'https://cover.cdnlibs.org/*',
+        'https://img1.cdnlibs.org/*',
+        'https://img2.cdnlibs.org/*',
         'https://img3.cdnlibs.org/*',
         'https://*.mixlib.me/*',
         'https://*.imglib.info/*',

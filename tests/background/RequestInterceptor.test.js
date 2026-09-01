@@ -102,6 +102,8 @@ describe('RequestInterceptor', () => {
                     urls: [
                         'https://api.cdnlibs.org/*',
                         'https://cover.cdnlibs.org/*',
+                        'https://img1.cdnlibs.org/*',
+                        'https://img2.cdnlibs.org/*',
                         'https://img3.cdnlibs.org/*',
                         'https://*.mixlib.me/*',
                         'https://*.imglib.info/*',

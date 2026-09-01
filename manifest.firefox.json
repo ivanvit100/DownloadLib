@@ -44,6 +44,8 @@
         "https://ranobelib.me/*",
         "https://api.cdnlibs.org/*",
         "https://cover.cdnlibs.org/*",
+        "https://img1.cdnlibs.org/*",
+        "https://img2.cdnlibs.org/*",
         "https://img3.cdnlibs.org/*",
         "https://img3.mixlib.me/*",
         "https://img2.imgslib.link/*",

@@ -25,6 +25,12 @@
  *   "name": "hlib",
  *   "baseUrl": "https://api.cdnlibs.org",
  *   "imagesDomain": "https://img3h.hentaicdn.org",
+ *   "imageServers": {
+ *     "compression": { "domain": "https://img3h.hentaicdn.org", "label": "Сжатие (по умолчанию)", "compress": true },
+ *     "server1":     { "domain": "https://img1h.hentaicdn.org", "label": "Сервер 1 (оригинал)",   "compress": false },
+ *     "server2":     { "domain": "https://img2h.hentaicdn.org", "label": "Сервер 2 (оригинал)",   "compress": false }
+ *   },
+ *   "defaultImageServer": "compression",
  *   "siteId": "4",
  *   "fields": [
  *     "background", "eng_name", "summary", "releaseDate",

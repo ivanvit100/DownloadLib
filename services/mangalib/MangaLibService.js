@@ -48,6 +48,14 @@
             return [];
         }
 
+        _getActiveServer() {
+            const key = (typeof localStorage !== 'undefined' && localStorage.getItem('mangalib_image_server'))
+                || this.config.defaultImageServer
+                || 'compression';
+            return this.config.imageServers?.[key] || this.config.imageServers?.compression
+                || { domain: this.config.imagesDomain, compress: true };
+        }
+
         resolvePageUrl(filename) {
             if (!filename) return null;
 
@@ -64,8 +72,9 @@
                 filenameStr = String(filename);
 
             if (/^https?:\/\//i.test(filenameStr)) return filenameStr;
-            if (filenameStr.startsWith('/')) return `${this.config.imagesDomain}${filenameStr}`;
-            return `${this.config.imagesDomain}/${filenameStr}`;
+            const { domain } = this._getActiveServer();
+            if (filenameStr.startsWith('/')) return `${domain}${filenameStr}`;
+            return `${domain}/${filenameStr}`;
         }
 
         splitLongImage(base64Data, contentType, compressOpts = {}) {
@@ -126,6 +135,7 @@
         _resolveRefUrl(ref) {
             if (typeof ref === 'string') return this.resolvePageUrl(ref);
             if (ref.filename) return this.resolvePageUrl(ref.filename);
+            if (ref.image) return this.resolvePageUrl(ref.image);
             if (ref.url) {
                 const { url } = ref;
                 return /^https?:\/\//i.test(url) ? url : this.resolvePageUrl(url);
@@ -135,7 +145,8 @@
         }
 
         async _processImage(base64Data, contentType, compressOpts, splitLongImages) {
-            if (splitLongImages) {
+            const serverCompressEnabled = this._getActiveServer().compress !== false;
+            if (splitLongImages && serverCompressEnabled) {
                 const parts = await this.splitLongImage(base64Data, contentType, compressOpts);
                 if (parts.length > 1) return parts;
                 const [raw] = parts;
@@ -143,6 +154,8 @@
                     ? global.ImageCompressor.compress(raw.base64, raw.contentType, compressOpts)
                     : raw;
             }
+            if (!serverCompressEnabled)
+                return { base64: base64Data, contentType };
             return global.ImageCompressor
                 ? global.ImageCompressor.compress(base64Data, contentType, compressOpts)
                 : { base64: base64Data, contentType };

@@ -395,11 +395,20 @@
                     }));
                 }
 
+                _getActiveServer() {
+                    if (!config.imageServers) return null;
+                    const key = (typeof localStorage !== 'undefined' && localStorage.getItem(`${serviceName}_image_server`))
+                        || config.defaultImageServer
+                        || 'compression';
+                    return config.imageServers[key] || config.imageServers.compression || null;
+                }
+
                 resolvePageUrl(ref) {
                     if (!ref) return null;
                     const str = String(ref?.src || ref);
                     if (/^https?:\/\//i.test(str)) return str;
-                    const domain = config.imagesDomain || '';
+                    const server = this._getActiveServer();
+                    const domain = server ? server.domain : (config.imagesDomain || '');
                     return str.startsWith('/') ? `${domain}${str}` : `${domain}/${str}`;
                 }
 
@@ -415,6 +424,10 @@
                         console.warn(`[${serviceName}] Failed to fetch ${url}:`, response?.error);
                         return null;
                     }
+
+                    const server = this._getActiveServer();
+                    if (server && server.compress === false)
+                        return { base64: response.base64, contentType: response.contentType };
 
                     if (global.ImageCompressor) {
                         const compressOpts = {
