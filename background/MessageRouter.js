@@ -31,6 +31,41 @@
 
     const detectServiceByUrl = globalThis.detectServiceByUrl || (() => null);
 
+    const CDN_IMAGE_HOSTS = [
+        'img1.cdnlibs.org', 'img2.cdnlibs.org', 'img3.cdnlibs.org',
+        'img1h.hentaicdn.org', 'img2h.hentaicdn.org', 'img3h.hentaicdn.org',
+        'img3.mixlib.me', 'img2.imgslib.link', 'cover.cdnlibs.org', 'cover.imglib.info'
+    ];
+
+    function isCdnImageUrl(url) {
+        try {
+            return CDN_IMAGE_HOSTS.includes(new URL(url).hostname);
+        } catch {
+            return false;
+        }
+    }
+
+    async function fetchImageFromBackground(url) {
+        try {
+            const response = await fetch(url, { credentials: 'omit' });
+            if (!response.ok)
+                return { ok: false, error: `HTTP ${response.status}` };
+            const blob = await response.blob();
+            return new Promise((resolve) => {
+                const reader = new FileReader();
+                reader.onloadend = () => resolve({
+                    ok: true,
+                    base64: reader.result.split(',')[1],
+                    contentType: blob.type || 'image/jpeg'
+                });
+                reader.onerror = () => resolve({ ok: false, error: 'FileReader error' });
+                reader.readAsDataURL(blob);
+            });
+        } catch (e) {
+            return { ok: false, error: String(e) };
+        }
+    }
+
     async function openPopupWindow(url) {
         if (browserAPI.windows) {
             const win = await browserAPI.windows.create({
@@ -79,6 +114,12 @@
                     const serviceKey = msg.serviceKey || detectServiceByUrl(url);
 
                     if (serviceKey) await rateLimiter.trackRequest(serviceKey);
+
+                    if (isCdnImageUrl(url)) {
+                        const bgResult = await fetchImageFromBackground(url);
+                        respond(bgResult);
+                        return;
+                    }
 
                     let patterns;
                     if (serviceKey === 'ranobelib')

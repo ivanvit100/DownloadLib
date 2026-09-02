@@ -52,8 +52,18 @@
             const key = (typeof localStorage !== 'undefined' && localStorage.getItem('mangalib_image_server'))
                 || this.config.defaultImageServer
                 || 'compression';
+            if (key && /^https?:\/\//i.test(key)) {
+                const compress = key === (this.config.imageServers?.compression?.domain);
+                return { domain: key, compress, apiParam: compress ? 'compress' : null };
+            }
             return this.config.imageServers?.[key] || this.config.imageServers?.compression
-                || { domain: this.config.imagesDomain, compress: true };
+                || { domain: this.config.imagesDomain, compress: true, apiParam: 'compress' };
+        }
+
+        fetchChapter(slug, number, volume = '1', branchId = null) {
+            const server = this._getActiveServer();
+            const extraParams = server?.apiParam ? { server: server.apiParam } : {};
+            return super.fetchChapter(slug, number, volume, branchId, extraParams);
         }
 
         resolvePageUrl(filename) {
@@ -135,11 +145,13 @@
         _resolveRefUrl(ref) {
             if (typeof ref === 'string') return this.resolvePageUrl(ref);
             if (ref.filename) return this.resolvePageUrl(ref.filename);
-            if (ref.image) return this.resolvePageUrl(ref.image);
             if (ref.url) {
                 const { url } = ref;
-                return /^https?:\/\//i.test(url) ? url : this.resolvePageUrl(url);
+                if (/^https?:\/\//i.test(url)) return url;
+                if (url.startsWith('//')) return this.resolvePageUrl(url.slice(1));
+                return this.resolvePageUrl(url);
             }
+            if (ref.image) return this.resolvePageUrl(ref.image);
             if (ref.src) return this.resolvePageUrl(ref.src);
             return null;
         }
@@ -161,6 +173,23 @@
                 : { base64: base64Data, contentType };
         }
 
+        async _fetchWithCompressionFallback(url) {
+            const send = u => this.extensionApi.runtime.sendMessage({ action: 'fetchImage', url: u });
+            const response = await send(url);
+            if (response?.ok) return response;
+
+            const activeServer = this._getActiveServer();
+            const comprDomain = this.config.imageServers?.compression?.domain;
+            if (comprDomain && activeServer.domain !== comprDomain) {
+                console.warn(`[MangaLibService] ${activeServer.domain} failed, retrying via compression`);
+                const fallback = await send(url.replace(activeServer.domain, comprDomain));
+                if (fallback?.ok) return fallback;
+            }
+
+            console.warn(`[MangaLibService] Failed to fetch ${url}:`, response?.error);
+            return null;
+        }
+
         async loadPageAsBase64(ref, opts = {}) {
             try {
                 if (!ref) return null;
@@ -178,11 +207,8 @@
                     return null;
                 }
 
-                const response = await this.extensionApi.runtime.sendMessage({ action: 'fetchImage', url });
-                if (!response || !response.ok) {
-                    console.warn(`[MangaLibService] Failed to fetch ${url}:`, response?.error);
-                    return null;
-                }
+                const response = await this._fetchWithCompressionFallback(url);
+                if (!response) return null;
 
                 const compressOpts = {
                     format: opts.compressionFormat || 'image/jpeg',

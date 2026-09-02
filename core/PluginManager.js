@@ -500,7 +500,9 @@
             let ownTabId = null;
             try {
                 const tab = await api.tabs.getCurrent();
-                ownTabId = tab?.id ?? null;
+                const url = tab?.url || '';
+                if (tab?.id != null && !url.startsWith('moz-extension://') && !url.startsWith('chrome-extension://'))
+                    ownTabId = tab.id;
             } catch { console.warn('[PluginManager] Failed to get current tab ID'); }
 
             for (const plugin of enabled) {
