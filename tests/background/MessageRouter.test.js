@@ -378,6 +378,82 @@ describe('MessageRouter', () => {
             expect(mockTrackRequest).toHaveBeenCalledWith('mangalib');
         });
 
+        it('isCdnImageUrl returns false for invalid URL (routes through tabs proxy)', async () => {
+            globalThis.browser.tabs = {
+                query: vi.fn().mockResolvedValue([{ id: 1 }]),
+                sendMessage: vi.fn().mockResolvedValue({ ok: true, base64: 'X', contentType: 'image/jpeg' }),
+            };
+            const sendResponse = vi.fn();
+            capturedMessageCb({ action: 'fetchImage', url: 'not-a-url' }, {}, sendResponse);
+            await vi.waitFor(() => expect(sendResponse).toHaveBeenCalled());
+            expect(globalThis.browser.tabs.query).toHaveBeenCalled();
+        });
+
+        it('fetchImage routes CDN URL through fetchImageFromBackground (success)', async () => {
+            const mockBlob = new Blob(['data'], { type: 'image/png' });
+            globalThis.fetch = vi.fn().mockResolvedValue({ ok: true, blob: vi.fn().mockResolvedValue(mockBlob) });
+            const OrigFileReader = globalThis.FileReader;
+            globalThis.FileReader = class {
+                readAsDataURL() {
+                    this.result = 'data:image/png;base64,MOCKBASE64';
+                    setTimeout(() => this.onloadend(), 0);
+                }
+            };
+            const sendResponse = vi.fn();
+            capturedMessageCb({ action: 'fetchImage', url: 'https://img3.cdnlibs.org/manga/img.jpg' }, {}, sendResponse);
+            await vi.waitFor(() => expect(sendResponse).toHaveBeenCalled());
+            expect(globalThis.fetch).toHaveBeenCalledWith('https://img3.cdnlibs.org/manga/img.jpg', { credentials: 'omit' });
+            expect(sendResponse).toHaveBeenCalledWith({ ok: true, base64: 'MOCKBASE64', contentType: 'image/png' });
+            globalThis.FileReader = OrigFileReader;
+        });
+
+        it('fetchImageFromBackground returns HTTP error when response not ok', async () => {
+            globalThis.fetch = vi.fn().mockResolvedValue({ ok: false, status: 503 });
+            const sendResponse = vi.fn();
+            capturedMessageCb({ action: 'fetchImage', url: 'https://img3.cdnlibs.org/img.jpg' }, {}, sendResponse);
+            await vi.waitFor(() => expect(sendResponse).toHaveBeenCalled());
+            expect(sendResponse).toHaveBeenCalledWith({ ok: false, error: 'HTTP 503' });
+        });
+
+        it('fetchImageFromBackground returns FileReader error on reader onerror', async () => {
+            const mockBlob = new Blob(['x'], { type: 'image/jpeg' });
+            globalThis.fetch = vi.fn().mockResolvedValue({ ok: true, blob: vi.fn().mockResolvedValue(mockBlob) });
+            const OrigFileReader = globalThis.FileReader;
+            globalThis.FileReader = class {
+                readAsDataURL() { setTimeout(() => this.onerror(), 0); }
+            };
+            const sendResponse = vi.fn();
+            capturedMessageCb({ action: 'fetchImage', url: 'https://img3.cdnlibs.org/img.jpg' }, {}, sendResponse);
+            await vi.waitFor(() => expect(sendResponse).toHaveBeenCalled());
+            expect(sendResponse).toHaveBeenCalledWith({ ok: false, error: 'FileReader error' });
+            globalThis.FileReader = OrigFileReader;
+        });
+
+        it('fetchImageFromBackground returns error when fetch throws', async () => {
+            globalThis.fetch = vi.fn().mockRejectedValue(new Error('network failure'));
+            const sendResponse = vi.fn();
+            capturedMessageCb({ action: 'fetchImage', url: 'https://img3.cdnlibs.org/img.jpg' }, {}, sendResponse);
+            await vi.waitFor(() => expect(sendResponse).toHaveBeenCalled());
+            expect(sendResponse).toHaveBeenCalledWith({ ok: false, error: expect.stringContaining('network failure') });
+        });
+
+        it('fetchImageFromBackground uses image/jpeg fallback when blob.type is empty', async () => {
+            const mockBlob = new Blob(['data']);
+            globalThis.fetch = vi.fn().mockResolvedValue({ ok: true, blob: vi.fn().mockResolvedValue(mockBlob) });
+            const OrigFileReader = globalThis.FileReader;
+            globalThis.FileReader = class {
+                readAsDataURL() {
+                    this.result = 'data:application/octet-stream;base64,AAA';
+                    setTimeout(() => this.onloadend(), 0);
+                }
+            };
+            const sendResponse = vi.fn();
+            capturedMessageCb({ action: 'fetchImage', url: 'https://img3.cdnlibs.org/img.jpg' }, {}, sendResponse);
+            await vi.waitFor(() => expect(sendResponse).toHaveBeenCalled());
+            expect(sendResponse).toHaveBeenCalledWith({ ok: true, base64: 'AAA', contentType: 'image/jpeg' });
+            globalThis.FileReader = OrigFileReader;
+        });
+
         it('Handles openDownloadWindow with no tab URL', async () => {
             const sendResponse = vi.fn();
             capturedMessageCb({ action: 'openDownloadWindow', format: 'epub' }, {}, sendResponse);

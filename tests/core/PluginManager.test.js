@@ -588,6 +588,101 @@ describe('_loadServiceProxy()', () => {
         expect(result).toEqual({ base64: 'b64', contentType: 'image/jpeg' });
     });
 
+    it('PluginServiceProxy.resolvePageUrl: uses active server domain when imageServers configured', () => {
+        const getClass = setupBaseService();
+        PluginManager._loadServiceProxy({ service: 'svc', hosts: [], serviceConfig: {
+            imageServers: { compression: { domain: 'https://img3.cdnlibs.org', compress: true } },
+            defaultImageServer: 'compression'
+        } });
+        const inst = new (getClass())();
+        expect(inst.resolvePageUrl('/img.jpg')).toBe('https://img3.cdnlibs.org/img.jpg');
+    });
+
+    it('PluginServiceProxy._getActiveServer: returns null when no imageServers in config', () => {
+        const getClass = setupBaseService();
+        PluginManager._loadServiceProxy({ service: 'svc', hosts: [] });
+        const inst = new (getClass())();
+        expect(inst._getActiveServer()).toBeNull();
+    });
+
+    it('PluginServiceProxy._getActiveServer: uses defaultImageServer when no localStorage key', () => {
+        const getClass = setupBaseService();
+        PluginManager._loadServiceProxy({ service: 'svc', hosts: [], serviceConfig: {
+            imageServers: {
+                compression: { domain: 'https://img3.cdnlibs.org', compress: true }
+            },
+            defaultImageServer: 'compression'
+        } });
+        const inst = new (getClass())();
+        expect(inst._getActiveServer()).toEqual({ domain: 'https://img3.cdnlibs.org', compress: true });
+    });
+
+    it('PluginServiceProxy._getActiveServer: falls back to compression when key not found in imageServers', () => {
+        const getClass = setupBaseService();
+        PluginManager._loadServiceProxy({ service: 'svc', hosts: [], serviceConfig: {
+            imageServers: {
+                compression: { domain: 'https://img3.cdnlibs.org', compress: true }
+            }
+        } });
+        const inst = new (getClass())();
+        localStorage.setItem('svc_image_server', 'nonexistent');
+        expect(inst._getActiveServer()).toEqual({ domain: 'https://img3.cdnlibs.org', compress: true });
+        localStorage.clear();
+    });
+
+    it('PluginServiceProxy._getActiveServer: falls back to compression literal when no defaultImageServer', () => {
+        const getClass = setupBaseService();
+        PluginManager._loadServiceProxy({ service: 'svc', hosts: [], serviceConfig: {
+            imageServers: {
+                compression: { domain: 'https://img3.cdnlibs.org', compress: true }
+            }
+        } });
+        const inst = new (getClass())();
+        expect(inst._getActiveServer()).toEqual({ domain: 'https://img3.cdnlibs.org', compress: true });
+    });
+
+    it('PluginServiceProxy._getActiveServer: returns null when imageServers has neither key nor compression', () => {
+        const getClass = setupBaseService();
+        PluginManager._loadServiceProxy({ service: 'svc', hosts: [], serviceConfig: {
+            imageServers: { alt: { domain: 'https://img1.cdnlibs.org', compress: false } }
+        } });
+        const inst = new (getClass())();
+        expect(inst._getActiveServer()).toBeNull();
+    });
+
+    it('PluginServiceProxy._getActiveServer: uses localStorage key when imageServers present', () => {
+        const getClass = setupBaseService();
+        PluginManager._loadServiceProxy({ service: 'svc', hosts: [], serviceConfig: {
+            imageServers: {
+                compression: { domain: 'https://img3.cdnlibs.org', compress: true },
+                alt: { domain: 'https://img1.cdnlibs.org', compress: false }
+            },
+            defaultImageServer: 'compression'
+        } });
+        const inst = new (getClass())();
+        localStorage.setItem('svc_image_server', 'alt');
+        expect(inst._getActiveServer()).toEqual({ domain: 'https://img1.cdnlibs.org', compress: false });
+        localStorage.clear();
+    });
+
+    it('PluginServiceProxy.loadPageAsBase64: returns {base64,contentType} when server.compress === false', async () => {
+        const getClass = setupBaseService();
+        PluginManager._loadServiceProxy({ service: 'svc', hosts: [], serviceConfig: {
+            imageServers: {
+                compression: { domain: 'https://img3.cdnlibs.org', compress: true },
+                alt: { domain: 'https://img1.cdnlibs.org', compress: false }
+            }
+        } });
+        const inst = new (getClass())();
+        inst.extensionApi = { runtime: { sendMessage: vi.fn().mockResolvedValue({ ok: true, base64: 'raw', contentType: 'image/png' }) } };
+        globalThis.ImageCompressor = { compress: vi.fn() };
+        localStorage.setItem('svc_image_server', 'alt');
+        const result = await inst.loadPageAsBase64('https://img1.cdnlibs.org/img.jpg');
+        expect(result).toEqual({ base64: 'raw', contentType: 'image/png' });
+        expect(globalThis.ImageCompressor.compress).not.toHaveBeenCalled();
+        localStorage.clear();
+    });
+
     it('PluginServiceProxy.loadPageAsBase64: uses ImageCompressor when available', async () => {
         const getClass = setupBaseService();
         PluginManager._loadServiceProxy({ service: 'svc', hosts: [] });
