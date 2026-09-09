@@ -588,16 +588,6 @@ describe('_loadServiceProxy()', () => {
         expect(result).toEqual({ base64: 'b64', contentType: 'image/jpeg' });
     });
 
-    it('PluginServiceProxy.resolvePageUrl: uses active server domain when imageServers configured', () => {
-        const getClass = setupBaseService();
-        PluginManager._loadServiceProxy({ service: 'svc', hosts: [], serviceConfig: {
-            imageServers: { compression: { domain: 'https://img3.cdnlibs.org', compress: true } },
-            defaultImageServer: 'compression'
-        } });
-        const inst = new (getClass())();
-        expect(inst.resolvePageUrl('/img.jpg')).toBe('https://img3.cdnlibs.org/img.jpg');
-    });
-
     it('PluginServiceProxy._getActiveServer: returns null when no imageServers in config', () => {
         const getClass = setupBaseService();
         PluginManager._loadServiceProxy({ service: 'svc', hosts: [] });
@@ -608,9 +598,7 @@ describe('_loadServiceProxy()', () => {
     it('PluginServiceProxy._getActiveServer: uses defaultImageServer when no localStorage key', () => {
         const getClass = setupBaseService();
         PluginManager._loadServiceProxy({ service: 'svc', hosts: [], serviceConfig: {
-            imageServers: {
-                compression: { domain: 'https://img3.cdnlibs.org', compress: true }
-            },
+            imageServers: { compression: { domain: 'https://img3.cdnlibs.org', compress: true } },
             defaultImageServer: 'compression'
         } });
         const inst = new (getClass())();
@@ -620,9 +608,7 @@ describe('_loadServiceProxy()', () => {
     it('PluginServiceProxy._getActiveServer: falls back to compression when key not found in imageServers', () => {
         const getClass = setupBaseService();
         PluginManager._loadServiceProxy({ service: 'svc', hosts: [], serviceConfig: {
-            imageServers: {
-                compression: { domain: 'https://img3.cdnlibs.org', compress: true }
-            }
+            imageServers: { compression: { domain: 'https://img3.cdnlibs.org', compress: true } }
         } });
         const inst = new (getClass())();
         localStorage.setItem('svc_image_server', 'nonexistent');
@@ -630,18 +616,7 @@ describe('_loadServiceProxy()', () => {
         localStorage.clear();
     });
 
-    it('PluginServiceProxy._getActiveServer: falls back to compression literal when no defaultImageServer', () => {
-        const getClass = setupBaseService();
-        PluginManager._loadServiceProxy({ service: 'svc', hosts: [], serviceConfig: {
-            imageServers: {
-                compression: { domain: 'https://img3.cdnlibs.org', compress: true }
-            }
-        } });
-        const inst = new (getClass())();
-        expect(inst._getActiveServer()).toEqual({ domain: 'https://img3.cdnlibs.org', compress: true });
-    });
-
-    it('PluginServiceProxy._getActiveServer: returns null when imageServers has neither key nor compression', () => {
+    it('PluginServiceProxy._getActiveServer: returns null when imageServers has no matching key and no compression', () => {
         const getClass = setupBaseService();
         PluginManager._loadServiceProxy({ service: 'svc', hosts: [], serviceConfig: {
             imageServers: { alt: { domain: 'https://img1.cdnlibs.org', compress: false } }
@@ -650,37 +625,165 @@ describe('_loadServiceProxy()', () => {
         expect(inst._getActiveServer()).toBeNull();
     });
 
-    it('PluginServiceProxy._getActiveServer: uses localStorage key when imageServers present', () => {
+    it('PluginServiceProxy.resolvePageUrl: uses active server domain when imageServers configured', () => {
         const getClass = setupBaseService();
         PluginManager._loadServiceProxy({ service: 'svc', hosts: [], serviceConfig: {
-            imageServers: {
-                compression: { domain: 'https://img3.cdnlibs.org', compress: true },
-                alt: { domain: 'https://img1.cdnlibs.org', compress: false }
-            },
+            imageServers: { compression: { domain: 'https://img3.cdnlibs.org', compress: true } },
             defaultImageServer: 'compression'
         } });
         const inst = new (getClass())();
-        localStorage.setItem('svc_image_server', 'alt');
-        expect(inst._getActiveServer()).toEqual({ domain: 'https://img1.cdnlibs.org', compress: false });
-        localStorage.clear();
+        expect(inst.resolvePageUrl('/img.jpg')).toBe('https://img3.cdnlibs.org/img.jpg');
+    });
+
+    it('PluginServiceProxy.resolvePageUrl: uses imagesDomain when no imageServers configured', () => {
+        const getClass = setupBaseService();
+        PluginManager._loadServiceProxy({ service: 'svc', hosts: [], serviceConfig: {
+            imagesDomain: 'https://img.example.com'
+        } });
+        const inst = new (getClass())();
+        expect(inst.resolvePageUrl('/img.jpg')).toBe('https://img.example.com/img.jpg');
+    });
+
+    it('PluginServiceProxy.resolvePageUrl: prepends empty string when no server and no imagesDomain', () => {
+        const getClass = setupBaseService();
+        PluginManager._loadServiceProxy({ service: 'svc', hosts: [] });
+        const inst = new (getClass())();
+        expect(inst.resolvePageUrl('/img.jpg')).toBe('/img.jpg');
     });
 
     it('PluginServiceProxy.loadPageAsBase64: returns {base64,contentType} when server.compress === false', async () => {
         const getClass = setupBaseService();
         PluginManager._loadServiceProxy({ service: 'svc', hosts: [], serviceConfig: {
-            imageServers: {
-                compression: { domain: 'https://img3.cdnlibs.org', compress: true },
-                alt: { domain: 'https://img1.cdnlibs.org', compress: false }
-            }
+            imageServers: { alt: { domain: 'https://img1.cdnlibs.org', compress: false } },
+            defaultImageServer: 'alt'
         } });
         const inst = new (getClass())();
         inst.extensionApi = { runtime: { sendMessage: vi.fn().mockResolvedValue({ ok: true, base64: 'raw', contentType: 'image/png' }) } };
         globalThis.ImageCompressor = { compress: vi.fn() };
-        localStorage.setItem('svc_image_server', 'alt');
         const result = await inst.loadPageAsBase64('https://img1.cdnlibs.org/img.jpg');
         expect(result).toEqual({ base64: 'raw', contentType: 'image/png' });
         expect(globalThis.ImageCompressor.compress).not.toHaveBeenCalled();
-        localStorage.clear();
+    });
+
+    it('PluginServiceProxy.fetchChapter: uses scripting.executeScript in service tab when available', async () => {
+        class MockBase {
+            constructor(config) { this.config = config; this.baseUrl = config?.baseUrl || ''; }
+            extractPages() { return []; }
+            async fetchChapter() { return null; }
+        }
+        globalThis.BaseService = MockBase;
+        let capturedClass;
+        globalThis.serviceRegistry = { register: cls => { capturedClass = cls; } };
+        PluginManager._loadServiceProxy({
+            service: 'svc', hosts: ['svc.example.com'],
+            serviceConfig: { baseUrl: 'https://api.example.com', headers: { 'Site-Id': '4' } }
+        });
+        const inst = new capturedClass();
+        const tabsQuery = vi.fn().mockResolvedValue([{ id: 42 }]);
+        const executeScript = vi.fn().mockResolvedValue([{ result: { ok: true, body: '{"data":[]}' } }]);
+        inst.extensionApi = {
+            runtime: {},
+            tabs: { query: tabsQuery },
+            scripting: { executeScript }
+        };
+        const result = await inst.fetchChapter('slug', 1, '1', null, {});
+        expect(tabsQuery).toHaveBeenCalledWith({ url: ['*://svc.example.com/*'] });
+        expect(executeScript).toHaveBeenCalledWith(expect.objectContaining({ target: { tabId: 42 } }));
+        expect(result).toEqual({ data: [] });
+        delete globalThis.BaseService;
+        delete globalThis.serviceRegistry;
+    });
+
+    it('PluginServiceProxy.fetchChapter: skips auth injection when Authorization already in headers', async () => {
+        class MockBase {
+            constructor(config) { this.config = config; this.baseUrl = config?.baseUrl || ''; }
+            extractPages() { return []; }
+            async fetchChapter() {
+                return global.fetch('https://api.example.com/chapter', { headers: this.config.headers });
+            }
+        }
+        globalThis.BaseService = MockBase;
+        let capturedClass;
+        globalThis.serviceRegistry = { register: cls => { capturedClass = cls; } };
+        PluginManager._loadServiceProxy({
+            service: 'svc', hosts: [],
+            serviceConfig: { headers: { 'Authorization': 'Bearer existing-token' } }
+        });
+        const inst = new capturedClass();
+        global.fetch = vi.fn().mockResolvedValue({ ok: true, text: vi.fn().mockResolvedValue('{}') });
+        const sendMessage = vi.fn();
+        inst.extensionApi = { runtime: { sendMessage } };
+        await inst.fetchChapter('slug', 1);
+        expect(sendMessage).not.toHaveBeenCalledWith(expect.objectContaining({ action: 'getAuthToken' }));
+        delete global.fetch;
+        delete globalThis.BaseService;
+        delete globalThis.serviceRegistry;
+    });
+
+    it('PluginServiceProxy.fetchChapter: calls super without auth when no token in cache', async () => {
+        class MockBase {
+            constructor(config) { this.config = config; this.baseUrl = config?.baseUrl || ''; }
+            extractPages() { return []; }
+            async fetchChapter() {
+                return global.fetch('x', { headers: this.config.headers });
+            }
+        }
+        globalThis.BaseService = MockBase;
+        let capturedClass;
+        globalThis.serviceRegistry = { register: cls => { capturedClass = cls; } };
+        PluginManager._loadServiceProxy({ service: 'svc', hosts: [], serviceConfig: { headers: {} } });
+        const inst = new capturedClass();
+        global.fetch = vi.fn().mockResolvedValue({ ok: true, text: vi.fn().mockResolvedValue('{}') });
+        inst.extensionApi = { runtime: { sendMessage: vi.fn().mockResolvedValue({ token: null }) } };
+        await inst.fetchChapter('slug', 1);
+        expect(global.fetch.mock.calls[0][1].headers['Authorization']).toBeUndefined();
+        delete global.fetch;
+        delete globalThis.BaseService;
+        delete globalThis.serviceRegistry;
+    });
+
+    it('PluginServiceProxy.fetchChapter: calls super without auth when sendMessage throws', async () => {
+        class MockBase {
+            constructor(config) { this.config = config; this.baseUrl = config?.baseUrl || ''; }
+            extractPages() { return []; }
+            async fetchChapter() {
+                return global.fetch('x', { headers: this.config.headers });
+            }
+        }
+        globalThis.BaseService = MockBase;
+        let capturedClass;
+        globalThis.serviceRegistry = { register: cls => { capturedClass = cls; } };
+        PluginManager._loadServiceProxy({ service: 'svc', hosts: [], serviceConfig: { headers: {} } });
+        const inst = new capturedClass();
+        global.fetch = vi.fn().mockResolvedValue({ ok: true, text: vi.fn().mockResolvedValue('{}') });
+        inst.extensionApi = { runtime: { sendMessage: vi.fn().mockRejectedValue(new Error('bg error')) } };
+        await inst.fetchChapter('slug', 1);
+        expect(global.fetch.mock.calls[0][1].headers['Authorization']).toBeUndefined();
+        delete global.fetch;
+        delete globalThis.BaseService;
+        delete globalThis.serviceRegistry;
+    });
+
+    it('PluginServiceProxy.fetchChapter: calls super without auth when no extensionApi', async () => {
+        class MockBase {
+            constructor(config) { this.config = config; this.baseUrl = config?.baseUrl || ''; }
+            get extensionApi() { return null; }
+            extractPages() { return []; }
+            async fetchChapter() {
+                return global.fetch('x', { headers: this.config.headers });
+            }
+        }
+        globalThis.BaseService = MockBase;
+        let capturedClass;
+        globalThis.serviceRegistry = { register: cls => { capturedClass = cls; } };
+        PluginManager._loadServiceProxy({ service: 'svc', hosts: [], serviceConfig: { headers: {} } });
+        const inst = new capturedClass();
+        global.fetch = vi.fn().mockResolvedValue({ ok: true, text: vi.fn().mockResolvedValue('{}') });
+        await inst.fetchChapter('slug', 1);
+        expect(global.fetch.mock.calls[0][1].headers['Authorization']).toBeUndefined();
+        delete global.fetch;
+        delete globalThis.BaseService;
+        delete globalThis.serviceRegistry;
     });
 
     it('PluginServiceProxy.loadPageAsBase64: uses ImageCompressor when available', async () => {
@@ -879,7 +982,12 @@ describe('FormatSandboxProxy.export() + _createSandbox', () => {
         const mockRegister = vi.fn((_fmt, Cls) => { CapturedProxy = Cls; });
         globalThis.BaseExporter = class {};
         globalThis.ExporterRegistry = { register: mockRegister };
-        globalThis.browser = { runtime: { sendMessage: vi.fn().mockResolvedValue({ ok: true }) } };
+        globalThis.browser = {
+            runtime: {
+                sendMessage: vi.fn().mockResolvedValue({ ok: true }),
+                getURL: vi.fn(p => `chrome-extension://abc/${p}`)
+            }
+        };
 
         vi.spyOn(document.head, 'appendChild').mockImplementation(el => {
             Promise.resolve().then(() => el.onerror?.());

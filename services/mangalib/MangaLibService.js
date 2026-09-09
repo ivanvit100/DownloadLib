@@ -49,21 +49,11 @@
         }
 
         _getActiveServer() {
-            const key = (typeof localStorage !== 'undefined' && localStorage.getItem('mangalib_image_server'))
-                || this.config.defaultImageServer
-                || 'compression';
-            if (key && /^https?:\/\//i.test(key)) {
-                const compress = key === (this.config.imageServers?.compression?.domain);
-                return { domain: key, compress, apiParam: compress ? 'compress' : null };
-            }
-            return this.config.imageServers?.[key] || this.config.imageServers?.compression
-                || { domain: this.config.imagesDomain, compress: true, apiParam: 'compress' };
+            return { domain: this.config.imagesDomain, compress: true, apiParam: 'compress' };
         }
 
         fetchChapter(slug, number, volume = '1', branchId = null) {
-            const server = this._getActiveServer();
-            const extraParams = server?.apiParam ? { server: server.apiParam } : {};
-            return super.fetchChapter(slug, number, volume, branchId, extraParams);
+            return super.fetchChapter(slug, number, volume, branchId, { server: 'compress' });
         }
 
         resolvePageUrl(filename) {
@@ -157,8 +147,7 @@
         }
 
         async _processImage(base64Data, contentType, compressOpts, splitLongImages) {
-            const serverCompressEnabled = this._getActiveServer().compress !== false;
-            if (splitLongImages && serverCompressEnabled) {
+            if (splitLongImages) {
                 const parts = await this.splitLongImage(base64Data, contentType, compressOpts);
                 if (parts.length > 1) return parts;
                 const [raw] = parts;
@@ -166,8 +155,6 @@
                     ? global.ImageCompressor.compress(raw.base64, raw.contentType, compressOpts)
                     : raw;
             }
-            if (!serverCompressEnabled)
-                return { base64: base64Data, contentType };
             return global.ImageCompressor
                 ? global.ImageCompressor.compress(base64Data, contentType, compressOpts)
                 : { base64: base64Data, contentType };
@@ -177,15 +164,6 @@
             const send = u => this.extensionApi.runtime.sendMessage({ action: 'fetchImage', url: u });
             const response = await send(url);
             if (response?.ok) return response;
-
-            const activeServer = this._getActiveServer();
-            const comprDomain = this.config.imageServers?.compression?.domain;
-            if (comprDomain && activeServer.domain !== comprDomain) {
-                console.warn(`[MangaLibService] ${activeServer.domain} failed, retrying via compression`);
-                const fallback = await send(url.replace(activeServer.domain, comprDomain));
-                if (fallback?.ok) return fallback;
-            }
-
             console.warn(`[MangaLibService] Failed to fetch ${url}:`, response?.error);
             return null;
         }

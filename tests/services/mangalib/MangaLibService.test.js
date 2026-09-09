@@ -877,37 +877,12 @@ describe('MangaLibService', () => {
         delete global.ImageCompressor;
     });
 
-    it('_getActiveServer returns domain object when localStorage contains https:// URL', () => {
-        const svc = new MangaLibService();
-        localStorage.setItem('mangalib_image_server', 'https://img1.cdnlibs.org');
-        const server = svc._getActiveServer();
-        expect(server.domain).toBe('https://img1.cdnlibs.org');
-        expect(server.compress).toBe(false);
-        expect(server.apiParam).toBeNull();
-        localStorage.clear();
-    });
-
-    it('_getActiveServer compress=true when localStorage URL matches compression domain', () => {
-        global.mangalibConfig.imageServers = {
-            compression: { domain: 'https://img3.cdnlibs.org', compress: true, apiParam: 'compress' }
-        };
-        const svc = new MangaLibService();
-        localStorage.setItem('mangalib_image_server', 'https://img3.cdnlibs.org');
-        const server = svc._getActiveServer();
-        expect(server.compress).toBe(true);
-        expect(server.apiParam).toBe('compress');
-        localStorage.clear();
-    });
-
-    it('fetchChapter passes empty extraParams when active server has no apiParam', async () => {
-        localStorage.setItem('mangalib_image_server', 'https://img1.cdnlibs.org');
+    it('fetchChapter always passes server=compress', async () => {
         const svc = new MangaLibService();
         const fakeResponse = { ok: true, text: vi.fn().mockResolvedValue(JSON.stringify({ pages: [] })) };
         global.fetch = vi.fn().mockResolvedValue(fakeResponse);
-        await svc.fetchChapter('slug', 1, 1);
-        const calledUrl = global.fetch.mock.calls[0][0];
-        expect(calledUrl).not.toContain('server=');
-        localStorage.clear();
+        await svc.fetchChapter('slug', 1, '1');
+        expect(global.fetch.mock.calls[0][0]).toContain('server=compress');
         delete global.fetch;
     });
 
@@ -941,54 +916,23 @@ describe('MangaLibService', () => {
         resolveSpy.mockRestore();
     });
 
-    it('_fetchWithCompressionFallback retries compression server and returns result', async () => {
-        global.mangalibConfig.imageServers = {
-            compression: { domain: 'https://img3.cdnlibs.org', label: 'Сжатие', compress: true, apiParam: 'compress' },
-            server1: { domain: 'https://img1.cdnlibs.org', label: 'Сервер 1', compress: false }
-        };
-        global.mangalibConfig.defaultImageServer = 'compression';
-        localStorage.setItem('mangalib_image_server', 'server1');
-
-        const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
-        const sendMessage = vi.fn()
-            .mockResolvedValueOnce({ ok: false, error: 'timeout' })
-            .mockResolvedValueOnce({ ok: true, base64: 'fallbackB64', contentType: 'image/jpeg' });
+    it('_fetchWithCompressionFallback returns result when fetch ok', async () => {
+        const sendMessage = vi.fn().mockResolvedValue({ ok: true, base64: 'b64', contentType: 'image/jpeg' });
         global.browser = { runtime: { sendMessage } };
-
         const svc = new MangaLibService();
-        const result = await svc.loadPageAsBase64('img.jpg', { splitLongImages: false });
-
-        expect(result).toEqual({ base64: 'fallbackB64', contentType: 'image/jpeg' });
-        expect(warnSpy).toHaveBeenCalledWith(
-            expect.stringContaining('failed, retrying via compression')
-        );
-        expect(sendMessage).toHaveBeenCalledTimes(2);
-        expect(sendMessage.mock.calls[1][0].url).toContain('img3.cdnlibs.org');
-
-        localStorage.clear();
+        const result = await svc._fetchWithCompressionFallback('https://img3.cdnlibs.org/img.jpg');
+        expect(result).toEqual({ ok: true, base64: 'b64', contentType: 'image/jpeg' });
         delete global.browser;
-        warnSpy.mockRestore();
     });
 
-    it('_fetchWithCompressionFallback returns null when fallback also fails', async () => {
-        global.mangalibConfig.imageServers = {
-            compression: { domain: 'https://img3.cdnlibs.org', label: 'Сжатие', compress: true, apiParam: 'compress' },
-            server1: { domain: 'https://img1.cdnlibs.org', label: 'Сервер 1', compress: false }
-        };
-        global.mangalibConfig.defaultImageServer = 'compression';
-        localStorage.setItem('mangalib_image_server', 'server1');
-
+    it('_fetchWithCompressionFallback returns null and warns when fetch fails', async () => {
         const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
-        const sendMessage = vi.fn().mockResolvedValue({ ok: false, error: 'all failed' });
+        const sendMessage = vi.fn().mockResolvedValue({ ok: false, error: 'timeout' });
         global.browser = { runtime: { sendMessage } };
-
         const svc = new MangaLibService();
-        const result = await svc.loadPageAsBase64('img.jpg', { splitLongImages: false });
-
+        const result = await svc._fetchWithCompressionFallback('https://img3.cdnlibs.org/img.jpg');
         expect(result).toBeNull();
-        expect(sendMessage).toHaveBeenCalledTimes(2);
-
-        localStorage.clear();
+        expect(warnSpy).toHaveBeenCalled();
         delete global.browser;
         warnSpy.mockRestore();
     });

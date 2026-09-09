@@ -57,6 +57,7 @@
                     set: (...args) => toPromise(chromeApi.storage.local.set, chromeApi.storage.local, args)
                 } : void 0
             },
+            scripting: chromeApi.scripting,
             webRequest: chromeApi.webRequest,
             declarativeNetRequest: chromeApi.declarativeNetRequest
         };

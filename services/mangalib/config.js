@@ -5,16 +5,6 @@
         name: 'mangalib',
         baseUrl: 'https://api.cdnlibs.org',
         imagesDomain: 'https://img3.cdnlibs.org',
-        imageServers: {
-            compression: {
-                domain: 'https://img3.cdnlibs.org', label: 'Сжатие (по умолчанию)', compress: true, apiParam: 'compress'
-            },
-            server1:  { domain: 'https://img1.cdnlibs.org', label: 'Сервер 1 (cdnlibs)', compress: false },
-            server2:  { domain: 'https://img2.cdnlibs.org', label: 'Сервер 2 (cdnlibs)', compress: false },
-            mixlib:   { domain: 'https://img3.mixlib.me',   label: 'Сервер 3 (mixlib)',  compress: false },
-            imgslib:  { domain: 'https://img3.imgslib.link', label: 'Сервер 4 (imgslib)', compress: false }
-        },
-        defaultImageServer: 'compression',
         siteId: '1',
 
         fields: [

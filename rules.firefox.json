@@ -42,6 +42,7 @@
         },
         "condition": {
             "urlFilter": "*cdnlibs.org*",
+            "excludedRequestDomains": ["api.cdnlibs.org"],
             "resourceTypes": ["image", "xmlhttprequest"]
         }
     },

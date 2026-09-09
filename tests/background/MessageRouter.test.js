@@ -400,9 +400,9 @@ describe('MessageRouter', () => {
                 }
             };
             const sendResponse = vi.fn();
-            capturedMessageCb({ action: 'fetchImage', url: 'https://img3.cdnlibs.org/manga/img.jpg' }, {}, sendResponse);
+            capturedMessageCb({ action: 'fetchImage', url: 'https://img3.mixlib.me/manga/img.jpg' }, {}, sendResponse);
             await vi.waitFor(() => expect(sendResponse).toHaveBeenCalled());
-            expect(globalThis.fetch).toHaveBeenCalledWith('https://img3.cdnlibs.org/manga/img.jpg', { credentials: 'omit' });
+            expect(globalThis.fetch).toHaveBeenCalledWith('https://img3.mixlib.me/manga/img.jpg', { credentials: 'omit' });
             expect(sendResponse).toHaveBeenCalledWith({ ok: true, base64: 'MOCKBASE64', contentType: 'image/png' });
             globalThis.FileReader = OrigFileReader;
         });
@@ -410,7 +410,7 @@ describe('MessageRouter', () => {
         it('fetchImageFromBackground returns HTTP error when response not ok', async () => {
             globalThis.fetch = vi.fn().mockResolvedValue({ ok: false, status: 503 });
             const sendResponse = vi.fn();
-            capturedMessageCb({ action: 'fetchImage', url: 'https://img3.cdnlibs.org/img.jpg' }, {}, sendResponse);
+            capturedMessageCb({ action: 'fetchImage', url: 'https://img3.mixlib.me/img.jpg' }, {}, sendResponse);
             await vi.waitFor(() => expect(sendResponse).toHaveBeenCalled());
             expect(sendResponse).toHaveBeenCalledWith({ ok: false, error: 'HTTP 503' });
         });
@@ -423,7 +423,7 @@ describe('MessageRouter', () => {
                 readAsDataURL() { setTimeout(() => this.onerror(), 0); }
             };
             const sendResponse = vi.fn();
-            capturedMessageCb({ action: 'fetchImage', url: 'https://img3.cdnlibs.org/img.jpg' }, {}, sendResponse);
+            capturedMessageCb({ action: 'fetchImage', url: 'https://img3.mixlib.me/img.jpg' }, {}, sendResponse);
             await vi.waitFor(() => expect(sendResponse).toHaveBeenCalled());
             expect(sendResponse).toHaveBeenCalledWith({ ok: false, error: 'FileReader error' });
             globalThis.FileReader = OrigFileReader;
@@ -432,7 +432,7 @@ describe('MessageRouter', () => {
         it('fetchImageFromBackground returns error when fetch throws', async () => {
             globalThis.fetch = vi.fn().mockRejectedValue(new Error('network failure'));
             const sendResponse = vi.fn();
-            capturedMessageCb({ action: 'fetchImage', url: 'https://img3.cdnlibs.org/img.jpg' }, {}, sendResponse);
+            capturedMessageCb({ action: 'fetchImage', url: 'https://img3.mixlib.me/img.jpg' }, {}, sendResponse);
             await vi.waitFor(() => expect(sendResponse).toHaveBeenCalled());
             expect(sendResponse).toHaveBeenCalledWith({ ok: false, error: expect.stringContaining('network failure') });
         });
@@ -448,7 +448,7 @@ describe('MessageRouter', () => {
                 }
             };
             const sendResponse = vi.fn();
-            capturedMessageCb({ action: 'fetchImage', url: 'https://img3.cdnlibs.org/img.jpg' }, {}, sendResponse);
+            capturedMessageCb({ action: 'fetchImage', url: 'https://img3.mixlib.me/img.jpg' }, {}, sendResponse);
             await vi.waitFor(() => expect(sendResponse).toHaveBeenCalled());
             expect(sendResponse).toHaveBeenCalledWith({ ok: true, base64: 'AAA', contentType: 'image/jpeg' });
             globalThis.FileReader = OrigFileReader;

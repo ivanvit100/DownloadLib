@@ -32,8 +32,6 @@
     const detectServiceByUrl = globalThis.detectServiceByUrl || (() => null);
 
     const CDN_IMAGE_HOSTS = [
-        'img1.cdnlibs.org', 'img2.cdnlibs.org', 'img3.cdnlibs.org',
-        'img1h.hentaicdn.org', 'img2h.hentaicdn.org', 'img3h.hentaicdn.org',
         'img3.mixlib.me', 'img2.imgslib.link', 'cover.cdnlibs.org', 'cover.imglib.info'
     ];
 
@@ -43,6 +41,15 @@
         } catch {
             return false;
         }
+    }
+
+    function _getTabPatterns(serviceKey) {
+        if (serviceKey === 'ranobelib')
+            return ['*://ranobelib.me/*'];
+        if (!serviceKey || serviceKey === 'mangalib')
+            return ['*://mangalib.me/*', '*://mangalib.org/*'];
+        const pluginHosts = globalThis.pluginServiceHosts?.[serviceKey] || [];
+        return pluginHosts.map(h => `*://${h}/*`);
     }
 
     async function fetchImageFromBackground(url) {
@@ -121,15 +128,7 @@
                         return;
                     }
 
-                    let patterns;
-                    if (serviceKey === 'ranobelib')
-                        patterns = ['*://ranobelib.me/*'];
-                    else if (!serviceKey || serviceKey === 'mangalib')
-                        patterns = ['*://mangalib.me/*', '*://mangalib.org/*'];
-                    else {
-                        const pluginHosts = globalThis.pluginServiceHosts?.[serviceKey] || [];
-                        patterns = pluginHosts.map(h => `*://${h}/*`);
-                    }
+                    const patterns = _getTabPatterns(serviceKey);
 
                     if (!patterns.length) {
                         respond({ ok: false, error: `No tab patterns for service: ${serviceKey}` });
@@ -142,6 +141,35 @@
                     if (!tabId) {
                         respond({ ok: false, error: 'No service tab found' });
                         return;
+                    }
+
+                    if (browserAPI.scripting?.executeScript) {
+                        const injectResults = await browserAPI.scripting.executeScript({
+                            target: { tabId },
+                            func: async (imageUrl) => {
+                                try {
+                                    const r = await fetch(imageUrl);
+                                    if (!r.ok) return null;
+                                    const blob = await r.blob();
+                                    const contentType = blob.type || 'image/jpeg';
+                                    return await new Promise(resolve => {
+                                        const reader = new FileReader();
+                                        reader.onloadend = () => resolve({
+                                            ok: true,
+                                            base64: reader.result.split(',')[1],
+                                            contentType
+                                        });
+                                        reader.readAsDataURL(blob);
+                                    });
+                                } catch { return null; }
+                            },
+                            args: [url]
+                        });
+                        const injected = injectResults?.[0]?.result;
+                        if (injected?.ok) {
+                            respond({ ok: true, base64: injected.base64, contentType: injected.contentType });
+                            return;
+                        }
                     }
 
                     const result = await browserAPI.tabs.sendMessage(tabId, {

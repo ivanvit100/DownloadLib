@@ -69,50 +69,60 @@
             iframe.setAttribute('sandbox', 'allow-scripts');
             iframe.style.cssText = 'position:fixed;width:0;height:0;border:none;visibility:hidden;pointer-events:none';
 
-            const innerScript = [
-                '"use strict";',
-                'var _cap={};var _reg={};var global=window;',
-                'global.BaseService=function(c){this.config=c;this.name=c&&c.name;};',
-                'global.BaseExporter=function(){this.format="unknown";};',
-                'global.BaseExporter.prototype.escapeXml=function(s){',
-                '  if(!s)return"";',
-                '  return String(s).replace(/&/g,"&amp;").replace(/</g,"&lt;")',
-                '    .replace(/>/g,"&gt;").replace(/"/g,"&quot;").replace(/\'/g,"&apos;");',
-                '};',
-                'global.BaseExporter.prototype.escapeHtml=function(s){',
-                '  if(!s)return"";',
-                '  return String(s).replace(/&/g,"&amp;").replace(/</g,"&lt;")',
-                '    .replace(/>/g,"&gt;").replace(/"/g,"&quot;").replace(/\'/g,"&#39;");',
-                '};',
-                'global.BaseExporter.prototype.sanitizeText=function(t){if(!t)return"";return String(t).trim();};',
-                'global.ExporterRegistry={',
-                '  register:function(fmt,Cls,meta){_cap.format=fmt;',
-                '    _reg[String(fmt).toLowerCase()]={Cls:Cls,meta:meta||{}};},',
-                '};',
-                'window.addEventListener("message",function(e){',
-                '  var m=e.data;if(!m||!m._t)return;',
-                '  if(m._t==="sb-exec"){',
-                '    _cap={};',
-                '    try{(new Function(m.code))();e.source.postMessage({_t:"sb-ok",_id:m._id,c:_cap},"*");}',
-                '    catch(err){e.source.postMessage({_t:"sb-err",_id:m._id,e:err.message},"*");}',
-                '  } else if(m._t==="sb-export"){',
-                '    (async function(){',
-                '      try{',
-                '        var entry=_reg[String(m.fmt).toLowerCase()];',
-                '        if(!entry)throw new Error("Format not registered in sandbox: "+m.fmt);',
-                '        var inst=new entry.Cls();',
-                '        var result=await inst.export(m.manga,m.chapters,m.cover);',
-                '        var buf=await result.blob.arrayBuffer();',
-                '        var pl={_t:"sb-export-ok",_id:m._id,buf:buf,',
-                '          filename:result.filename,mimeType:result.mimeType};',
-                '        e.source.postMessage(pl,"*",[buf]);',
-                '      }catch(ex){e.source.postMessage({_t:"sb-err",_id:m._id,e:ex.message},"*");}',
-                '    })();',
-                '  }',
-                '});'
-            ].join('');
-
-            iframe.srcdoc = `<!DOCTYPE html><html><body><script>${innerScript}<\/script></body></html>`;
+            const env = typeof global.getBrowserEnv === 'function' ? global.getBrowserEnv() : {};
+            if (env.isFirefox) {
+                const innerScript = [
+                    '"use strict";',
+                    'var _cap={};var _reg={};var global=window;',
+                    'global.BaseService=function(c){this.config=c;this.name=c&&c.name;};',
+                    'global.BaseExporter=function(){this.format="unknown";};',
+                    'global.BaseExporter.prototype.escapeXml=function(s){',
+                    '  if(!s)return"";',
+                    '  return String(s).replace(/&/g,"&amp;").replace(/</g,"&lt;")',
+                    '    .replace(/>/g,"&gt;").replace(/"/g,"&quot;").replace(/\'/g,"&apos;");',
+                    '};',
+                    'global.BaseExporter.prototype.escapeHtml=function(s){',
+                    '  if(!s)return"";',
+                    '  return String(s).replace(/&/g,"&amp;").replace(/</g,"&lt;")',
+                    '    .replace(/>/g,"&gt;").replace(/"/g,"&quot;").replace(/\'/g,"&#39;");',
+                    '};',
+                    'global.BaseExporter.prototype.sanitizeText=function(t){if(!t)return"";return String(t).trim();};',
+                    'global.ExporterRegistry={',
+                    '  register:function(fmt,Cls,meta){_cap.format=fmt;',
+                    '    _reg[String(fmt).toLowerCase()]={Cls:Cls,meta:meta||{}};},',
+                    '};',
+                    'window.addEventListener("message",function(e){',
+                    '  var m=e.data;if(!m||!m._t)return;',
+                    '  if(m._t==="sb-exec"){',
+                    '    _cap={};',
+                    '    try{(new Function(m.code))();e.source.postMessage({_t:"sb-ok",_id:m._id,c:_cap},"*");}',
+                    '    catch(err){e.source.postMessage({_t:"sb-err",_id:m._id,e:err.message},"*");}',
+                    '  } else if(m._t==="sb-export"){',
+                    '    (async function(){',
+                    '      try{',
+                    '        var entry=_reg[String(m.fmt).toLowerCase()];',
+                    '        if(!entry)throw new Error("Format not registered in sandbox: "+m.fmt);',
+                    '        var inst=new entry.Cls();',
+                    '        var result=await inst.export(m.manga,m.chapters,m.cover);',
+                    '        var buf=await result.blob.arrayBuffer();',
+                    '        var pl={_t:"sb-export-ok",_id:m._id,buf:buf,',
+                    '          filename:result.filename,mimeType:result.mimeType};',
+                    '        e.source.postMessage(pl,"*",[buf]);',
+                    '      }catch(ex){e.source.postMessage({_t:"sb-err",_id:m._id,e:ex.message},"*");}',
+                    '    })();',
+                    '  }',
+                    '});'
+                ].join('');
+                iframe.srcdoc = `<!DOCTYPE html><html><body><script>${innerScript}<\/script></body></html>`;
+            } else {
+                const api = _getApi();
+                const sandboxUrl = api?.runtime?.getURL?.('sandbox.html');
+                if (!sandboxUrl) {
+                    reject(new Error('Cannot resolve sandbox URL'));
+                    return;
+                }
+                iframe.src = sandboxUrl;
+            }
 
             const loadTimeout = setTimeout(() => {
                 iframe.remove();
@@ -377,6 +387,15 @@
             const hosts = new Set((plugin.hosts || []).map(h => h.toLowerCase()));
             const serviceName = plugin.service;
 
+            function _buildChapterParams(number, volume, branchId, extraParams) {
+                const p = new URLSearchParams();
+                p.set('number', number != null ? String(number) : '1');
+                p.set('volume', String(volume));
+                if (branchId != null) p.set('branch_id', String(branchId));
+                for (const [k, v] of Object.entries(extraParams)) p.set(k, String(v));
+                return p;
+            }
+
             class PluginServiceProxy extends global.BaseService {
                 constructor() { super(config); }
 
@@ -401,6 +420,39 @@
                         || config.defaultImageServer
                         || 'compression';
                     return config.imageServers[key] || config.imageServers.compression || null;
+                }
+
+                async fetchChapter(slug, number, volume = '1', branchId = null, extraParams = {}) {
+                    const api = this.extensionApi;
+                    if (api?.scripting?.executeScript && api?.tabs?.query) {
+                        try {
+                            const hostPatterns = (plugin.hosts || []).map(h => `*://${h}/*`);
+                            const tabs = hostPatterns.length
+                                ? await api.tabs.query({ url: hostPatterns })
+                                : [];
+                            const tabId = tabs?.[0]?.id;
+                            if (tabId != null) {
+                                const p = _buildChapterParams(number, volume, branchId, extraParams);
+                                const url = `${this.baseUrl}/api/manga/${slug}/chapter?${p}`;
+                                const hdrs = this.config.headers || {};
+                                const [injRes] = await api.scripting.executeScript({
+                                    target: { tabId },
+                                    func: async (u, h) => {
+                                        try {
+                                            const r = await fetch(u, {
+                                                method: 'GET', headers: h,
+                                                mode: 'cors', credentials: 'include', cache: 'no-store'
+                                            });
+                                            return { ok: r.ok, body: r.ok ? await r.text() : null };
+                                        } catch { return { ok: false, body: null }; }
+                                    },
+                                    args: [url, hdrs]
+                                });
+                                if (injRes?.result?.ok) return JSON.parse(injRes.result.body);
+                            }
+                        } catch (_) {}
+                    }
+                    return await super.fetchChapter(slug, number, volume, branchId, extraParams);
                 }
 
                 resolvePageUrl(ref) {

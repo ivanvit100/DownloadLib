@@ -18,7 +18,6 @@
         init() {
             this._renderRateLimit();
             this._renderMaxSize();
-            this._renderServiceServers();
             this._renderPlugins();
             this._bindEvents();
         },
@@ -33,87 +32,6 @@
             const input = document.getElementById('settingsMaxSize');
             if (!input) return;
             input.value = localStorage.getItem(MAX_SIZE_KEY) || '200';
-        },
-
-        _renderServiceServers() {
-            const container = document.getElementById('serviceServersContainer');
-            if (!container) return;
-            container.innerHTML = '';
-
-            const services = global.serviceRegistry?.getAllServices() || [];
-            const withServers = services.filter(s => s.config?.imageServers);
-
-            for (const service of withServers) {
-                const section = this._createServerSection(service);
-                container.appendChild(section);
-            }
-
-            if (!withServers.length) container.style.display = 'none';
-        },
-
-        _createServerSection(service) {
-            const { name, config } = service;
-            const servers = config.imageServers;
-            const storageKey = `${name}_image_server`;
-            const saved = localStorage.getItem(storageKey) || config.defaultImageServer || 'compression';
-
-            const section = document.createElement('div');
-            section.className = 'settings-section';
-
-            const title = document.createElement('div');
-            title.className = 'settings-section-title';
-            title.textContent = `${config.label || name} — сервер изображений`;
-            section.appendChild(title);
-
-            const row = document.createElement('div');
-            row.className = 'settings-row';
-
-            const label = document.createElement('label');
-            label.className = 'settings-label';
-            label.textContent = 'Сервер загрузки';
-            row.appendChild(label);
-
-            const select = document.createElement('select');
-            select.className = 'settings-select';
-            for (const [key, srv] of Object.entries(servers)) {
-                const opt = document.createElement('option');
-                opt.value = key;
-                opt.textContent = srv.label || key;
-                select.appendChild(opt);
-            }
-            select.value = saved;
-            row.appendChild(select);
-            section.appendChild(row);
-
-            const hint = document.createElement('div');
-            hint.className = 'settings-hint';
-            hint.textContent = this._serverHintText(servers[saved]);
-            section.appendChild(hint);
-
-            select.addEventListener('change', () => {
-                hint.textContent = this._serverHintText(servers[select.value]);
-            });
-
-            const btn = document.createElement('button');
-            btn.className = 'settings-btn-outline';
-            btn.textContent = 'Применить';
-            btn.addEventListener('click', () => {
-                localStorage.setItem(storageKey, select.value);
-                const original = btn.textContent;
-                btn.textContent = '✓ Сохранено';
-                btn.disabled = true;
-                setTimeout(() => { btn.textContent = original; btn.disabled = false; }, 1500);
-            });
-            section.appendChild(btn);
-
-            return section;
-        },
-
-        _serverHintText(serverCfg) {
-            if (!serverCfg) return '';
-            return serverCfg.compress === false
-                ? 'Оригинальное качество. Сжатие на стороне расширения отключено.'
-                : 'Изображения сжимаются. Сжатие на стороне расширения активно.';
         },
 
         async _renderPlugins() {
