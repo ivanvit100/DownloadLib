@@ -694,6 +694,47 @@ describe('_loadServiceProxy()', () => {
         delete globalThis.serviceRegistry;
     });
 
+    it('PluginServiceProxy.fetchChapter: injected in-tab fetch func returns body on success, null on HTTP error/throw', async () => {
+        class MockBase {
+            constructor(config) { this.config = config; this.baseUrl = config?.baseUrl || ''; }
+            extractPages() { return []; }
+            async fetchChapter() { return null; }
+        }
+        globalThis.BaseService = MockBase;
+        let capturedClass;
+        globalThis.serviceRegistry = { register: cls => { capturedClass = cls; } };
+        PluginManager._loadServiceProxy({
+            service: 'svc', hosts: ['svc.example.com'],
+            serviceConfig: { baseUrl: 'https://api.example.com', headers: {} }
+        });
+        const inst = new capturedClass();
+        let capturedFunc;
+        const executeScript = vi.fn().mockImplementation(async ({ func }) => {
+            capturedFunc = func;
+            return [{ result: null }];
+        });
+        inst.extensionApi = {
+            runtime: {},
+            tabs: { query: vi.fn().mockResolvedValue([{ id: 42 }]) },
+            scripting: { executeScript }
+        };
+        await inst.fetchChapter('slug', 1, '1', null, {});
+        expect(capturedFunc).toBeInstanceOf(Function);
+
+        global.fetch = vi.fn().mockResolvedValue({ ok: true, text: vi.fn().mockResolvedValue('{"a":1}') });
+        await expect(capturedFunc('https://x', {})).resolves.toEqual({ ok: true, body: '{"a":1}' });
+
+        global.fetch = vi.fn().mockResolvedValue({ ok: false });
+        await expect(capturedFunc('https://x', {})).resolves.toEqual({ ok: false, body: null });
+
+        global.fetch = vi.fn().mockRejectedValue(new Error('network fail'));
+        await expect(capturedFunc('https://x', {})).resolves.toEqual({ ok: false, body: null });
+
+        delete global.fetch;
+        delete globalThis.BaseService;
+        delete globalThis.serviceRegistry;
+    });
+
     it('PluginServiceProxy.fetchChapter: skips auth injection when Authorization already in headers', async () => {
         class MockBase {
             constructor(config) { this.config = config; this.baseUrl = config?.baseUrl || ''; }
@@ -760,6 +801,90 @@ describe('_loadServiceProxy()', () => {
         await inst.fetchChapter('slug', 1);
         expect(global.fetch.mock.calls[0][1].headers['Authorization']).toBeUndefined();
         delete global.fetch;
+        delete globalThis.BaseService;
+        delete globalThis.serviceRegistry;
+    });
+
+    it('PluginServiceProxy.fetchChapter: includes branch_id and extraParams in the in-tab query when provided', async () => {
+        class MockBase {
+            constructor(config) { this.config = config; this.baseUrl = config?.baseUrl || ''; }
+            extractPages() { return []; }
+            async fetchChapter() { return null; }
+        }
+        globalThis.BaseService = MockBase;
+        let capturedClass;
+        globalThis.serviceRegistry = { register: cls => { capturedClass = cls; } };
+        PluginManager._loadServiceProxy({
+            service: 'svc', hosts: ['svc.example.com'],
+            serviceConfig: { baseUrl: 'https://api.example.com', headers: { 'Site-Id': '4' } }
+        });
+        const inst = new capturedClass();
+        let capturedUrl;
+        const executeScript = vi.fn().mockImplementation(async ({ args }) => {
+            capturedUrl = args[0];
+            return [{ result: { ok: true, body: '{}' } }];
+        });
+        inst.extensionApi = {
+            runtime: {},
+            tabs: { query: vi.fn().mockResolvedValue([{ id: 42 }]) },
+            scripting: { executeScript }
+        };
+        await inst.fetchChapter('slug', null, '2', 7, { sort: 'asc' });
+        expect(capturedUrl).toContain('branch_id=7');
+        expect(capturedUrl).toContain('number=1');
+        expect(capturedUrl).toContain('sort=asc');
+        delete globalThis.BaseService;
+        delete globalThis.serviceRegistry;
+    });
+
+    it('PluginServiceProxy.fetchChapter: uses {} headers when serviceConfig.headers is absent', async () => {
+        class MockBase {
+            constructor(config) { this.config = config; this.baseUrl = config?.baseUrl || ''; }
+            extractPages() { return []; }
+            async fetchChapter() { return null; }
+        }
+        globalThis.BaseService = MockBase;
+        let capturedClass;
+        globalThis.serviceRegistry = { register: cls => { capturedClass = cls; } };
+        PluginManager._loadServiceProxy({
+            service: 'svc', hosts: ['svc.example.com'],
+            serviceConfig: { baseUrl: 'https://api.example.com' }
+        });
+        const inst = new capturedClass();
+        let capturedHeaders;
+        const executeScript = vi.fn().mockImplementation(async ({ args }) => {
+            capturedHeaders = args[1];
+            return [{ result: { ok: true, body: '{}' } }];
+        });
+        inst.extensionApi = {
+            runtime: {},
+            tabs: { query: vi.fn().mockResolvedValue([{ id: 42 }]) },
+            scripting: { executeScript }
+        };
+        await inst.fetchChapter('slug', 1, '1', null, {});
+        expect(capturedHeaders).toEqual({});
+        delete globalThis.BaseService;
+        delete globalThis.serviceRegistry;
+    });
+
+    it('PluginServiceProxy.fetchChapter: skips in-tab fetch when plugin.hosts is absent', async () => {
+        class MockBase {
+            constructor(config) { this.config = config; this.baseUrl = config?.baseUrl || ''; }
+            extractPages() { return []; }
+            async fetchChapter() { return 'super-called'; }
+        }
+        globalThis.BaseService = MockBase;
+        let capturedClass;
+        globalThis.serviceRegistry = { register: cls => { capturedClass = cls; } };
+        PluginManager._loadServiceProxy({ service: 'svc', serviceConfig: { baseUrl: 'https://api.example.com' } });
+        const inst = new capturedClass();
+        const tabsQuery = vi.fn();
+        const executeScript = vi.fn();
+        inst.extensionApi = { runtime: {}, tabs: { query: tabsQuery }, scripting: { executeScript } };
+        const result = await inst.fetchChapter('slug', null, '1', null, {});
+        expect(tabsQuery).not.toHaveBeenCalled();
+        expect(executeScript).not.toHaveBeenCalled();
+        expect(result).toBe('super-called');
         delete globalThis.BaseService;
         delete globalThis.serviceRegistry;
     });
@@ -1011,6 +1136,16 @@ describe('FormatSandboxProxy.export() + _createSandbox', () => {
         expect(result.blob).toBeInstanceOf(Blob);
     });
 
+    it('_createSandbox: builds Firefox iframe.srcdoc when getBrowserEnv().isFirefox is true', async () => {
+        globalThis.getBrowserEnv = () => ({ isFirefox: true });
+        const inst = new CapturedProxy();
+        const result = await inst.export({}, [], null);
+        expect(result.filename).toBe('out.fb2');
+        expect(fakeIframe.srcdoc).toContain('window.addEventListener("message"');
+        expect(fakeIframe.srcdoc).toContain('ExporterRegistry');
+        delete globalThis.getBrowserEnv;
+    });
+
     it('export() calls sandbox.exec(jsZipCode) when runtimeApi.getURL and fetch succeed', async () => {
         globalThis.browser.runtime.getURL = vi.fn(() => 'chrome-ext://abc/lib/jszip.min.js');
         globalThis.fetch = vi.fn().mockResolvedValue({ ok: true, text: async () => 'jszip-code' });
@@ -1069,6 +1204,29 @@ describe('FormatSandboxProxy.export() + _createSandbox', () => {
         await inst.export({}, [], null);
         expect(execCalls.filter(m => m._t === 'sb-exec').length).toBe(1);
         delete globalThis.fetch;
+    });
+
+    it('export() skips jszip fetch entirely when _getApi() has no runtime.getURL', async () => {
+        globalThis.getBrowserEnv = () => ({ isFirefox: true });
+        globalThis.browser = { runtime: { sendMessage: vi.fn().mockResolvedValue({ ok: true }) } };
+        const fetchSpy = vi.fn();
+        globalThis.fetch = fetchSpy;
+        fakeContentWindow.postMessage.mockImplementation(msg => {
+            setTimeout(() => {
+                const onMsg = getCapturedOnMsg();
+                if (!onMsg) return;
+                if (msg._t === 'sb-exec')
+                    onMsg({ source: fakeContentWindow, data: { _t: 'sb-ok', _id: msg._id, c: {} } });
+                if (msg._t === 'sb-export')
+                    onMsg({ source: fakeContentWindow, data: { _t: 'sb-export-ok', _id: msg._id, buf: new ArrayBuffer(4), filename: 'out.fb2', mimeType: 'application/xml' } });
+            }, 0);
+        });
+        const inst = new CapturedProxy();
+        const result = await inst.export({}, [], null);
+        expect(fetchSpy).not.toHaveBeenCalled();
+        expect(result.filename).toBe('out.fb2');
+        delete globalThis.fetch;
+        delete globalThis.getBrowserEnv;
     });
 
     it('export() covers fetch throw branch', async () => {
@@ -1205,6 +1363,14 @@ describe('FormatSandboxProxy.export() + _createSandbox', () => {
         vi.advanceTimersByTime(9000);
         await expect(exportPromise).rejects.toThrow('Sandbox exec timeout');
         vi.useRealTimers();
+    });
+
+    it('_createSandbox: rejects when sandbox URL cannot be resolved', async () => {
+        const origGetURL = globalThis.browser.runtime.getURL;
+        globalThis.browser.runtime.getURL = vi.fn(() => undefined);
+        const inst = new CapturedProxy();
+        await expect(inst.export({}, [], null)).rejects.toThrow('Cannot resolve sandbox URL');
+        globalThis.browser.runtime.getURL = origGetURL;
     });
 
     it('destroy() removes message listener and removes iframe', async () => {

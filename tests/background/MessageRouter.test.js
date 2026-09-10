@@ -365,6 +365,118 @@ describe('MessageRouter', () => {
             expect(sendResponse).toHaveBeenCalledWith({ ok: false, error: expect.stringContaining('tabs error') });
         });
 
+        it('Handles fetchImage via scripting.executeScript when injected fetch succeeds', async () => {
+            const mockExecuteScript = vi.fn().mockResolvedValue([
+                { result: { ok: true, base64: 'ZZZZ', contentType: 'image/png' } },
+            ]);
+            globalThis.browser.scripting = { executeScript: mockExecuteScript };
+            const mockSendMessage = vi.fn();
+            globalThis.browser.tabs = { query: vi.fn().mockResolvedValue([{ id: 9 }]), sendMessage: mockSendMessage };
+
+            const sendResponse = vi.fn();
+            capturedMessageCb({ action: 'fetchImage', url: 'https://img.mixlib.me/a.jpg' }, {}, sendResponse);
+
+            await vi.waitFor(() => expect(sendResponse).toHaveBeenCalled());
+            expect(mockExecuteScript).toHaveBeenCalledWith(expect.objectContaining({
+                target: { tabId: 9 },
+                func: expect.any(Function),
+                args: ['https://img.mixlib.me/a.jpg'],
+            }));
+            expect(sendResponse).toHaveBeenCalledWith({ ok: true, base64: 'ZZZZ', contentType: 'image/png' });
+            expect(mockSendMessage).not.toHaveBeenCalled();
+        });
+
+        it('Falls back to tabs.sendMessage when scripting.executeScript yields no usable result', async () => {
+            const mockExecuteScript = vi.fn().mockResolvedValue([{ result: null }]);
+            globalThis.browser.scripting = { executeScript: mockExecuteScript };
+            const mockSendMessage = vi.fn().mockResolvedValue({ ok: true, base64: 'FFFF', contentType: 'image/jpeg' });
+            globalThis.browser.tabs = { query: vi.fn().mockResolvedValue([{ id: 9 }]), sendMessage: mockSendMessage };
+
+            const sendResponse = vi.fn();
+            capturedMessageCb({ action: 'fetchImage', url: 'https://img.mixlib.me/a.jpg' }, {}, sendResponse);
+
+            await vi.waitFor(() => expect(sendResponse).toHaveBeenCalled());
+            expect(mockSendMessage).toHaveBeenCalled();
+            expect(sendResponse).toHaveBeenCalledWith({ ok: true, base64: 'FFFF', contentType: 'image/jpeg' });
+        });
+
+        describe('fetchImage injected func (in-tab fetch)', () => {
+            async function captureInjectedFunc() {
+                let capturedFunc;
+                globalThis.browser.scripting = {
+                    executeScript: vi.fn().mockImplementation(async ({ func }) => {
+                        capturedFunc = func;
+                        return [{ result: null }];
+                    }),
+                };
+                globalThis.browser.tabs = {
+                    query: vi.fn().mockResolvedValue([{ id: 1 }]),
+                    sendMessage: vi.fn().mockResolvedValue(null),
+                };
+
+                const sendResponse = vi.fn();
+                capturedMessageCb({ action: 'fetchImage', url: 'https://img.mixlib.me/a.jpg' }, {}, sendResponse);
+                await vi.waitFor(() => expect(sendResponse).toHaveBeenCalled());
+                return capturedFunc;
+            }
+
+            it('returns base64 payload with blob content type on successful fetch', async () => {
+                const capturedFunc = await captureInjectedFunc();
+
+                const OrigFileReader = globalThis.FileReader;
+                globalThis.fetch = vi.fn().mockResolvedValue({
+                    ok: true,
+                    blob: vi.fn().mockResolvedValue({ type: 'image/png' }),
+                });
+                globalThis.FileReader = class {
+                    readAsDataURL() {
+                        this.result = 'data:image/png;base64,INJECTED';
+                        setTimeout(() => this.onloadend(), 0);
+                    }
+                };
+
+                const result = await capturedFunc('https://img.mixlib.me/a.jpg');
+                expect(result).toEqual({ ok: true, base64: 'INJECTED', contentType: 'image/png' });
+                globalThis.FileReader = OrigFileReader;
+            });
+
+            it('falls back to image/jpeg content type when blob.type is empty', async () => {
+                const capturedFunc = await captureInjectedFunc();
+
+                const OrigFileReader = globalThis.FileReader;
+                globalThis.fetch = vi.fn().mockResolvedValue({
+                    ok: true,
+                    blob: vi.fn().mockResolvedValue({ type: '' }),
+                });
+                globalThis.FileReader = class {
+                    readAsDataURL() {
+                        this.result = 'data:image/jpeg;base64,INJECTED2';
+                        setTimeout(() => this.onloadend(), 0);
+                    }
+                };
+
+                const result = await capturedFunc('https://img.mixlib.me/a.jpg');
+                expect(result.contentType).toBe('image/jpeg');
+                globalThis.FileReader = OrigFileReader;
+            });
+
+            it('returns null when the in-tab fetch response is not ok', async () => {
+                const capturedFunc = await captureInjectedFunc();
+                globalThis.fetch = vi.fn().mockResolvedValue({ ok: false });
+
+                const result = await capturedFunc('https://img.mixlib.me/a.jpg');
+                expect(result).toBeNull();
+            });
+
+            it('returns null when the in-tab fetch throws', async () => {
+                const capturedFunc = await captureInjectedFunc();
+                globalThis.fetch = vi.fn().mockRejectedValue(new Error('network down'));
+
+                const result = await capturedFunc('https://img.mixlib.me/a.jpg');
+                expect(result).toBeNull();
+            });
+        });
+
         it('Handles fetchImage tracks rate limit for detected service', async () => {
             globalThis.browser.tabs = {
                 query: vi.fn().mockResolvedValue([{ id: 1 }]),
@@ -1069,7 +1181,6 @@ describe('MessageRouter', () => {
                 func: expect.any(Function),
                 args: ['console.log("hi")'],
             });
-            // Invoke the func argument to cover the eval line
             const funcArg = mockExecuteScript.mock.calls[0][0].func;
             expect(() => funcArg('1+1')).not.toThrow();
         });
@@ -1149,7 +1260,7 @@ describe('MessageRouter', () => {
                 unregisterContentScripts: mockUnregister,
             };
             globalThis.browser.storage = {
-                local: { get: vi.fn().mockResolvedValue({}) }, // no custom_plugins key
+                local: { get: vi.fn().mockResolvedValue({}) },
                 onChanged: { addListener: vi.fn() },
             };
             await loadModule();

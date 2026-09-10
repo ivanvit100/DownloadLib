@@ -6,9 +6,10 @@ export default defineConfig({
         bail: 1,
         environment: 'jsdom',
         include: ['tests/**/*.test.js'],
+        execArgv: ['--no-experimental-webstorage'],
         coverage: {
             provider: 'istanbul',
-            reporter: ['text', 'html'],
+            reporter: ['text', 'html', 'json'],
             exclude: ['**/node_modules/**', '**/lib/**', '**/background/service-worker.js', '**/**/**/config.js', '/assembly/**', '**/tests/**'],
             all: true,
             include: ['*.js', 'core/**/*.js', 'background/**/*.js', 'content/**/*.js', 'exporters/**/*.js', 'services/**/*.js', 'ui/**/*.js'],
