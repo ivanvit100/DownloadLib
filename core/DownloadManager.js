@@ -207,7 +207,6 @@
                     }
 
                     downloadState.chapterContents.push(chapterResult);
-                    await this.delay(500);
                 }
             } finally {
                 service._on429 = null;
@@ -517,7 +516,6 @@
 
                     results.push(errorChapter);
                 }
-                await this.delay(500);
             }
 
             return results;
@@ -656,8 +654,6 @@
                         results.push(errorChapter);
                         downloadState.chapterContents.push(errorChapter);
                     }
-
-                    await this.delay(500);
                 }
             } finally {
                 service._on429 = null;
@@ -713,10 +709,6 @@
             return `download_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
         }
 
-        delay(ms) {
-            return new Promise(resolve => setTimeout(resolve, ms));
-        }
-
         async saveFile(blob, filename) {
             if (global.FileUtils)
                 await global.FileUtils.downloadBlob(blob, filename);
@@ -764,6 +756,34 @@
         }
     }
 
+    async function fetchPageImage(url, serviceKey) {
+        if (global.globalRateLimiter) await global.globalRateLimiter.trackRequest(serviceKey || 'image');
+
+        if (typeof global.fetchViaTab === 'function') {
+            const viaTab = await global.fetchViaTab(url, serviceKey);
+            if (viaTab?.ok) return viaTab;
+        }
+
+        const api = typeof global.getExtensionApi === 'function' ? global.getExtensionApi() : global.extensionApi;
+        if (!api?.runtime?.sendMessage) return { ok: false, error: 'runtime.sendMessage not available' };
+
+        const send = () => api.runtime.sendMessage({ action: 'fetchImage', url, serviceKey });
+        try {
+            return await send();
+        } catch (e) {
+            if (!/Receiving end does not exist/i.test(e?.message || ''))
+                return { ok: false, error: String(e) };
+            console.warn('[DownloadManager] Background page was asleep, retrying fetchImage for', url);
+            await new Promise(resolve => setTimeout(resolve, 300));
+            try {
+                return await send();
+            } catch (e2) {
+                return { ok: false, error: String(e2) };
+            }
+        }
+    }
+
     global.DownloadManager = DownloadManager;
+    global.fetchPageImage = fetchPageImage;
     console.log('[DownloadManager] Loaded');
 })(typeof window !== 'undefined' ? window : self);

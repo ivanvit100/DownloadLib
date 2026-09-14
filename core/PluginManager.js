@@ -467,11 +467,7 @@
                 async loadPageAsBase64(ref, opts = {}) {
                     const url = this.resolvePageUrl(ref?.src || ref);
                     if (!url) return null;
-                    const api = this.extensionApi;
-                    if (!api?.runtime?.sendMessage) return null;
-                    const response = await api.runtime.sendMessage({
-                        action: 'fetchImage', url, serviceKey: serviceName
-                    });
+                    const response = await global.fetchPageImage(url, serviceName);
                     if (!response?.ok) {
                         console.warn(`[${serviceName}] Failed to fetch ${url}:`, response?.error);
                         return null;

@@ -161,8 +161,7 @@
         }
 
         async _fetchWithCompressionFallback(url) {
-            const send = u => this.extensionApi.runtime.sendMessage({ action: 'fetchImage', url: u });
-            const response = await send(url);
+            const response = await global.fetchPageImage(url, 'mangalib');
             if (response?.ok) return response;
             console.warn(`[MangaLibService] Failed to fetch ${url}:`, response?.error);
             return null;

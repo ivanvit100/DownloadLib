@@ -1249,6 +1249,21 @@ describe('MessageRouter', () => {
             expect(mockAddListenerOnMessage).toHaveBeenCalled();
         });
 
+        it('Still populates pluginServiceHosts when scripting.registerContentScripts is unavailable', async () => {
+            setupGlobals('firefox');
+            const storageGet = vi.fn().mockResolvedValue({
+                custom_plugins: [{ service: 'myplugin', hosts: ['myplugin.com'], enabled: true }],
+            });
+            globalThis.browser.storage = {
+                local: { get: storageGet },
+                onChanged: { addListener: vi.fn() },
+            };
+            await loadModule();
+            await vi.waitFor(() => expect(storageGet).toHaveBeenCalled());
+            expect(globalThis.pluginServiceHosts).toEqual({ myplugin: ['myplugin.com'] });
+            delete globalThis.pluginServiceHosts;
+        });
+
         it('Uses empty array when custom_plugins key is absent from storage', async () => {
             setupGlobals('firefox');
             mockRegister = vi.fn().mockResolvedValue();
@@ -1326,6 +1341,26 @@ describe('MessageRouter', () => {
         it('Does not call unregister when no old plugin scripts exist', async () => {
             await setupWithScripting([{ service: 'myplugin', hosts: ['myplugin.com'] }]);
             expect(mockUnregister).not.toHaveBeenCalled();
+        });
+
+        it('Warns and skips registration when reading custom plugins throws', async () => {
+            const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
+            setupGlobals('firefox');
+            const mockRegister = vi.fn();
+            globalThis.browser.scripting = {
+                registerContentScripts: mockRegister,
+                getRegisteredContentScripts: vi.fn(),
+                unregisterContentScripts: vi.fn(),
+            };
+            globalThis.browser.storage = {
+                local: { get: vi.fn().mockRejectedValue(new Error('storage error')) },
+                onChanged: { addListener: vi.fn() },
+            };
+            await loadModule();
+            await vi.waitFor(() => expect(warnSpy).toHaveBeenCalledWith(
+                '[MessageRouter] Failed to read custom plugins:', 'storage error',
+            ));
+            expect(mockRegister).not.toHaveBeenCalled();
         });
 
         it('Handles error during sync gracefully', async () => {

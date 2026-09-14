@@ -375,18 +375,31 @@
     ];
     const PLUGIN_SCRIPT_ID_PREFIX = 'dl-plugin-';
 
+    async function _syncPluginServiceHosts() {
+        if (!browserAPI?.storage?.local) return [];
+        const result = await browserAPI.storage.local.get('custom_plugins');
+        const plugins = (result?.custom_plugins || []).filter(
+            p => p.enabled !== false && Array.isArray(p.hosts) && p.hosts.length
+        );
+
+        globalThis.pluginServiceHosts = {};
+        for (const p of plugins)
+            if (p.service) globalThis.pluginServiceHosts[p.service] = p.hosts;
+
+        return plugins;
+    }
+
     async function _syncPluginContentScripts() {
+        let plugins;
+        try {
+            plugins = await _syncPluginServiceHosts();
+        } catch (e) {
+            console.warn('[MessageRouter] Failed to read custom plugins:', e.message);
+            return;
+        }
+
         if (!browserAPI?.scripting?.registerContentScripts) return;
         try {
-            const result = await browserAPI.storage.local.get('custom_plugins');
-            const plugins = (result?.custom_plugins || []).filter(
-                p => p.enabled !== false && Array.isArray(p.hosts) && p.hosts.length
-            );
-
-            globalThis.pluginServiceHosts = {};
-            for (const p of plugins)
-                if (p.service) globalThis.pluginServiceHosts[p.service] = p.hosts;
-
             const existing = await browserAPI.scripting.getRegisteredContentScripts();
             const oldIds = existing
                 .filter(s => s.id.startsWith(PLUGIN_SCRIPT_ID_PREFIX))

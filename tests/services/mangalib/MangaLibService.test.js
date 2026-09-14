@@ -368,26 +368,21 @@ describe('MangaLibService', () => {
 
     it('Load page as base64 returns null if response not ok', async () => {
         const svc = new MangaLibService();
-        global.browser = {
-            runtime: {
-                sendMessage: vi.fn().mockResolvedValue({ ok: false, error: 'fail' })
-            }
-        };
+        global.browser = { runtime: { sendMessage: vi.fn() } };
+        global.fetchPageImage = vi.fn().mockResolvedValue({ ok: false, error: 'fail' });
         const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
         const result = await svc.loadPageAsBase64('img.jpg');
         expect(result).toBeNull();
         expect(warnSpy).toHaveBeenCalledWith('[MangaLibService] Failed to fetch https://imgslib.link/img.jpg:', 'fail');
         warnSpy.mockRestore();
         delete global.browser;
+        delete global.fetchPageImage;
     });
 
     it('Load page as base64 returns split images if splitLongImages is true', async () => {
         const svc = new MangaLibService();
-        global.browser = {
-            runtime: {
-                sendMessage: vi.fn().mockResolvedValue({ ok: true, base64: 'abc', contentType: 'image/jpeg' })
-            }
-        };
+        global.browser = { runtime: { sendMessage: vi.fn() } };
+        global.fetchPageImage = vi.fn().mockResolvedValue({ ok: true, base64: 'abc', contentType: 'image/jpeg' });
         svc.splitLongImage = vi.fn().mockResolvedValue([
             { base64: 'part1', contentType: 'image/jpeg' },
             { base64: 'part2', contentType: 'image/jpeg' }
@@ -396,51 +391,46 @@ describe('MangaLibService', () => {
         expect(Array.isArray(result)).toBe(true);
         expect(result.length).toBe(2);
         delete global.browser;
+        delete global.fetchPageImage;
     });
 
     it('Load page as base64 returns single image if splitLongImages is false', async () => {
         const svc = new MangaLibService();
-        global.browser = {
-            runtime: {
-                sendMessage: vi.fn().mockResolvedValue({ ok: true, base64: 'part1', contentType: 'image/jpeg' })
-            }
-        };
+        global.browser = { runtime: { sendMessage: vi.fn() } };
+        global.fetchPageImage = vi.fn().mockResolvedValue({ ok: true, base64: 'part1', contentType: 'image/jpeg' });
         svc.splitLongImage = vi.fn().mockResolvedValue([
             { base64: 'part1', contentType: 'image/jpeg' }
         ]);
         const result = await svc.loadPageAsBase64('img.jpg', { splitLongImages: false });
         expect(result).toEqual({ base64: 'part1', contentType: 'image/jpeg' });
         delete global.browser;
+        delete global.fetchPageImage;
     });
 
     it('Load page as base64 returns single image if splitLongImages is true but only one part', async () => {
         const svc = new MangaLibService();
-        global.browser = {
-            runtime: {
-                sendMessage: vi.fn().mockResolvedValue({ ok: true, base64: 'part1', contentType: 'image/jpeg' })
-            }
-        };
+        global.browser = { runtime: { sendMessage: vi.fn() } };
+        global.fetchPageImage = vi.fn().mockResolvedValue({ ok: true, base64: 'part1', contentType: 'image/jpeg' });
         svc.splitLongImage = vi.fn().mockResolvedValue([
             { base64: 'part1', contentType: 'image/jpeg' }
         ]);
         const result = await svc.loadPageAsBase64('img.jpg', { splitLongImages: true });
         expect(result).toEqual({ base64: 'part1', contentType: 'image/jpeg' });
         delete global.browser;
+        delete global.fetchPageImage;
     });
 
     it('Load page as base64 returns null on error', async () => {
         const svc = new MangaLibService();
-        global.browser = {
-            runtime: {
-                sendMessage: vi.fn().mockRejectedValue(new Error('fail'))
-            }
-        };
+        global.browser = { runtime: { sendMessage: vi.fn() } };
+        global.fetchPageImage = vi.fn().mockRejectedValue(new Error('fail'));
         const errorSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
         const result = await svc.loadPageAsBase64('img.jpg');
         expect(result).toBeNull();
         expect(errorSpy).toHaveBeenCalledWith('[MangaLibService] loadPageAsBase64 error', expect.any(Error));
         errorSpy.mockRestore();
         delete global.browser;
+        delete global.fetchPageImage;
     });
 
     it('Process chapter content returns image blocks for loaded pages', async () => {
@@ -648,34 +638,22 @@ describe('MangaLibService', () => {
 
     it('Load page as base64 covers content type  "image/jpeg" branch', async () => {
         const svc = new MangaLibService();
-        global.browser = {
-            runtime: {
-                sendMessage: vi.fn().mockResolvedValue({
-                    ok: true,
-                    base64: 'abc'
-                })
-            }
-        };
+        global.browser = { runtime: { sendMessage: vi.fn() } };
+        global.fetchPageImage = vi.fn().mockResolvedValue({ ok: true, base64: 'abc' });
         svc.splitLongImage = vi.fn().mockResolvedValue([
             { base64: 'abc', contentType: 'image/jpeg' }
         ]);
         const result = await svc.loadPageAsBase64('img.jpg');
         expect(result).toEqual({ base64: 'abc', contentType: 'image/jpeg' });
         delete global.browser;
+        delete global.fetchPageImage;
     });
 
     it('Load page as base64 works with filename', async () => {
         const svc = new MangaLibService();
         const resolveSpy = vi.spyOn(svc, 'resolvePageUrl').mockReturnValue('https://imgslib.link/img1.jpg');
-        global.browser = {
-            runtime: {
-                sendMessage: vi.fn().mockResolvedValue({
-                    ok: true,
-                    base64: 'abc',
-                    contentType: 'image/jpeg'
-                })
-            }
-        };
+        global.browser = { runtime: { sendMessage: vi.fn() } };
+        global.fetchPageImage = vi.fn().mockResolvedValue({ ok: true, base64: 'abc', contentType: 'image/jpeg' });
         svc.splitLongImage = vi.fn().mockResolvedValue([
             { base64: 'abc', contentType: 'image/jpeg' }
         ]);
@@ -683,21 +661,15 @@ describe('MangaLibService', () => {
         expect(resolveSpy).toHaveBeenCalledWith('img1.jpg');
         expect(result).toEqual({ base64: 'abc', contentType: 'image/jpeg' });
         delete global.browser;
+        delete global.fetchPageImage;
         resolveSpy.mockRestore();
     });
 
     it('Load page as base64 works with url', async () => {
         const svc = new MangaLibService();
         const resolveSpy = vi.spyOn(svc, 'resolvePageUrl').mockReturnValue('https://imgslib.link/img2.jpg');
-        global.browser = {
-            runtime: {
-                sendMessage: vi.fn().mockResolvedValue({
-                    ok: true,
-                    base64: 'abc',
-                    contentType: 'image/jpeg'
-                })
-            }
-        };
+        global.browser = { runtime: { sendMessage: vi.fn() } };
+        global.fetchPageImage = vi.fn().mockResolvedValue({ ok: true, base64: 'abc', contentType: 'image/jpeg' });
         svc.splitLongImage = vi.fn().mockResolvedValue([
             { base64: 'abc', contentType: 'image/jpeg' }
         ]);
@@ -710,21 +682,15 @@ describe('MangaLibService', () => {
         expect(result2).toEqual({ base64: 'abc', contentType: 'image/jpeg' });
 
         delete global.browser;
+        delete global.fetchPageImage;
         resolveSpy.mockRestore();
     });
 
     it('Load page as base64 works with src', async () => {
         const svc = new MangaLibService();
         const resolveSpy = vi.spyOn(svc, 'resolvePageUrl').mockReturnValue('https://imgslib.link/img3.jpg');
-        global.browser = {
-            runtime: {
-                sendMessage: vi.fn().mockResolvedValue({
-                    ok: true,
-                    base64: 'abc',
-                    contentType: 'image/jpeg'
-                })
-            }
-        };
+        global.browser = { runtime: { sendMessage: vi.fn() } };
+        global.fetchPageImage = vi.fn().mockResolvedValue({ ok: true, base64: 'abc', contentType: 'image/jpeg' });
         svc.splitLongImage = vi.fn().mockResolvedValue([
             { base64: 'abc', contentType: 'image/jpeg' }
         ]);
@@ -732,6 +698,7 @@ describe('MangaLibService', () => {
         expect(resolveSpy).toHaveBeenCalledWith('img3.jpg');
         expect(result).toEqual({ base64: 'abc', contentType: 'image/jpeg' });
         delete global.browser;
+        delete global.fetchPageImage;
         resolveSpy.mockRestore();
     });
 
@@ -844,11 +811,8 @@ describe('MangaLibService', () => {
 
     it('_processImage calls ImageCompressor.compress for single part when splitLongImages is true', async () => {
         const svc = new MangaLibService();
-        global.browser = {
-            runtime: {
-                sendMessage: vi.fn().mockResolvedValue({ ok: true, base64: 'raw', contentType: 'image/jpeg' })
-            }
-        };
+        global.browser = { runtime: { sendMessage: vi.fn() } };
+        global.fetchPageImage = vi.fn().mockResolvedValue({ ok: true, base64: 'raw', contentType: 'image/jpeg' });
         svc.splitLongImage = vi.fn().mockResolvedValue([
             { base64: 'raw', contentType: 'image/jpeg' }
         ]);
@@ -858,22 +822,21 @@ describe('MangaLibService', () => {
         expect(compress).toHaveBeenCalled();
         expect(result).toEqual({ base64: 'compressed', contentType: 'image/jpeg' });
         delete global.browser;
+        delete global.fetchPageImage;
         delete global.ImageCompressor;
     });
 
     it('_processImage calls ImageCompressor.compress when splitLongImages is false', async () => {
         const svc = new MangaLibService();
-        global.browser = {
-            runtime: {
-                sendMessage: vi.fn().mockResolvedValue({ ok: true, base64: 'raw', contentType: 'image/jpeg' })
-            }
-        };
+        global.browser = { runtime: { sendMessage: vi.fn() } };
+        global.fetchPageImage = vi.fn().mockResolvedValue({ ok: true, base64: 'raw', contentType: 'image/jpeg' });
         const compress = vi.fn().mockResolvedValue({ base64: 'compressed', contentType: 'image/jpeg' });
         global.ImageCompressor = { compress };
         const result = await svc.loadPageAsBase64('img.jpg', { splitLongImages: false });
         expect(compress).toHaveBeenCalled();
         expect(result).toEqual({ base64: 'compressed', contentType: 'image/jpeg' });
         delete global.browser;
+        delete global.fetchPageImage;
         delete global.ImageCompressor;
     });
 
@@ -888,52 +851,47 @@ describe('MangaLibService', () => {
 
     it('_resolveRefUrl handles //-prefixed url', async () => {
         const svc = new MangaLibService();
-        global.browser = {
-            runtime: {
-                sendMessage: vi.fn().mockResolvedValue({ ok: true, base64: 'abc', contentType: 'image/jpeg' })
-            }
-        };
+        global.browser = { runtime: { sendMessage: vi.fn() } };
+        global.fetchPageImage = vi.fn().mockResolvedValue({ ok: true, base64: 'abc', contentType: 'image/jpeg' });
         svc.splitLongImage = vi.fn().mockResolvedValue([{ base64: 'abc', contentType: 'image/jpeg' }]);
         const resolveSpy = vi.spyOn(svc, 'resolvePageUrl').mockReturnValue('https://imgslib.link/manga/img.jpg');
         await svc.loadPageAsBase64({ url: '//manga/img.jpg' });
         expect(resolveSpy).toHaveBeenCalledWith('/manga/img.jpg');
         delete global.browser;
+        delete global.fetchPageImage;
         resolveSpy.mockRestore();
     });
 
     it('_resolveRefUrl handles ref.image', async () => {
         const svc = new MangaLibService();
-        global.browser = {
-            runtime: {
-                sendMessage: vi.fn().mockResolvedValue({ ok: true, base64: 'abc', contentType: 'image/jpeg' })
-            }
-        };
+        global.browser = { runtime: { sendMessage: vi.fn() } };
+        global.fetchPageImage = vi.fn().mockResolvedValue({ ok: true, base64: 'abc', contentType: 'image/jpeg' });
         svc.splitLongImage = vi.fn().mockResolvedValue([{ base64: 'abc', contentType: 'image/jpeg' }]);
         const resolveSpy = vi.spyOn(svc, 'resolvePageUrl').mockReturnValue('https://imgslib.link/img.jpg');
         await svc.loadPageAsBase64({ image: 'img.jpg' });
         expect(resolveSpy).toHaveBeenCalledWith('img.jpg');
         delete global.browser;
+        delete global.fetchPageImage;
         resolveSpy.mockRestore();
     });
 
     it('_fetchWithCompressionFallback returns result when fetch ok', async () => {
-        const sendMessage = vi.fn().mockResolvedValue({ ok: true, base64: 'b64', contentType: 'image/jpeg' });
-        global.browser = { runtime: { sendMessage } };
+        global.fetchPageImage = vi.fn().mockResolvedValue({ ok: true, base64: 'b64', contentType: 'image/jpeg' });
         const svc = new MangaLibService();
         const result = await svc._fetchWithCompressionFallback('https://img3.cdnlibs.org/img.jpg');
         expect(result).toEqual({ ok: true, base64: 'b64', contentType: 'image/jpeg' });
-        delete global.browser;
+        expect(global.fetchPageImage).toHaveBeenCalledWith('https://img3.cdnlibs.org/img.jpg', 'mangalib');
+        delete global.fetchPageImage;
     });
 
     it('_fetchWithCompressionFallback returns null and warns when fetch fails', async () => {
         const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
-        const sendMessage = vi.fn().mockResolvedValue({ ok: false, error: 'timeout' });
-        global.browser = { runtime: { sendMessage } };
+        global.fetchPageImage = vi.fn().mockResolvedValue({ ok: false, error: 'timeout' });
         const svc = new MangaLibService();
         const result = await svc._fetchWithCompressionFallback('https://img3.cdnlibs.org/img.jpg');
         expect(result).toBeNull();
         expect(warnSpy).toHaveBeenCalled();
-        delete global.browser;
+        delete global.fetchPageImage;
         warnSpy.mockRestore();
     });
 

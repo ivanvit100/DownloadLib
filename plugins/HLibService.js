@@ -193,20 +193,15 @@
         // Загружает одну страницу и возвращает { base64, contentType }.
         // ref — объект страницы из extractText(); opts — настройки сжатия.
         //
-        // Базовая реализация использует background-сообщение 'fetchImage',
-        // которое обходит CORS через вкладку с сайтом. Переопределяйте только
-        // если сайт требует нестандартного способа загрузки (токены, сессии и т.п.).
+        // Базовая реализация идёт через global.fetchPageImage() — единую точку
+        // загрузки картинок (DownloadManager + RateLimiter), которая сама решает,
+        // как достать байты (через вкладку сайта или через фон, с ретраем).
+        // Переопределяйте только если сайт требует нестандартного способа загрузки.
         async loadPageAsBase64(ref, opts = {}) {
             const url = this.resolvePageUrl(ref?.src || ref);
             if (!url) return null;
 
-            const api = this.extensionApi;
-            if (!api?.runtime?.sendMessage) {
-                console.error(`[${this.name}] browser.runtime недоступен`);
-                return null;
-            }
-
-            const response = await api.runtime.sendMessage({ action: 'fetchImage', url });
+            const response = await global.fetchPageImage(url, this.name);
             if (!response?.ok) {
                 console.warn(`[${this.name}] Не удалось загрузить ${url}:`, response?.error);
                 return null;

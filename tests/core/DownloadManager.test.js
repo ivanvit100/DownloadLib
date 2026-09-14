@@ -1,6 +1,6 @@
 import { describe, it, expect, beforeEach, vi } from 'vitest';
 
-let DownloadManager, globalMock, eventBusMock, exporterMock, serviceMock, fileUtilsMock;
+let DownloadManager, fetchPageImage, globalMock, eventBusMock, exporterMock, serviceMock, fileUtilsMock;
 
 function createChapter(vol, num, name = undefined) {
     return { volume: vol, number: num, name };
@@ -59,6 +59,7 @@ beforeEach(async () => {
 
     await import('../../core/DownloadManager.js');
     DownloadManager = globalThis.DownloadManager;
+    fetchPageImage = globalThis.fetchPageImage;
 });
 
 describe('DownloadManager', () => {
@@ -199,11 +200,6 @@ describe('DownloadManager', () => {
         expect(merged[2].content[0].text).toBe('[Глава не загружена]');
     });
 
-    it('Delay function', async () => {
-        const dm = new DownloadManager();
-        await expect(dm.delay(10)).resolves.toBeUndefined();
-    });
-
     it('Save file with FileUtils', async () => {
         const dm = new DownloadManager();
         await dm.saveFile({}, 'f.fb2');
@@ -212,10 +208,17 @@ describe('DownloadManager', () => {
 
     it('Save file fallback', async () => {
         delete globalThis.FileUtils;
+        vi.useFakeTimers();
         const dm = new DownloadManager();
         await dm.saveFile({}, 'f.fb2');
         expect(globalThis.document.createElement).toHaveBeenCalled();
         expect(globalThis.URL.createObjectURL).toHaveBeenCalled();
+
+        const link = globalThis.document.createElement.mock.results[0].value;
+        vi.advanceTimersByTime(10000);
+        expect(globalThis.URL.revokeObjectURL).toHaveBeenCalledWith('bloburl');
+        expect(link.remove).toHaveBeenCalled();
+        vi.useRealTimers();
     });
 
     it('Parse file as fb2', async () => {
@@ -393,6 +396,16 @@ describe('DownloadManager', () => {
         const res = await dm.startDownload({ serviceKey: 'mangalib', url: 'https://site/manga/slug' });
         const state = dm.getDownloadState(res.downloadId);
         expect(state.chapters).toEqual([]);
+    });
+
+    it('Removes the download from activeDownloads 5s after it finishes', async () => {
+        vi.useFakeTimers();
+        const dm = new DownloadManager();
+        const res = await dm.startDownload({ serviceKey: 'mangalib', url: 'https://site/manga/slug' });
+        expect(dm.activeDownloads.has(res.downloadId)).toBe(true);
+        vi.advanceTimersByTime(5000);
+        expect(dm.activeDownloads.has(res.downloadId)).toBe(false);
+        vi.useRealTimers();
     });
 
     it('Text block without text property in check is chapter empty', () => {
@@ -632,7 +645,6 @@ describe('DownloadManager', () => {
         serviceMock.fetchChaptersList = vi.fn(async () => ({ data: chapters }));
         serviceMock.fetchChapter = vi.fn(async () => ({ data: { content: [{ type: 'text', text: 'ok' }] } }));
         const saveFileSpy = vi.spyOn(dm, 'saveFile').mockResolvedValue();
-        const delaySpy = vi.spyOn(dm, 'delay').mockResolvedValue();
         const ctrl = dm.createController();
         let stopCalled = false;
         ctrl.shouldStop = () => {
@@ -643,7 +655,6 @@ describe('DownloadManager', () => {
         expect(stopCalled).toBe(true);
         expect(saveFileSpy).toHaveBeenCalledTimes(0);
         saveFileSpy.mockRestore();
-        delaySpy.mockRestore();
     });
 
     it('Calls _on429 handler with waiting status and current progress', async () => {
@@ -660,18 +671,16 @@ describe('DownloadManager', () => {
         };
 
         const service = {
-            fetchChapter: vi.fn(async () => ({ data: { content: [{ type: 'text', text: 'ok' }] } })),
+            fetchChapter: vi.fn(async () => {
+                ds.progress = 55;
+                service._on429();
+                return { data: { content: [{ type: 'text', text: 'ok' }] } };
+            }),
             extractText: vi.fn(content => content),
             processChapterContent: vi.fn(async content => content)
         };
 
-        const downloadPromise = dm.downloadChapters(service, ds, [{ number: '1', volume: '1' }], () => {});
-
-        await new Promise(resolve => setTimeout(resolve, 0));
-        ds.progress = 55;
-        service._on429();
-
-        await downloadPromise;
+        await dm.downloadChapters(service, ds, [{ number: '1', volume: '1' }], () => {});
 
         const waitingCall = statusUpdates.find(u => u.msg === 'Ожидание разрешения от сервера...');
         expect(waitingCall).toBeDefined();
@@ -692,17 +701,15 @@ describe('DownloadManager', () => {
         };
 
         const service = {
-            fetchChapter: vi.fn(async () => ({ data: { content: [{ type: 'text', text: 'ok' }] } })),
+            fetchChapter: vi.fn(async () => {
+                service._on429();
+                return { data: { content: [{ type: 'text', text: 'ok' }] } };
+            }),
             extractText: vi.fn(content => content),
             processChapterContent: vi.fn(async content => content)
         };
 
-        const downloadPromise = dm.downloadChapters(service, ds, [{ number: '1', volume: '1' }], () => {});
-
-        await new Promise(resolve => setTimeout(resolve, 0));
-        service._on429();
-
-        await downloadPromise;
+        await dm.downloadChapters(service, ds, [{ number: '1', volume: '1' }], () => {});
 
         const waitingCall = statusUpdates.find(u => u.msg === 'Ожидание разрешения от сервера...');
         expect(waitingCall).toBeDefined();
@@ -1059,7 +1066,6 @@ describe('DownloadManager', () => {
     it('downloadWithSizeLimit processes chapters and saves a single file', async () => {
         const dm = new DownloadManager();
         const saveFileSpy = vi.spyOn(dm, 'saveFile').mockResolvedValue();
-        const delaySpy = vi.spyOn(dm, 'delay').mockResolvedValue();
         const ctrl = dm.createController();
         const ds = { id: 'dl1', slug: 'slug', controller: ctrl, chapterContents: [], format: 'fb2', splitPages: true, mangaId: null };
         dm.activeDownloads.set('dl1', ds);
@@ -1073,7 +1079,6 @@ describe('DownloadManager', () => {
     it('downloadWithSizeLimit splits into multiple parts when chapter size exceeds limit', async () => {
         const dm = new DownloadManager();
         const saveFileSpy = vi.spyOn(dm, 'saveFile').mockResolvedValue();
-        const delaySpy = vi.spyOn(dm, 'delay').mockResolvedValue();
         vi.spyOn(dm, 'estimateChapterSize').mockReturnValue(60 * 1024 * 1024);
         const ctrl = dm.createController();
         const ds = { id: 'dl2', slug: 'slug', controller: ctrl, chapterContents: [], format: 'fb2', splitPages: true, mangaId: null };
@@ -1088,7 +1093,6 @@ describe('DownloadManager', () => {
     it('downloadWithSizeLimit _on429 handler updates status with current progress', async () => {
         const dm = new DownloadManager();
         vi.spyOn(dm, 'saveFile').mockResolvedValue();
-        vi.spyOn(dm, 'delay').mockResolvedValue();
         const ctrl = dm.createController();
         const ds = { id: 'dl3', slug: 'slug', controller: ctrl, chapterContents: [], format: 'fb2', splitPages: true, mangaId: null, progress: 42 };
         dm.activeDownloads.set('dl3', ds);
@@ -1109,7 +1113,6 @@ describe('DownloadManager', () => {
 
     it('updateExistingFile returns updated:false when no missing chapters', async () => {
         const dm = new DownloadManager();
-        vi.spyOn(dm, 'delay').mockResolvedValue();
         vi.spyOn(dm, 'saveFile').mockResolvedValue();
         serviceMock.fetchChaptersList = vi.fn(async () => ({ data: [
             createChapter('1', '1'), createChapter('1', '2'),
@@ -1132,7 +1135,6 @@ describe('DownloadManager', () => {
 
     it('updateExistingFile downloads missing chapters and saves updated file', async () => {
         const dm = new DownloadManager();
-        vi.spyOn(dm, 'delay').mockResolvedValue();
         const saveFileSpy = vi.spyOn(dm, 'saveFile').mockResolvedValue();
         serviceMock.fetchChaptersList = vi.fn(async () => ({ data: [
             createChapter('1', '1'), createChapter('1', '2'),
@@ -1152,7 +1154,6 @@ describe('DownloadManager', () => {
 
     it('updateExistingFile uses parseFile when exporter.parse is absent', async () => {
         const dm = new DownloadManager();
-        vi.spyOn(dm, 'delay').mockResolvedValue();
         vi.spyOn(dm, 'saveFile').mockResolvedValue();
         const parseFileSpy = vi.spyOn(dm, 'parseFile').mockResolvedValue({
             chapters: [{ volume: '1', number: '1', content: [{ type: 'text', text: 'ok' }] }],
@@ -1174,7 +1175,6 @@ describe('DownloadManager', () => {
     it('downloadWithSizeLimit _on429 handler uses 0 progress when download not in activeDownloads', async () => {
         const dm = new DownloadManager();
         vi.spyOn(dm, 'saveFile').mockResolvedValue();
-        vi.spyOn(dm, 'delay').mockResolvedValue();
         const ctrl = dm.createController();
         const ds = { id: 'dl4', slug: 'slug', controller: ctrl, chapterContents: [], format: 'fb2', splitPages: true, mangaId: null };
         // ds is intentionally NOT added to activeDownloads
@@ -1196,7 +1196,6 @@ describe('DownloadManager', () => {
 
     it('updateExistingFile uses empty array when chaptersData.data is absent', async () => {
         const dm = new DownloadManager();
-        vi.spyOn(dm, 'delay').mockResolvedValue();
         vi.spyOn(dm, 'saveFile').mockResolvedValue();
         serviceMock.fetchChaptersList = vi.fn(async () => ({})); // no .data
         exporterMock.parse = vi.fn(async () => ({
@@ -1212,7 +1211,6 @@ describe('DownloadManager', () => {
 
     it('updateExistingFile uses default maxSizeBytes 200MB when maxSizeMB is not set', async () => {
         const dm = new DownloadManager();
-        vi.spyOn(dm, 'delay').mockResolvedValue();
         const saveFileSpy = vi.spyOn(dm, 'saveFile').mockResolvedValue();
         serviceMock.fetchChaptersList = vi.fn(async () => ({ data: [
             createChapter('1', '1'), createChapter('1', '2'),
@@ -1232,7 +1230,6 @@ describe('DownloadManager', () => {
 
     it('updateExistingFile skips final export when merged chapters is empty', async () => {
         const dm = new DownloadManager();
-        vi.spyOn(dm, 'delay').mockResolvedValue();
         const saveFileSpy = vi.spyOn(dm, 'saveFile').mockResolvedValue();
         vi.spyOn(dm, 'mergeChapters').mockReturnValue([]);
         serviceMock.fetchChaptersList = vi.fn(async () => ({ data: [createChapter('1', '1'), createChapter('1', '2')] }));
@@ -1249,7 +1246,6 @@ describe('DownloadManager', () => {
 
     it('updateExistingFile splits merged chapters into multiple parts when size limit exceeded', async () => {
         const dm = new DownloadManager();
-        vi.spyOn(dm, 'delay').mockResolvedValue();
         const saveFileSpy = vi.spyOn(dm, 'saveFile').mockResolvedValue();
         vi.spyOn(dm, 'estimateChapterSize').mockReturnValue(60 * 1024 * 1024);
         serviceMock.fetchChaptersList = vi.fn(async () => ({ data: [
@@ -1265,5 +1261,115 @@ describe('DownloadManager', () => {
         const result = await dm.updateExistingFile(ds, serviceMock, {});
         expect(saveFileSpy.mock.calls.length).toBeGreaterThanOrEqual(2);
         expect(result.updated).toBe(true);
+    });
+
+    describe('fetchPageImage', () => {
+        it('prefers fetchViaTab and never touches runtime.sendMessage when it succeeds', async () => {
+            globalThis.fetchViaTab = vi.fn().mockResolvedValue({ ok: true, base64: 'b64', contentType: 'image/jpeg' });
+            const sendMessage = vi.fn();
+            globalThis.extensionApi = { runtime: { sendMessage } };
+            const result = await fetchPageImage('https://img.example.com/a.jpg', 'mangalib');
+            expect(result).toEqual({ ok: true, base64: 'b64', contentType: 'image/jpeg' });
+            expect(globalThis.fetchViaTab).toHaveBeenCalledWith('https://img.example.com/a.jpg', 'mangalib');
+            expect(sendMessage).not.toHaveBeenCalled();
+            delete globalThis.extensionApi;
+        });
+
+        it('falls back to runtime.sendMessage when fetchViaTab fails', async () => {
+            globalThis.fetchViaTab = vi.fn().mockResolvedValue(null);
+            const sendMessage = vi.fn().mockResolvedValue({ ok: true, base64: 'b64', contentType: 'image/jpeg' });
+            globalThis.extensionApi = { runtime: { sendMessage } };
+            const result = await fetchPageImage('https://img.example.com/a.jpg', 'mangalib');
+            expect(result).toEqual({ ok: true, base64: 'b64', contentType: 'image/jpeg' });
+            expect(sendMessage).toHaveBeenCalledWith({ action: 'fetchImage', url: 'https://img.example.com/a.jpg', serviceKey: 'mangalib' });
+            delete globalThis.extensionApi;
+        });
+
+        it('retries sendMessage once when the background page was asleep', async () => {
+            globalThis.fetchViaTab = vi.fn().mockResolvedValue(null);
+            const sendMessage = vi.fn()
+                .mockRejectedValueOnce(new Error('Could not establish connection. Receiving end does not exist.'))
+                .mockResolvedValueOnce({ ok: true, base64: 'b64', contentType: 'image/jpeg' });
+            globalThis.extensionApi = { runtime: { sendMessage } };
+            const result = await fetchPageImage('https://img.example.com/a.jpg', 'mangalib');
+            expect(result).toEqual({ ok: true, base64: 'b64', contentType: 'image/jpeg' });
+            expect(sendMessage).toHaveBeenCalledTimes(2);
+            delete globalThis.extensionApi;
+        });
+
+        it('gives up after a second failed retry and returns ok:false', async () => {
+            globalThis.fetchViaTab = vi.fn().mockResolvedValue(null);
+            const sendMessage = vi.fn().mockRejectedValue(new Error('Could not establish connection. Receiving end does not exist.'));
+            globalThis.extensionApi = { runtime: { sendMessage } };
+            const result = await fetchPageImage('https://img.example.com/a.jpg', 'mangalib');
+            expect(result.ok).toBe(false);
+            expect(sendMessage).toHaveBeenCalledTimes(2);
+            delete globalThis.extensionApi;
+        });
+
+        it('does not retry on unrelated sendMessage errors', async () => {
+            globalThis.fetchViaTab = vi.fn().mockResolvedValue(null);
+            const sendMessage = vi.fn().mockRejectedValue(new Error('Network error'));
+            globalThis.extensionApi = { runtime: { sendMessage } };
+            const result = await fetchPageImage('https://img.example.com/a.jpg', 'mangalib');
+            expect(result).toEqual({ ok: false, error: 'Error: Network error' });
+            expect(sendMessage).toHaveBeenCalledTimes(1);
+            delete globalThis.extensionApi;
+        });
+
+        it('tracks the request through globalRateLimiter when available', async () => {
+            globalThis.fetchViaTab = vi.fn().mockResolvedValue({ ok: true, base64: 'b64' });
+            const trackRequest = vi.fn().mockResolvedValue();
+            globalThis.globalRateLimiter = { trackRequest };
+            await fetchPageImage('https://img.example.com/a.jpg', 'ranobelib');
+            expect(trackRequest).toHaveBeenCalledWith('ranobelib');
+            delete globalThis.globalRateLimiter;
+        });
+
+        it('returns ok:false when no extension api is available at all', async () => {
+            globalThis.fetchViaTab = vi.fn().mockResolvedValue(null);
+            delete globalThis.extensionApi;
+            const result = await fetchPageImage('https://img.example.com/a.jpg', 'mangalib');
+            expect(result).toEqual({ ok: false, error: 'runtime.sendMessage not available' });
+        });
+
+        it('defaults the rate limiter source to "image" when no serviceKey is given', async () => {
+            globalThis.fetchViaTab = vi.fn().mockResolvedValue({ ok: true, base64: 'b64' });
+            const trackRequest = vi.fn().mockResolvedValue();
+            globalThis.globalRateLimiter = { trackRequest };
+            await fetchPageImage('https://img.example.com/a.jpg');
+            expect(trackRequest).toHaveBeenCalledWith('image');
+            delete globalThis.globalRateLimiter;
+        });
+
+        it('skips fetchViaTab entirely when it is not defined and goes straight to sendMessage', async () => {
+            delete globalThis.fetchViaTab;
+            const sendMessage = vi.fn().mockResolvedValue({ ok: true, base64: 'b64', contentType: 'image/jpeg' });
+            globalThis.extensionApi = { runtime: { sendMessage } };
+            const result = await fetchPageImage('https://img.example.com/a.jpg', 'mangalib');
+            expect(result).toEqual({ ok: true, base64: 'b64', contentType: 'image/jpeg' });
+            expect(sendMessage).toHaveBeenCalledTimes(1);
+            delete globalThis.extensionApi;
+        });
+
+        it('resolves the extension api through global.getExtensionApi when it is defined', async () => {
+            globalThis.fetchViaTab = vi.fn().mockResolvedValue(null);
+            const sendMessage = vi.fn().mockResolvedValue({ ok: true, base64: 'b64', contentType: 'image/jpeg' });
+            globalThis.getExtensionApi = vi.fn(() => ({ runtime: { sendMessage } }));
+            const result = await fetchPageImage('https://img.example.com/a.jpg', 'mangalib');
+            expect(result).toEqual({ ok: true, base64: 'b64', contentType: 'image/jpeg' });
+            expect(globalThis.getExtensionApi).toHaveBeenCalled();
+            delete globalThis.getExtensionApi;
+        });
+
+        it('does not retry when the rejection has no message property (falls back to empty string)', async () => {
+            globalThis.fetchViaTab = vi.fn().mockResolvedValue(null);
+            const sendMessage = vi.fn().mockRejectedValue({});
+            globalThis.extensionApi = { runtime: { sendMessage } };
+            const result = await fetchPageImage('https://img.example.com/a.jpg', 'mangalib');
+            expect(result).toEqual({ ok: false, error: '[object Object]' });
+            expect(sendMessage).toHaveBeenCalledTimes(1);
+            delete globalThis.extensionApi;
+        });
     });
 });

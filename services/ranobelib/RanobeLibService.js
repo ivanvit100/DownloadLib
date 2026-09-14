@@ -233,11 +233,7 @@
                 console.error('[RanobeLibService] browser.runtime not available!');
                 return null;
             }
-            const response = await this.extensionApi.runtime.sendMessage({
-                action: 'fetchImage',
-                url,
-                referer: 'https://ranobelib.me/'
-            });
+            const response = await global.fetchPageImage(url, 'ranobelib');
             if (!response || !response.ok) {
                 console.warn(`[RanobeLibService] Failed to fetch ${url}:`, response?.error);
                 return null;

@@ -12,7 +12,7 @@
 ![Code Coverage](https://img.shields.io/badge/Coverage-100%25-brightgreen)
 [![API Check](https://github.com/ivanvit100/DownloadLib/actions/workflows/health-check.yaml/badge.svg)](https://github.com/ivanvit100/DownloadLib/actions/workflows/health-check.yaml)
 
-![Version](https://img.shields.io/badge/version-1.0.8-blue)
+![Version](https://img.shields.io/badge/version-1.0.9-blue)
 
 [📦 Скачать](#установка) · [⚠️ Сообщить об ошибке](https://github.com/ivanvit100/DownloadLib/issues) · [✏️ Участвовать в разработке](CONTRIBUTING.md)
 

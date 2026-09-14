@@ -561,12 +561,14 @@ describe('_loadServiceProxy()', () => {
         expect(await inst.loadPageAsBase64(null)).toBeNull();
     });
 
-    it('PluginServiceProxy.loadPageAsBase64: returns null when no extensionApi', async () => {
+    it('PluginServiceProxy.loadPageAsBase64: does not depend on instance.extensionApi (goes through global.fetchPageImage)', async () => {
         const getClass = setupBaseService();
         PluginManager._loadServiceProxy({ service: 'svc', hosts: [] });
         const inst = new (getClass())();
         inst.extensionApi = null;
-        expect(await inst.loadPageAsBase64('https://cdn.ex.com/img.jpg')).toBeNull();
+        globalThis.fetchPageImage = vi.fn().mockResolvedValue({ ok: true, base64: 'b64', contentType: 'image/jpeg' });
+        expect(await inst.loadPageAsBase64('https://cdn.ex.com/img.jpg')).toEqual({ base64: 'b64', contentType: 'image/jpeg' });
+        delete globalThis.fetchPageImage;
     });
 
     it('PluginServiceProxy.loadPageAsBase64: returns null and warns when response not ok', async () => {
@@ -574,18 +576,20 @@ describe('_loadServiceProxy()', () => {
         const getClass = setupBaseService();
         PluginManager._loadServiceProxy({ service: 'svc', hosts: [] });
         const inst = new (getClass())();
-        inst.extensionApi = { runtime: { sendMessage: vi.fn().mockResolvedValue({ ok: false, error: 'err' }) } };
+        globalThis.fetchPageImage = vi.fn().mockResolvedValue({ ok: false, error: 'err' });
         expect(await inst.loadPageAsBase64('https://cdn.ex.com/img.jpg')).toBeNull();
         expect(warn).toHaveBeenCalled();
+        delete globalThis.fetchPageImage;
     });
 
     it('PluginServiceProxy.loadPageAsBase64: returns {base64, contentType} when no ImageCompressor', async () => {
         const getClass = setupBaseService();
         PluginManager._loadServiceProxy({ service: 'svc', hosts: [] });
         const inst = new (getClass())();
-        inst.extensionApi = { runtime: { sendMessage: vi.fn().mockResolvedValue({ ok: true, base64: 'b64', contentType: 'image/jpeg' }) } };
+        globalThis.fetchPageImage = vi.fn().mockResolvedValue({ ok: true, base64: 'b64', contentType: 'image/jpeg' });
         const result = await inst.loadPageAsBase64('https://cdn.ex.com/img.jpg');
         expect(result).toEqual({ base64: 'b64', contentType: 'image/jpeg' });
+        delete globalThis.fetchPageImage;
     });
 
     it('PluginServiceProxy._getActiveServer: returns null when no imageServers in config', () => {
@@ -658,11 +662,12 @@ describe('_loadServiceProxy()', () => {
             defaultImageServer: 'alt'
         } });
         const inst = new (getClass())();
-        inst.extensionApi = { runtime: { sendMessage: vi.fn().mockResolvedValue({ ok: true, base64: 'raw', contentType: 'image/png' }) } };
+        globalThis.fetchPageImage = vi.fn().mockResolvedValue({ ok: true, base64: 'raw', contentType: 'image/png' });
         globalThis.ImageCompressor = { compress: vi.fn() };
         const result = await inst.loadPageAsBase64('https://img1.cdnlibs.org/img.jpg');
         expect(result).toEqual({ base64: 'raw', contentType: 'image/png' });
         expect(globalThis.ImageCompressor.compress).not.toHaveBeenCalled();
+        delete globalThis.fetchPageImage;
     });
 
     it('PluginServiceProxy.fetchChapter: uses scripting.executeScript in service tab when available', async () => {
@@ -915,42 +920,46 @@ describe('_loadServiceProxy()', () => {
         const getClass = setupBaseService();
         PluginManager._loadServiceProxy({ service: 'svc', hosts: [] });
         const inst = new (getClass())();
-        inst.extensionApi = { runtime: { sendMessage: vi.fn().mockResolvedValue({ ok: true, base64: 'b64', contentType: 'image/jpeg' }) } };
+        globalThis.fetchPageImage = vi.fn().mockResolvedValue({ ok: true, base64: 'b64', contentType: 'image/jpeg' });
         globalThis.ImageCompressor = { compress: vi.fn().mockResolvedValue({ base64: 'compressed', contentType: 'image/jpeg' }) };
         const result = await inst.loadPageAsBase64('https://cdn.ex.com/img.jpg');
         expect(globalThis.ImageCompressor.compress).toHaveBeenCalled();
         expect(result).toEqual({ base64: 'compressed', contentType: 'image/jpeg' });
+        delete globalThis.fetchPageImage;
     });
 
     it('PluginServiceProxy.processChapterContent: loads pages with concurrency', async () => {
         const getClass = setupBaseService();
         PluginManager._loadServiceProxy({ service: 'svc', hosts: [] });
         const inst = new (getClass())();
-        inst.extensionApi = { runtime: { sendMessage: vi.fn().mockResolvedValue({ ok: true, base64: 'b64', contentType: 'image/jpeg' }) } };
+        globalThis.fetchPageImage = vi.fn().mockResolvedValue({ ok: true, base64: 'b64', contentType: 'image/jpeg' });
         const pages = [{ src: 'https://cdn.ex.com/1.jpg' }, { src: 'https://cdn.ex.com/2.jpg' }];
         const result = await inst.processChapterContent(pages, null);
         expect(result).toHaveLength(2);
         expect(result[0].type).toBe('image');
+        delete globalThis.fetchPageImage;
     });
 
     it('PluginServiceProxy.processChapterContent: inserts error text when page load fails', async () => {
         const getClass = setupBaseService();
         PluginManager._loadServiceProxy({ service: 'svc', hosts: [] });
         const inst = new (getClass())();
-        inst.extensionApi = { runtime: { sendMessage: vi.fn().mockRejectedValue(new Error('fail')) } };
+        globalThis.fetchPageImage = vi.fn().mockRejectedValue(new Error('fail'));
         const result = await inst.processChapterContent([{ src: 'https://cdn.ex.com/1.jpg' }], null);
         expect(result[0].type).toBe('text');
         expect(result[0].text).toContain('Ошибка');
+        delete globalThis.fetchPageImage;
     });
 
     it('PluginServiceProxy.processChapterContent: updates status.textContent', async () => {
         const getClass = setupBaseService();
         PluginManager._loadServiceProxy({ service: 'svc', hosts: [] });
         const inst = new (getClass())();
-        inst.extensionApi = { runtime: { sendMessage: vi.fn().mockResolvedValue({ ok: true, base64: 'b64', contentType: 'image/jpeg' }) } };
+        globalThis.fetchPageImage = vi.fn().mockResolvedValue({ ok: true, base64: 'b64', contentType: 'image/jpeg' });
         const status = { textContent: '' };
         await inst.processChapterContent([{ src: 'https://cdn.ex.com/1.jpg' }], status);
         expect(status.textContent).toContain('1/1');
+        delete globalThis.fetchPageImage;
     });
 
     it('PluginServiceProxy.processChapterContent: handles non-array extracted', async () => {
