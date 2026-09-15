@@ -90,6 +90,48 @@
             return chapters;
         }
 
+        _startKeepAlive() {
+            const api = typeof global.getExtensionApi === 'function' ? global.getExtensionApi() : global.extensionApi;
+            if (!api?.runtime?.connect) return null;
+
+            const state = { stopped: false, port: null, interval: null, reconnectTimer: null };
+
+            const connect = () => {
+                if (state.stopped) return;
+                try {
+                    const port = api.runtime.connect({ name: 'downloadKeepAlive' });
+                    state.port = port;
+                    state.interval = setInterval(() => {
+                        try {
+                            port.postMessage({ type: 'ping' });
+                        } catch (e) {
+                            clearInterval(state.interval);
+                        }
+                    }, 20000);
+                    port.onDisconnect?.addListener?.(() => {
+                        clearInterval(state.interval);
+                        if (state.stopped) return;
+                        state.reconnectTimer = setTimeout(connect, 2000);
+                    });
+                } catch (e) {
+                    console.warn('[DownloadManager] Failed to start keep-alive port:', e.message);
+                }
+            };
+
+            connect();
+            return state;
+        }
+
+        _stopKeepAlive(keepAlive) {
+            if (!keepAlive) return;
+            keepAlive.stopped = true;
+            clearInterval(keepAlive.interval);
+            clearTimeout(keepAlive.reconnectTimer);
+            try {
+                keepAlive.port?.disconnect();
+            } catch (e) {  }
+        }
+
         async startDownload(options) {
             console.log('[DownloadManager] Starting download with options:', options);
             const { url, format = 'fb2', chapterRange, branchId = null, maxSizeMB = 200,
@@ -103,6 +145,8 @@
 
             this.activeDownloads.set(downloadId, downloadState);
             this.eventBus.emit('download:started', downloadState);
+
+            const keepAlive = this._startKeepAlive();
 
             try {
                 if (loadedFile) return await this.updateExistingFile(downloadState, service, loadedFile);
@@ -134,6 +178,7 @@
                 this.eventBus.emit('download:failed', { downloadState, error });
                 throw error;
             } finally {
+                this._stopKeepAlive(keepAlive);
                 setTimeout(() => this.activeDownloads.delete(downloadId), 5000);
             }
         }
@@ -768,19 +813,22 @@
         if (!api?.runtime?.sendMessage) return { ok: false, error: 'runtime.sendMessage not available' };
 
         const send = () => api.runtime.sendMessage({ action: 'fetchImage', url, serviceKey });
-        try {
-            return await send();
-        } catch (e) {
-            if (!/Receiving end does not exist/i.test(e?.message || ''))
-                return { ok: false, error: String(e) };
-            console.warn('[DownloadManager] Background page was asleep, retrying fetchImage for', url);
-            await new Promise(resolve => setTimeout(resolve, 300));
+        const RETRY_DELAYS = [300, 800, 2000];
+        let lastError;
+        for (let attempt = 0; attempt <= RETRY_DELAYS.length; attempt++) {
             try {
                 return await send();
-            } catch (e2) {
-                return { ok: false, error: String(e2) };
+            } catch (e) {
+                lastError = e;
+                if (!/Receiving end does not exist/i.test(e?.message || ''))
+                    return { ok: false, error: String(e) };
+                if (attempt < RETRY_DELAYS.length) {
+                    console.warn('[DownloadManager] Background page was asleep, retrying fetchImage for', url);
+                    await new Promise(resolve => setTimeout(resolve, RETRY_DELAYS[attempt]));
+                }
             }
         }
+        return { ok: false, error: String(lastError) };
     }
 
     global.DownloadManager = DownloadManager;

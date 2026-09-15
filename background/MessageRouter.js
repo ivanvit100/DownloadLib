@@ -17,11 +17,16 @@
         : ((typeof browser !== 'undefined' && browser) || (typeof chrome !== 'undefined' && chrome) || null);
     const browserEnv = typeof getBrowserEnv === 'function'
         ? getBrowserEnv()
-        : {
-            isFirefox: typeof browser !== 'undefined' && !!browser,
-            isChromium: typeof chrome !== 'undefined' && !!chrome,
-            supportsDnr: typeof chrome !== 'undefined' && !!chrome?.declarativeNetRequest
-        };
+        : (() => {
+            const hasBrowser = typeof browser !== 'undefined' && !!browser;
+            const supportsDnr = typeof chrome !== 'undefined' && !!chrome?.declarativeNetRequest;
+            const isFirefox = hasBrowser && !supportsDnr;
+            return {
+                isFirefox,
+                isChromium: typeof chrome !== 'undefined' && !!chrome && !isFirefox,
+                supportsDnr
+            };
+        })();
     const isFirefox = !!browserEnv.isFirefox;
 
     const rateLimiter = globalRateLimiter || new RateLimiter({ maxRequestsPerMinute: 80 });
@@ -367,6 +372,16 @@
 
         console.log('[MessageRouter] Message listener installed');
     }
+
+    function _installKeepAliveListener() {
+        if (!browserAPI?.runtime?.onConnect) return;
+        browserAPI.runtime.onConnect.addListener(port => {
+            if (port.name !== 'downloadKeepAlive') return;
+            port.onMessage.addListener(() => {});
+        });
+    }
+
+    _installKeepAliveListener();
 
     const PLUGIN_CONTENT_SCRIPTS = [
         '/content/AdCleaner.js',

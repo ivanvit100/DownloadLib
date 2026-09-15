@@ -6,6 +6,8 @@ let mockGetStats;
 let mockThrottle;
 let mockAddListenerOnMessage;
 let capturedMessageCb;
+let mockAddListenerOnConnect;
+let capturedConnectCb;
 let isFirefoxMode;
 
 function setupGlobals(mode) {
@@ -39,6 +41,9 @@ function setupGlobals(mode) {
     capturedMessageCb = null;
     mockAddListenerOnMessage = vi.fn((cb) => { capturedMessageCb = cb; });
 
+    capturedConnectCb = null;
+    mockAddListenerOnConnect = vi.fn((cb) => { capturedConnectCb = cb; });
+
     const apiObj = {
         webRequest: {
             onBeforeSendHeaders: { addListener: vi.fn() },
@@ -46,6 +51,7 @@ function setupGlobals(mode) {
         },
         runtime: {
             onMessage: { addListener: mockAddListenerOnMessage },
+            onConnect: { addListener: mockAddListenerOnConnect },
             getURL: vi.fn(p => `moz-extension://test-id/${p}`),
             id: 'test-ext-id',
         },
@@ -1408,6 +1414,38 @@ describe('MessageRouter', () => {
             setupGlobals('firefox');
             await loadModule();
             expect(mockAddListenerOnMessage).toHaveBeenCalled();
+        });
+    });
+
+    describe('Keep-alive port', () => {
+        beforeEach(async () => {
+            setupGlobals('firefox');
+            await loadModule();
+        });
+
+        it('Registers an onConnect listener', () => {
+            expect(mockAddListenerOnConnect).toHaveBeenCalledWith(expect.any(Function));
+        });
+
+        it('Ignores connections with an unrelated port name', () => {
+            const onMessageAddListener = vi.fn();
+            capturedConnectCb({ name: 'somethingElse', onMessage: { addListener: onMessageAddListener } });
+            expect(onMessageAddListener).not.toHaveBeenCalled();
+        });
+
+        it('Attaches a no-op onMessage listener to a downloadKeepAlive port', () => {
+            const onMessageAddListener = vi.fn();
+            capturedConnectCb({ name: 'downloadKeepAlive', onMessage: { addListener: onMessageAddListener } });
+            expect(onMessageAddListener).toHaveBeenCalledWith(expect.any(Function));
+
+            const pingHandler = onMessageAddListener.mock.calls[0][0];
+            expect(() => pingHandler({ type: 'ping' })).not.toThrow();
+        });
+
+        it('Does not register onConnect listener when runtime.onConnect is unavailable', async () => {
+            setupGlobals('chrome');
+            delete globalThis.chrome.runtime.onConnect;
+            await expect(loadModule()).resolves.not.toThrow();
         });
     });
 });

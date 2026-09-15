@@ -421,6 +421,98 @@ describe('BrowserApi', () => {
             nowSpy.mockRestore();
         });
 
+        describe('fetchViaTab plugin service hosts', () => {
+            it('resolves tab patterns from custom_plugins storage for a plugin serviceKey', async () => {
+                const storageGet = vi.fn(async () => ({
+                    custom_plugins: [
+                        { service: 'hlib', hosts: ['hentailib.me', 'hentailib.org'], enabled: true }
+                    ]
+                }));
+                const tabsQuery = vi.fn(async () => [{ id: 11 }]);
+                const executeScript = vi.fn(async () => [{ result: { ok: true, base64: 'p', contentType: 'image/png' } }]);
+                await setupWithBrowser({
+                    runtime: {},
+                    tabs: { query: tabsQuery },
+                    scripting: { executeScript },
+                    storage: { local: { get: storageGet } }
+                });
+                const host = getHost();
+                const result = await host.fetchViaTab('https://img3h.hentaicdn.org/a.png', 'hlib');
+                expect(storageGet).toHaveBeenCalledWith('custom_plugins');
+                expect(tabsQuery).toHaveBeenCalledWith({ url: ['*://hentailib.me/*', '*://hentailib.org/*'] });
+                expect(result).toEqual({ ok: true, base64: 'p', contentType: 'image/png' });
+            });
+
+            it('returns null without querying tabs when the plugin is not found in storage', async () => {
+                const storageGet = vi.fn(async () => ({ custom_plugins: [] }));
+                const tabsQuery = vi.fn(async () => [{ id: 1 }]);
+                await setupWithBrowser({
+                    runtime: {},
+                    tabs: { query: tabsQuery },
+                    scripting: { executeScript: vi.fn() },
+                    storage: { local: { get: storageGet } }
+                });
+                const host = getHost();
+                const result = await host.fetchViaTab('https://img3h.hentaicdn.org/a.png', 'hlib');
+                expect(result).toBeNull();
+                expect(tabsQuery).not.toHaveBeenCalled();
+            });
+
+            it('returns null when storage has no custom_plugins key at all', async () => {
+                const storageGet = vi.fn(async () => ({}));
+                const tabsQuery = vi.fn(async () => [{ id: 1 }]);
+                await setupWithBrowser({
+                    runtime: {},
+                    tabs: { query: tabsQuery },
+                    scripting: { executeScript: vi.fn() },
+                    storage: { local: { get: storageGet } }
+                });
+                const host = getHost();
+                const result = await host.fetchViaTab('https://img3h.hentaicdn.org/a.png', 'hlib');
+                expect(result).toBeNull();
+                expect(tabsQuery).not.toHaveBeenCalled();
+            });
+
+            it('ignores a matching plugin entry that is disabled', async () => {
+                const storageGet = vi.fn(async () => ({
+                    custom_plugins: [{ service: 'hlib', hosts: ['hentailib.me'], enabled: false }]
+                }));
+                await setupWithBrowser({
+                    runtime: {},
+                    tabs: { query: vi.fn() },
+                    scripting: { executeScript: vi.fn() },
+                    storage: { local: { get: storageGet } }
+                });
+                const host = getHost();
+                const result = await host.fetchViaTab('https://img3h.hentaicdn.org/a.png', 'hlib');
+                expect(result).toBeNull();
+            });
+
+            it('returns null when storage API is unavailable for a plugin serviceKey', async () => {
+                await setupWithBrowser({
+                    runtime: {},
+                    tabs: { query: vi.fn() },
+                    scripting: { executeScript: vi.fn() }
+                });
+                const host = getHost();
+                const result = await host.fetchViaTab('https://img3h.hentaicdn.org/a.png', 'hlib');
+                expect(result).toBeNull();
+            });
+
+            it('returns null and swallows the error when storage.local.get throws', async () => {
+                const storageGet = vi.fn().mockRejectedValue(new Error('storage error'));
+                await setupWithBrowser({
+                    runtime: {},
+                    tabs: { query: vi.fn() },
+                    scripting: { executeScript: vi.fn() },
+                    storage: { local: { get: storageGet } }
+                });
+                const host = getHost();
+                const result = await host.fetchViaTab('https://img3h.hentaicdn.org/a.png', 'hlib');
+                expect(result).toBeNull();
+            });
+        });
+
         describe('fetchViaTab inner func (fetch-to-base64)', () => {
             let capturedFunc;
 

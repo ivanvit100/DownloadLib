@@ -75,7 +75,9 @@
         const hasChrome = typeof global.chrome !== 'undefined' && !!global.chrome;
         const hasBrowser = typeof global.browser !== 'undefined' && !!global.browser;
         const supportsDnr = !!(hasChrome && global.chrome.declarativeNetRequest);
-        const isFirefox = nativeName === 'browser' || (hasBrowser && !supportsDnr);
+        // `browser` alone doesn't mean Firefox anymore — Chrome now ships a native
+        // `browser` namespace too. `chrome.declarativeNetRequest` is the reliable signal.
+        const isFirefox = hasBrowser && !supportsDnr;
         const isChromium = hasChrome && !isFirefox;
 
         return {
@@ -113,15 +115,33 @@
         _serviceTabExpiry = Date.now() + 3600000;
     }
 
+    async function _resolvePluginHosts(api, serviceKey) {
+        if (!api?.storage?.local) return [];
+        try {
+            const result = await api.storage.local.get('custom_plugins');
+            const plugin = (result?.custom_plugins || [])
+                .find(p => p.service === serviceKey && p.enabled !== false);
+            return plugin?.hosts || [];
+        } catch {
+            return [];
+        }
+    }
+
+    async function _getTabPatterns(api, serviceKey) {
+        if (serviceKey === 'ranobelib') return ['*://ranobelib.me/*'];
+        if (!serviceKey || serviceKey === 'mangalib') return ['*://mangalib.me/*', '*://mangalib.org/*'];
+        const hosts = await _resolvePluginHosts(api, serviceKey);
+        return hosts.map(h => `*://${h}/*`);
+    }
+
     async function fetchViaTab(url, serviceKey) {
         const api = getExtensionApi();
         if (!api?.scripting?.executeScript) return null;
 
         let tabId = _serviceTabId;
         if (!tabId || Date.now() > _serviceTabExpiry) {
-            const patterns = serviceKey === 'ranobelib'
-                ? ['*://ranobelib.me/*']
-                : ['*://mangalib.me/*', '*://mangalib.org/*'];
+            const patterns = await _getTabPatterns(api, serviceKey);
+            if (!patterns.length) return null;
             try {
                 const tabs = await api.tabs.query({ url: patterns });
                 tabId = tabs?.[0]?.id ?? null;

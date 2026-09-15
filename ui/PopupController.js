@@ -260,7 +260,9 @@
         }
 
         async openInNewContext(url) {
-            const isFirefox = typeof global.browser !== 'undefined' && !!global.browser;
+            const isFirefox = typeof global.getBrowserEnv === 'function'
+                ? global.getBrowserEnv().isFirefox
+                : typeof global.browser !== 'undefined' && !!global.browser;
             if (!isFirefox) {
                 browserAPI.runtime.sendMessage({ action: 'openWindowWithUrl', url }).catch(() => {});
                 return;

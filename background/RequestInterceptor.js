@@ -18,11 +18,16 @@
         : ((typeof browser !== 'undefined' && browser) || (typeof chrome !== 'undefined' && chrome) || null);
     const browserEnv = typeof getBrowserEnv === 'function'
         ? getBrowserEnv()
-        : {
-            isFirefox: typeof browser !== 'undefined' && !!browser,
-            isChromium: typeof chrome !== 'undefined' && !!chrome,
-            supportsDnr: typeof chrome !== 'undefined' && !!chrome?.declarativeNetRequest
-        };
+        : (() => {
+            const hasBrowser = typeof browser !== 'undefined' && !!browser;
+            const supportsDnr = typeof chrome !== 'undefined' && !!chrome?.declarativeNetRequest;
+            const isFirefox = hasBrowser && !supportsDnr;
+            return {
+                isFirefox,
+                isChromium: typeof chrome !== 'undefined' && !!chrome && !isFirefox,
+                supportsDnr
+            };
+        })();
     const isChrome = !!browserEnv.isChromium || !!browserEnv.supportsDnr;
     const isFirefox = !!browserEnv.isFirefox;
 

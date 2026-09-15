@@ -659,6 +659,29 @@ describe('PopupController second test file', () => {
         expect(errorSpy).toHaveBeenCalledWith('No window/tab API available');
     });
 
+    it('openInNewContext uses getBrowserEnv().isFirefox when getBrowserEnv is defined (Firefox)', async () => {
+        const controller = new PopupController();
+        global.getBrowserEnv = vi.fn(() => ({ isFirefox: true }));
+
+        await controller.openInNewContext('popup.html?test=1');
+
+        expect(global.getBrowserEnv).toHaveBeenCalled();
+        expect(global.browser.windows.create).toHaveBeenCalledWith(expect.objectContaining({ url: 'popup.html?test=1' }));
+        delete global.getBrowserEnv;
+    });
+
+    it('openInNewContext uses getBrowserEnv().isFirefox when getBrowserEnv is defined (Chrome)', async () => {
+        const controller = new PopupController();
+        global.getBrowserEnv = vi.fn(() => ({ isFirefox: false }));
+
+        await controller.openInNewContext('popup.html?test=1');
+
+        expect(global.getBrowserEnv).toHaveBeenCalled();
+        expect(global.browser.runtime.sendMessage).toHaveBeenCalledWith({ action: 'openWindowWithUrl', url: 'popup.html?test=1' });
+        expect(global.browser.windows.create).not.toHaveBeenCalled();
+        delete global.getBrowserEnv;
+    });
+
     it('_setupTranslatorSelector returns null when translatorContainer is missing from DOM', () => {
         const controller = new PopupController();
         const tc = document.getElementById('translatorContainer');

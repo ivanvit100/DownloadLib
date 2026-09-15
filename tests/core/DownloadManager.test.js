@@ -1263,6 +1263,167 @@ describe('DownloadManager', () => {
         expect(result.updated).toBe(true);
     });
 
+    describe('keep-alive port', () => {
+        it('returns null and does not throw when runtime.connect is unavailable', () => {
+            const dm = new DownloadManager();
+            globalThis.extensionApi = { runtime: {} };
+            expect(dm._startKeepAlive()).toBeNull();
+            delete globalThis.extensionApi;
+        });
+
+        it('resolves the extension api through global.getExtensionApi when it is defined', () => {
+            const dm = new DownloadManager();
+            const connect = vi.fn(() => ({ postMessage: vi.fn(), disconnect: vi.fn(), onDisconnect: { addListener: vi.fn() } }));
+            globalThis.getExtensionApi = vi.fn(() => ({ runtime: { connect } }));
+            expect(dm._startKeepAlive()).not.toBeNull();
+            expect(globalThis.getExtensionApi).toHaveBeenCalled();
+            expect(connect).toHaveBeenCalledWith({ name: 'downloadKeepAlive' });
+            delete globalThis.getExtensionApi;
+        });
+
+        it('does not reconnect if stopped externally right before a pending reconnect fires', () => {
+            vi.useFakeTimers();
+            const dm = new DownloadManager();
+            let disconnectHandler;
+            const connect = vi.fn(() => ({
+                postMessage: vi.fn(),
+                disconnect: vi.fn(),
+                onDisconnect: { addListener: (cb) => { disconnectHandler = cb; } }
+            }));
+            globalThis.extensionApi = { runtime: { connect } };
+
+            const keepAlive = dm._startKeepAlive();
+            disconnectHandler();
+            keepAlive.stopped = true;
+            vi.advanceTimersByTime(2000);
+            expect(connect).toHaveBeenCalledTimes(1);
+
+            delete globalThis.extensionApi;
+            vi.useRealTimers();
+        });
+
+        it('pings the port on an interval and disconnects it on stop', () => {
+            vi.useFakeTimers();
+            const dm = new DownloadManager();
+            const postMessage = vi.fn();
+            const disconnect = vi.fn();
+            const connect = vi.fn(() => ({ postMessage, disconnect, onDisconnect: { addListener: vi.fn() } }));
+            globalThis.extensionApi = { runtime: { connect } };
+
+            const keepAlive = dm._startKeepAlive();
+            expect(connect).toHaveBeenCalledWith({ name: 'downloadKeepAlive' });
+
+            vi.advanceTimersByTime(20000);
+            expect(postMessage).toHaveBeenCalledTimes(1);
+
+            dm._stopKeepAlive(keepAlive);
+            expect(disconnect).toHaveBeenCalled();
+
+            vi.advanceTimersByTime(20000);
+            expect(postMessage).toHaveBeenCalledTimes(1);
+
+            delete globalThis.extensionApi;
+            vi.useRealTimers();
+        });
+
+        it('stops pinging once postMessage starts throwing (port already gone)', () => {
+            vi.useFakeTimers();
+            const dm = new DownloadManager();
+            const postMessage = vi.fn(() => { throw new Error('port closed'); });
+            const connect = vi.fn(() => ({ postMessage, disconnect: vi.fn(), onDisconnect: { addListener: vi.fn() } }));
+            globalThis.extensionApi = { runtime: { connect } };
+
+            dm._startKeepAlive();
+            vi.advanceTimersByTime(20000);
+            expect(postMessage).toHaveBeenCalledTimes(1);
+
+            vi.advanceTimersByTime(20000);
+            expect(postMessage).toHaveBeenCalledTimes(1);
+
+            delete globalThis.extensionApi;
+            vi.useRealTimers();
+        });
+
+        it('warns and returns a state without throwing when runtime.connect itself throws', () => {
+            const dm = new DownloadManager();
+            const connect = vi.fn(() => { throw new Error('connect failed'); });
+            globalThis.extensionApi = { runtime: { connect } };
+            const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
+
+            const keepAlive = dm._startKeepAlive();
+            expect(warnSpy).toHaveBeenCalledWith('[DownloadManager] Failed to start keep-alive port:', 'connect failed');
+            expect(() => dm._stopKeepAlive(keepAlive)).not.toThrow();
+
+            warnSpy.mockRestore();
+            delete globalThis.extensionApi;
+        });
+
+        it('reconnects after the service worker force-restarts the port mid-download', () => {
+            vi.useFakeTimers();
+            const dm = new DownloadManager();
+            let disconnectHandler;
+            const connect = vi.fn(() => ({
+                postMessage: vi.fn(),
+                disconnect: vi.fn(),
+                onDisconnect: { addListener: (cb) => { disconnectHandler = cb; } }
+            }));
+            globalThis.extensionApi = { runtime: { connect } };
+
+            dm._startKeepAlive();
+            expect(connect).toHaveBeenCalledTimes(1);
+
+            disconnectHandler();
+            expect(connect).toHaveBeenCalledTimes(1);
+            vi.advanceTimersByTime(2000);
+            expect(connect).toHaveBeenCalledTimes(2);
+
+            delete globalThis.extensionApi;
+            vi.useRealTimers();
+        });
+
+        it('does not reconnect synchronously — waits out a cooldown first (no hot-loop)', () => {
+            vi.useFakeTimers();
+            const dm = new DownloadManager();
+            const disconnectHandlers = [];
+            const connect = vi.fn(() => ({
+                postMessage: vi.fn(),
+                disconnect: vi.fn(),
+                onDisconnect: { addListener: (cb) => disconnectHandlers.push(cb) }
+            }));
+            globalThis.extensionApi = { runtime: { connect } };
+
+            dm._startKeepAlive();
+            disconnectHandlers[0]();
+            disconnectHandlers[0]();
+            disconnectHandlers[0]();
+            expect(connect).toHaveBeenCalledTimes(1);
+
+            delete globalThis.extensionApi;
+            vi.useRealTimers();
+        });
+
+        it('does not reconnect after an intentional stop', () => {
+            vi.useFakeTimers();
+            const dm = new DownloadManager();
+            let disconnectHandler;
+            const connect = vi.fn(() => ({
+                postMessage: vi.fn(),
+                disconnect: vi.fn(),
+                onDisconnect: { addListener: (cb) => { disconnectHandler = cb; } }
+            }));
+            globalThis.extensionApi = { runtime: { connect } };
+
+            const keepAlive = dm._startKeepAlive();
+            dm._stopKeepAlive(keepAlive);
+            disconnectHandler();
+            vi.advanceTimersByTime(5000);
+            expect(connect).toHaveBeenCalledTimes(1);
+
+            delete globalThis.extensionApi;
+            vi.useRealTimers();
+        });
+    });
+
     describe('fetchPageImage', () => {
         it('prefers fetchViaTab and never touches runtime.sendMessage when it succeeds', async () => {
             globalThis.fetchViaTab = vi.fn().mockResolvedValue({ ok: true, base64: 'b64', contentType: 'image/jpeg' });
@@ -1286,25 +1447,35 @@ describe('DownloadManager', () => {
         });
 
         it('retries sendMessage once when the background page was asleep', async () => {
+            vi.useFakeTimers();
             globalThis.fetchViaTab = vi.fn().mockResolvedValue(null);
             const sendMessage = vi.fn()
                 .mockRejectedValueOnce(new Error('Could not establish connection. Receiving end does not exist.'))
                 .mockResolvedValueOnce({ ok: true, base64: 'b64', contentType: 'image/jpeg' });
             globalThis.extensionApi = { runtime: { sendMessage } };
-            const result = await fetchPageImage('https://img.example.com/a.jpg', 'mangalib');
+            const promise = fetchPageImage('https://img.example.com/a.jpg', 'mangalib');
+            await vi.advanceTimersByTimeAsync(300);
+            const result = await promise;
             expect(result).toEqual({ ok: true, base64: 'b64', contentType: 'image/jpeg' });
             expect(sendMessage).toHaveBeenCalledTimes(2);
             delete globalThis.extensionApi;
+            vi.useRealTimers();
         });
 
-        it('gives up after a second failed retry and returns ok:false', async () => {
+        it('gives up after exhausting all retries and returns ok:false', async () => {
+            vi.useFakeTimers();
             globalThis.fetchViaTab = vi.fn().mockResolvedValue(null);
             const sendMessage = vi.fn().mockRejectedValue(new Error('Could not establish connection. Receiving end does not exist.'));
             globalThis.extensionApi = { runtime: { sendMessage } };
-            const result = await fetchPageImage('https://img.example.com/a.jpg', 'mangalib');
+            const promise = fetchPageImage('https://img.example.com/a.jpg', 'mangalib');
+            await vi.advanceTimersByTimeAsync(300);
+            await vi.advanceTimersByTimeAsync(800);
+            await vi.advanceTimersByTimeAsync(2000);
+            const result = await promise;
             expect(result.ok).toBe(false);
-            expect(sendMessage).toHaveBeenCalledTimes(2);
+            expect(sendMessage).toHaveBeenCalledTimes(4);
             delete globalThis.extensionApi;
+            vi.useRealTimers();
         });
 
         it('does not retry on unrelated sendMessage errors', async () => {
