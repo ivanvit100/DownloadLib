@@ -210,12 +210,33 @@
             return bytes;
         }
 
+        _chapterVolume(chapter) {
+            return chapter.volume || '1';
+        }
+
+        _buildVolumeSuffix(volume, partIndex) {
+            return partIndex > 1 ? ` Том ${volume} (Часть ${partIndex})` : ` Том ${volume}`;
+        }
+
         async downloadWithSizeLimit(downloadState, service, chapters, manga, coverBase64, format, maxSizeMB) {
             const { id: downloadId } = downloadState;
             const maxSizeBytes = maxSizeMB * 1024 * 1024;
-            let partIndex = 0;
+            const exporter = await this._createExporter(format);
             let currentBatch = [];
             let currentSize = 0;
+            let currentVolume = null;
+            let volumePartIndex = 0;
+
+            const flushBatch = async (progress) => {
+                if (currentBatch.length === 0) return;
+                volumePartIndex += 1;
+                const suffix = this._buildVolumeSuffix(currentVolume, volumePartIndex);
+                this.updateStatus(downloadId, `Сохранение тома ${currentVolume}${volumePartIndex > 1 ? `, часть ${volumePartIndex}` : ''}...`, progress);
+                const file = await exporter.export({ ...manga, name: manga.name + suffix }, currentBatch, coverBase64);
+                await this.saveFile(file.blob, file.filename);
+                currentBatch = [];
+                currentSize = 0;
+            };
 
             service._on429 = () => {
                 const dl = this.activeDownloads.get(downloadId);
@@ -234,22 +255,18 @@
 
                     const chapterResult = await this.downloadSingleChapter(service, downloadState, chapter);
                     const chapterSize = this.estimateChapterSize(chapterResult);
+                    const chapterVolume = this._chapterVolume(chapter);
+                    const volumeChanged = currentBatch.length > 0 && chapterVolume !== currentVolume;
+                    const sizeExceeded = currentBatch.length > 0 && currentSize + chapterSize > maxSizeBytes;
 
-                    if (currentBatch.length > 0 && currentSize + chapterSize > maxSizeBytes) {
-                        partIndex += 1;
-                        const exporter = await this._createExporter(format);
-                        const partSuffix = ` (Часть ${partIndex})`;
-                        this.updateStatus(downloadId, `Сохранение части ${partIndex}...`, progress);
-                        const file = await exporter.export({ ...manga, name: manga.name + partSuffix },
-                            currentBatch, coverBase64);
-                        await this.saveFile(file.blob, file.filename);
-
-                        currentBatch = [chapterResult];
-                        currentSize = chapterSize;
-                    } else {
-                        currentBatch.push(chapterResult);
-                        currentSize += chapterSize;
+                    if (volumeChanged || sizeExceeded) {
+                        await flushBatch(progress);
+                        if (volumeChanged) volumePartIndex = 0;
                     }
+
+                    if (currentBatch.length === 0) currentVolume = chapterVolume;
+                    currentBatch.push(chapterResult);
+                    currentSize += chapterSize;
 
                     downloadState.chapterContents.push(chapterResult);
                 }
@@ -257,15 +274,7 @@
                 service._on429 = null;
             }
 
-            if (currentBatch.length > 0) {
-                partIndex += 1;
-                const exporter = await this._createExporter(format);
-                const partSuffix = partIndex > 1 ? ` (Часть ${partIndex})` : '';
-                this.updateStatus(downloadId, `Создание ${format.toUpperCase()}...`, 95);
-                const file = await exporter.export(partSuffix ? { ...manga, name: manga.name + partSuffix } :
-                    manga, currentBatch, coverBase64);
-                await this.saveFile(file.blob, file.filename);
-            }
+            await flushBatch(95);
         }
 
         async downloadSingleChapter(service, downloadState, chapter) {
@@ -362,39 +371,41 @@
 
                 const patch = global.MangaPatcher.patch(existingData.metadata);
                 const maxSizeBytes = (downloadState.maxSizeMB || 200) * 1024 * 1024;
-                let partIndex = 0;
                 let currentBatch = [];
                 let currentSize = 0;
+                let currentVolume = null;
+                let volumePartIndex = 0;
+
+                const flushMergedBatch = async (progress) => {
+                    if (currentBatch.length === 0) return;
+                    volumePartIndex += 1;
+                    const suffix = this._buildVolumeSuffix(currentVolume, volumePartIndex);
+                    this.updateStatus(downloadId, `Создание обновлённого ${format.toUpperCase()} - том ${currentVolume}${volumePartIndex > 1 ? `, часть ${volumePartIndex}` : ''}...`, progress);
+                    const file = await exporter.export(
+                        { ...patch, name: patch.name + suffix }, currentBatch, existingData.cover
+                    );
+                    await this.saveFile(file.blob, file.filename);
+                    currentBatch = [];
+                    currentSize = 0;
+                };
 
                 for (const chapter of mergedChapters) {
                     const chapterSize = this.estimateChapterSize(chapter);
-                    if (currentBatch.length > 0 && currentSize + chapterSize > maxSizeBytes) {
-                        partIndex += 1;
-                        const partSuffix = ` (Часть ${partIndex})`;
-                        this.updateStatus(downloadId, `Создание обновлённого ${format.toUpperCase()} - часть ${partIndex}...`, 93);
-                        const partFile = await exporter.export(
-                            { ...patch, name: patch.name + partSuffix }, currentBatch, existingData.cover
-                        );
-                        await this.saveFile(partFile.blob, partFile.filename);
-                        currentBatch = [chapter];
-                        currentSize = chapterSize;
-                    } else {
-                        currentBatch.push(chapter);
-                        currentSize += chapterSize;
+                    const chapterVolume = this._chapterVolume(chapter);
+                    const volumeChanged = currentBatch.length > 0 && chapterVolume !== currentVolume;
+                    const sizeExceeded = currentBatch.length > 0 && currentSize + chapterSize > maxSizeBytes;
+
+                    if (volumeChanged || sizeExceeded) {
+                        await flushMergedBatch(93);
+                        if (volumeChanged) volumePartIndex = 0;
                     }
+
+                    if (currentBatch.length === 0) currentVolume = chapterVolume;
+                    currentBatch.push(chapter);
+                    currentSize += chapterSize;
                 }
 
-                if (currentBatch.length > 0) {
-                    partIndex += 1;
-                    const partSuffix = partIndex > 1 ? ` (Часть ${partIndex})` : '';
-                    this.updateStatus(downloadId, `Создание обновлённого ${format.toUpperCase()}...`, 95);
-                    const lastFile = await exporter.export(
-                        partSuffix ? { ...patch, name: patch.name + partSuffix } : patch,
-                        currentBatch,
-                        existingData.cover
-                    );
-                    await this.saveFile(lastFile.blob, lastFile.filename);
-                }
+                await flushMergedBatch(95);
 
                 this.updateStatus(downloadId, 'Файл обновлён!', 100);
                 this.eventBus.emit('download:completed', downloadState);

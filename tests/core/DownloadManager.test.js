@@ -1073,7 +1073,7 @@ describe('DownloadManager', () => {
         await dm.downloadWithSizeLimit(ds, serviceMock, [createChapter('1', '1')], { name: 'MyManga' }, '', 'fb2', 200);
 
         expect(saveFileSpy).toHaveBeenCalledTimes(1);
-        expect(exporterMock.export).toHaveBeenCalledWith({ name: 'MyManga' }, expect.any(Array), '');
+        expect(exporterMock.export).toHaveBeenCalledWith({ name: 'MyManga Том 1' }, expect.any(Array), '');
     });
 
     it('downloadWithSizeLimit splits into multiple parts when chapter size exceeds limit', async () => {
@@ -1088,6 +1088,39 @@ describe('DownloadManager', () => {
         await dm.downloadWithSizeLimit(ds, serviceMock, chapters, { name: 'M' }, '', 'fb2', 50);
 
         expect(saveFileSpy.mock.calls.length).toBeGreaterThanOrEqual(2);
+    });
+
+    it('downloadWithSizeLimit never mixes chapters from different volumes into one file and names each part by volume', async () => {
+        const dm = new DownloadManager();
+        const saveFileSpy = vi.spyOn(dm, 'saveFile').mockResolvedValue();
+        const ctrl = dm.createController();
+        const ds = { id: 'dl5', slug: 'slug', controller: ctrl, chapterContents: [], format: 'fb2', splitPages: true, mangaId: null };
+        dm.activeDownloads.set('dl5', ds);
+        const chapters = [createChapter('1', '1'), createChapter('1', '2'), createChapter('2', '1')];
+
+        await dm.downloadWithSizeLimit(ds, serviceMock, chapters, { name: 'M' }, '', 'fb2', 200);
+
+        expect(saveFileSpy).toHaveBeenCalledTimes(2);
+        expect(exporterMock.export).toHaveBeenNthCalledWith(1, { name: 'M Том 1' },
+            [expect.objectContaining({ volume: '1' }), expect.objectContaining({ volume: '1' })], '');
+        expect(exporterMock.export).toHaveBeenNthCalledWith(2, { name: 'M Том 2' },
+            [expect.objectContaining({ volume: '2' })], '');
+    });
+
+    it('downloadWithSizeLimit numbers size-split parts within the same volume', async () => {
+        const dm = new DownloadManager();
+        const saveFileSpy = vi.spyOn(dm, 'saveFile').mockResolvedValue();
+        vi.spyOn(dm, 'estimateChapterSize').mockReturnValue(60 * 1024 * 1024);
+        const ctrl = dm.createController();
+        const ds = { id: 'dl6', slug: 'slug', controller: ctrl, chapterContents: [], format: 'fb2', splitPages: true, mangaId: null };
+        dm.activeDownloads.set('dl6', ds);
+        const chapters = [createChapter('1', '1'), createChapter('1', '2')];
+
+        await dm.downloadWithSizeLimit(ds, serviceMock, chapters, { name: 'M' }, '', 'fb2', 50);
+
+        expect(saveFileSpy).toHaveBeenCalledTimes(2);
+        expect(exporterMock.export).toHaveBeenNthCalledWith(1, { name: 'M Том 1' }, expect.any(Array), '');
+        expect(exporterMock.export).toHaveBeenNthCalledWith(2, { name: 'M Том 1 (Часть 2)' }, expect.any(Array), '');
     });
 
     it('downloadWithSizeLimit _on429 handler updates status with current progress', async () => {
@@ -1261,6 +1294,27 @@ describe('DownloadManager', () => {
         const result = await dm.updateExistingFile(ds, serviceMock, {});
         expect(saveFileSpy.mock.calls.length).toBeGreaterThanOrEqual(2);
         expect(result.updated).toBe(true);
+    });
+
+    it('updateExistingFile never mixes merged chapters from different volumes into one file', async () => {
+        const dm = new DownloadManager();
+        const saveFileSpy = vi.spyOn(dm, 'saveFile').mockResolvedValue();
+        serviceMock.fetchChaptersList = vi.fn(async () => ({ data: [
+            createChapter('1', '1'), createChapter('2', '1'),
+        ]}));
+        exporterMock.parse = vi.fn(async () => ({
+            chapters: [{ volume: '1', number: '1', content: [{ type: 'text', text: 'ok' }] }],
+            metadata: { name: 'Test' }, cover: ''
+        }));
+        const ds = { id: 'ue8', slug: 'slug', format: 'fb2', maxSizeMB: 200, controller: dm.createController(), chapterContents: [] };
+        dm.activeDownloads.set('ue8', ds);
+
+        await dm.updateExistingFile(ds, serviceMock, {});
+        expect(saveFileSpy).toHaveBeenCalledTimes(2);
+        expect(exporterMock.export).toHaveBeenNthCalledWith(1, expect.objectContaining({ name: 'Test Том 1' }),
+            [expect.objectContaining({ volume: '1' })], '');
+        expect(exporterMock.export).toHaveBeenNthCalledWith(2, expect.objectContaining({ name: 'Test Том 2' }),
+            [expect.objectContaining({ volume: '2' })], '');
     });
 
     describe('keep-alive port', () => {
