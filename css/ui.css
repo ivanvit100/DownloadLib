@@ -533,6 +533,32 @@ input[type="number"] {
     -webkit-appearance: none !important;
     margin: 0 !important;
 }
+.settings-toggle-group {
+    display: flex;
+    border: 1px solid #444;
+    border-radius: 4px;
+    overflow: hidden;
+}
+.settings-toggle-btn {
+    flex: 1;
+    padding: 8px;
+    font-size: 13px;
+    background: #252527;
+    color: #bdbdbd;
+    border: none;
+    cursor: pointer;
+    transition: all 0.3s ease;
+}
+.settings-toggle-btn + .settings-toggle-btn {
+    border-left: 1px solid #444;
+}
+.settings-toggle-btn.active {
+    background: var(--primary-color);
+    color: #fff;
+}
+.settings-toggle-btn:hover:not(.active) {
+    color: #fff;
+}
 .settings-btn-outline {
     display: block;
     width: 100%;

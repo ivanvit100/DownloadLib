@@ -9,6 +9,8 @@ function setupDOM() {
         <button id="saveRateLimitBtn">Сохранить</button>
         <input id="settingsMaxSize" type="number" />
         <button id="saveMaxSizeBtn">Сохранить</button>
+        <button id="rangeModeChapters" class="settings-toggle-btn" data-mode="chapters"></button>
+        <button id="rangeModeVolumes" class="settings-toggle-btn" data-mode="volumes"></button>
         <div id="pluginList"></div>
         <div id="pluginEmpty" style="display:none"></div>
         <div id="logoInfo"></div>
@@ -37,8 +39,8 @@ afterEach(() => {
 });
 
 describe('init()', () => {
-    it('calls all four sub-methods', () => {
-        const spies = ['_renderRateLimit', '_renderMaxSize', '_renderPlugins', '_bindEvents']
+    it('calls all five sub-methods', () => {
+        const spies = ['_renderRateLimit', '_renderMaxSize', '_renderRangeMode', '_renderPlugins', '_bindEvents']
             .map(m => vi.spyOn(SettingsController, m).mockImplementation(() => {}));
         SettingsController.init();
         spies.forEach(s => expect(s).toHaveBeenCalledOnce());
@@ -78,6 +80,26 @@ describe('_renderMaxSize()', () => {
         localStorage.setItem('manga_parser_max_size_mb', '512');
         SettingsController._renderMaxSize();
         expect(document.getElementById('settingsMaxSize').value).toBe('512');
+    });
+});
+
+describe('_renderRangeMode()', () => {
+    it('returns early when toggle buttons absent', () => {
+        document.getElementById('rangeModeChapters').remove();
+        expect(() => SettingsController._renderRangeMode()).not.toThrow();
+    });
+
+    it('defaults to chapters mode when localStorage empty', () => {
+        SettingsController._renderRangeMode();
+        expect(document.getElementById('rangeModeChapters').classList.contains('active')).toBe(true);
+        expect(document.getElementById('rangeModeVolumes').classList.contains('active')).toBe(false);
+    });
+
+    it('activates volumes mode when stored', () => {
+        localStorage.setItem('manga_parser_range_mode', 'volumes');
+        SettingsController._renderRangeMode();
+        expect(document.getElementById('rangeModeChapters').classList.contains('active')).toBe(false);
+        expect(document.getElementById('rangeModeVolumes').classList.contains('active')).toBe(true);
     });
 });
 
@@ -357,6 +379,31 @@ describe('_bindEvents() saveMaxSizeBtn', () => {
         vi.advanceTimersByTime(1500);
         expect(btn.textContent).toBe(original);
         expect(btn.disabled).toBe(false);
+    });
+});
+
+describe('_bindEvents() rangeMode toggle', () => {
+    it('no error when toggle buttons absent', () => {
+        document.getElementById('rangeModeChapters').remove();
+        document.getElementById('rangeModeVolumes').remove();
+        expect(() => SettingsController._bindEvents()).not.toThrow();
+    });
+
+    it('clicking volumes button stores mode and updates active classes', () => {
+        SettingsController._bindEvents();
+        document.getElementById('rangeModeVolumes').click();
+        expect(localStorage.getItem('manga_parser_range_mode')).toBe('volumes');
+        expect(document.getElementById('rangeModeVolumes').classList.contains('active')).toBe(true);
+        expect(document.getElementById('rangeModeChapters').classList.contains('active')).toBe(false);
+    });
+
+    it('clicking chapters button stores mode and updates active classes', () => {
+        localStorage.setItem('manga_parser_range_mode', 'volumes');
+        SettingsController._bindEvents();
+        document.getElementById('rangeModeChapters').click();
+        expect(localStorage.getItem('manga_parser_range_mode')).toBe('chapters');
+        expect(document.getElementById('rangeModeChapters').classList.contains('active')).toBe(true);
+        expect(document.getElementById('rangeModeVolumes').classList.contains('active')).toBe(false);
     });
 });
 

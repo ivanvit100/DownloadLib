@@ -13,11 +13,13 @@
 
     const RATE_LIMIT_KEY = 'downloadlib_default_rate_limit';
     const MAX_SIZE_KEY = 'manga_parser_max_size_mb';
+    const RANGE_MODE_KEY = 'manga_parser_range_mode';
 
     const SettingsController = {
         init() {
             this._renderRateLimit();
             this._renderMaxSize();
+            this._renderRangeMode();
             this._renderPlugins();
             this._bindEvents();
         },
@@ -32,6 +34,15 @@
             const input = document.getElementById('settingsMaxSize');
             if (!input) return;
             input.value = localStorage.getItem(MAX_SIZE_KEY) || '200';
+        },
+
+        _renderRangeMode() {
+            const chaptersBtn = document.getElementById('rangeModeChapters');
+            const volumesBtn = document.getElementById('rangeModeVolumes');
+            if (!chaptersBtn || !volumesBtn) return;
+            const mode = localStorage.getItem(RANGE_MODE_KEY) === 'volumes' ? 'volumes' : 'chapters';
+            chaptersBtn.classList.toggle('active', mode === 'chapters');
+            volumesBtn.classList.toggle('active', mode === 'volumes');
         },
 
         async _renderPlugins() {
@@ -153,6 +164,18 @@
                         saveMaxSizeBtn.disabled = false;
                     }, 1500);
                 });
+            }
+
+            const rangeModeChapters = document.getElementById('rangeModeChapters');
+            const rangeModeVolumes = document.getElementById('rangeModeVolumes');
+            if (rangeModeChapters && rangeModeVolumes) {
+                const setRangeMode = (mode) => {
+                    localStorage.setItem(RANGE_MODE_KEY, mode);
+                    rangeModeChapters.classList.toggle('active', mode === 'chapters');
+                    rangeModeVolumes.classList.toggle('active', mode === 'volumes');
+                };
+                rangeModeChapters.addEventListener('click', () => setRangeMode('chapters'));
+                rangeModeVolumes.addEventListener('click', () => setRangeMode('volumes'));
             }
 
             const fileInput = document.getElementById('pluginFileInput');

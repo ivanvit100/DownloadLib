@@ -12,9 +12,15 @@
 (function(global) {
     console.log('[ChapterController] Loading...');
 
+    const RANGE_MODE_KEY = 'manga_parser_range_mode';
+
     class ChapterController {
         constructor() {
             this._allChapters = [];
+        }
+
+        _getRangeMode() {
+            return localStorage.getItem(RANGE_MODE_KEY) === 'volumes' ? 'volumes' : 'chapters';
         }
 
         async loadAndPopulate(service, slug, chapterFromUrl, chapterToUrl, branchIdFromUrl = null) {
@@ -50,7 +56,7 @@
                             toSelect.value = chapterToUrl;
                             console.log(`[ChapterController] Restored chapter range: ${chapterFromUrl} - ${chapterToUrl}`);
                         } else
-                            toSelect.selectedIndex = filteredChapters.length - 1;
+                            toSelect.selectedIndex = toSelect.options.length - 1;
 
                         chapterRangeContainer.style.display = 'block';
                     }
@@ -105,7 +111,7 @@
                 const toSelect = document.getElementById('chapterToSelect');
                 if (fromSelect && toSelect) {
                     this.repopulateSelects(filtered, fromSelect, toSelect);
-                    toSelect.selectedIndex = filtered.length - 1;
+                    toSelect.selectedIndex = toSelect.options.length - 1;
                 }
             };
 
@@ -122,6 +128,10 @@
         repopulateSelects(filteredChapters, fromSelect, toSelect) {
             fromSelect.innerHTML = '';
             toSelect.innerHTML = '';
+
+            if (this._getRangeMode() === 'volumes')
+                return this._populateByVolume(filteredChapters, fromSelect, toSelect);
+
             filteredChapters.forEach((ch, idx) => {
                 const label = `Том ${ch.volume}, Глава ${ch.number}`;
                 const optFrom = document.createElement('option');
@@ -131,6 +141,35 @@
 
                 const optTo = document.createElement('option');
                 optTo.value = idx;
+                optTo.textContent = label;
+                toSelect.appendChild(optTo);
+            });
+        }
+
+        _populateByVolume(filteredChapters, fromSelect, toSelect) {
+            const volumes = [];
+            const firstIndex = new Map();
+            const lastIndex = new Map();
+
+            filteredChapters.forEach((ch, idx) => {
+                const vol = ch.volume != null ? ch.volume : '1';
+                if (!firstIndex.has(vol)) {
+                    firstIndex.set(vol, idx);
+                    volumes.push(vol);
+                }
+                lastIndex.set(vol, idx);
+            });
+
+            volumes.forEach(vol => {
+                const label = `Том ${vol}`;
+
+                const optFrom = document.createElement('option');
+                optFrom.value = firstIndex.get(vol);
+                optFrom.textContent = label;
+                fromSelect.appendChild(optFrom);
+
+                const optTo = document.createElement('option');
+                optTo.value = lastIndex.get(vol);
                 optTo.textContent = label;
                 toSelect.appendChild(optTo);
             });

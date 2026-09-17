@@ -13,6 +13,7 @@ function setupDOM() {
 
 beforeEach(async () => {
     vi.resetModules();
+    localStorage.clear();
     setupDOM();
     await import('../../ui/ChapterController.js');
 });
@@ -56,6 +57,22 @@ describe('ChapterController', () => {
             const cc = new global.ChapterController();
             await cc.loadAndPopulate(svc, 'my-slug', null, null);
             expect(document.getElementById('chapterToSelect').selectedIndex).toBe(2);
+        });
+
+        it('sets toSelect.selectedIndex to the last volume option when range mode is "volumes"', async () => {
+            localStorage.setItem('manga_parser_range_mode', 'volumes');
+            const chapters = [
+                { volume: 1, number: 1, branches: [{ branch_id: 1, teams: [{ name: 'A' }] }] },
+                { volume: 1, number: 2, branches: [{ branch_id: 1, teams: [{ name: 'A' }] }] },
+                { volume: 2, number: 1, branches: [{ branch_id: 1, teams: [{ name: 'A' }] }] }
+            ];
+            const svc = { fetchChaptersList: vi.fn(async () => ({ data: chapters })) };
+            const cc = new global.ChapterController();
+            await cc.loadAndPopulate(svc, 'my-slug', null, null);
+            const toSelect = document.getElementById('chapterToSelect');
+            expect(toSelect.options.length).toBe(2);
+            expect(toSelect.selectedIndex).toBe(1);
+            expect(toSelect.value).toBe('2');
         });
 
         it('hides translatorContainer when chapters have single branch', async () => {
@@ -199,6 +216,58 @@ describe('ChapterController', () => {
             expect(toSelect.options.length).toBe(2);
             expect(fromSelect.options[0].textContent).toBe('Том 1, Глава 1');
             expect(toSelect.options[1].textContent).toBe('Том 2, Глава 5');
+        });
+
+        it('groups by volume when range mode is "volumes"', () => {
+            localStorage.setItem('manga_parser_range_mode', 'volumes');
+            const cc = new global.ChapterController();
+            const fromSelect = document.getElementById('chapterFromSelect');
+            const toSelect = document.getElementById('chapterToSelect');
+            const chapters = [
+                { volume: 1, number: 1 },
+                { volume: 1, number: 2 },
+                { volume: 2, number: 1 },
+                { volume: 2, number: 2 },
+                { volume: 2, number: 3 }
+            ];
+            cc.repopulateSelects(chapters, fromSelect, toSelect);
+
+            expect(fromSelect.options.length).toBe(2);
+            expect(toSelect.options.length).toBe(2);
+            expect(fromSelect.options[0].textContent).toBe('Том 1');
+            expect(fromSelect.options[0].value).toBe('0');
+            expect(fromSelect.options[1].value).toBe('2');
+            expect(toSelect.options[0].value).toBe('1');
+            expect(toSelect.options[1].textContent).toBe('Том 2');
+            expect(toSelect.options[1].value).toBe('4');
+        });
+
+        it('falls back to volume "1" when chapter.volume is null in volume mode', () => {
+            localStorage.setItem('manga_parser_range_mode', 'volumes');
+            const cc = new global.ChapterController();
+            const fromSelect = document.getElementById('chapterFromSelect');
+            const toSelect = document.getElementById('chapterToSelect');
+            cc.repopulateSelects([{ volume: null, number: 1 }], fromSelect, toSelect);
+            expect(fromSelect.options[0].textContent).toBe('Том 1');
+        });
+    });
+
+    describe('_getRangeMode', () => {
+        it('defaults to "chapters" when nothing stored', () => {
+            const cc = new global.ChapterController();
+            expect(cc._getRangeMode()).toBe('chapters');
+        });
+
+        it('returns "volumes" when stored', () => {
+            localStorage.setItem('manga_parser_range_mode', 'volumes');
+            const cc = new global.ChapterController();
+            expect(cc._getRangeMode()).toBe('volumes');
+        });
+
+        it('falls back to "chapters" for an unrecognized stored value', () => {
+            localStorage.setItem('manga_parser_range_mode', 'bogus');
+            const cc = new global.ChapterController();
+            expect(cc._getRangeMode()).toBe('chapters');
         });
     });
 

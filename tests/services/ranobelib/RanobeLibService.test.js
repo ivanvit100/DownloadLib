@@ -923,6 +923,22 @@ describe('RanobeLibService', () => {
         delete global.fetchPageImage;
     });
 
+    it('Process chapter content requests the original .gif URL for a gif image src', async () => {
+        const svc = new RanobeLibService();
+        global.browser = { runtime: { sendMessage: vi.fn() } };
+        const fetchPageImageMock = vi.fn().mockResolvedValue({ ok: true, base64: 'imgdata' });
+        global.fetchPageImage = fetchPageImageMock;
+        await svc.processChapterContent(
+            [{ type: 'image', src: 'giphy_GyWH.gif' }],
+            {},
+            { chapterMeta: { id: 1987037, manga_id: 2 } }
+        );
+        const calledUrl = fetchPageImageMock.mock.calls[0][0];
+        expect(calledUrl).toBe('https://ranobelib.me/uploads/ranobe/2/chapters/1987037/giphy_GyWH.gif');
+        delete global.browser;
+        delete global.fetchPageImage;
+    });
+
     it('_processImageBlock uses default compressOpts when called without 5th argument', async () => {
         const svc = new RanobeLibService();
         global.browser = { runtime: { sendMessage: vi.fn() } };

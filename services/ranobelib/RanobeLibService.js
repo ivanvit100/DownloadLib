@@ -221,7 +221,7 @@
         }
 
         _resolveBaseUrl(src, mangaId, chapterId) {
-            const srcWithoutExt = src.replace(/\.(jpg|jpeg|png|webp)$/i, '');
+            const srcWithoutExt = src.replace(/\.(jpg|jpeg|png|webp|gif)$/i, '');
             if (/^https?:\/\//i.test(src)) return srcWithoutExt;
             if (/^(?:\/\/|\/)/.test(src)) return new URL(srcWithoutExt, 'https://ranobelib.me').toString();
             return `https://ranobelib.me/uploads/ranobe/${mangaId}/chapters/${chapterId}/${srcWithoutExt}`;
@@ -244,15 +244,15 @@
         async _processImageBlock(block, attachmentMap, mangaId, chapterId, compressOpts = {}) {
             const isFullUrl = /^https?:\/\//i.test(block.src);
             const isAbsolutePath = /^(?:\/\/|\/)/.test(block.src);
-            const isPlainUuid = !isFullUrl && !isAbsolutePath && !/\.(?:jpg|jpeg|png|webp)$/i.test(block.src);
+            const isPlainUuid = !isFullUrl && !isAbsolutePath && !/\.(?:jpg|jpeg|png|webp|gif)$/i.test(block.src);
 
-            const [, matchedExt] = block.src.match(/\.(jpg|jpeg|png|webp)$/i) || [];
+            const [, matchedExt] = block.src.match(/\.(jpg|jpeg|png|webp|gif)$/i) || [];
             const originalExt = isPlainUuid && attachmentMap[block.src]
                 ? attachmentMap[block.src]
                 : matchedExt || 'jpg';
 
             const baseUrl = this._resolveBaseUrl(block.src, mangaId, chapterId);
-            const extensions = [originalExt, ...['jpg', 'jpeg', 'png', 'webp'].filter(e => e !== originalExt)];
+            const extensions = [originalExt, ...['jpg', 'jpeg', 'png', 'webp', 'gif'].filter(e => e !== originalExt)];
 
             for (const ext of extensions) {
                 try {
