@@ -4,7 +4,7 @@
  * @module ui/ChapterController
  * @license MIT
  * @author ivanvit
- * @version 1.0.7
+ * @version 1.0.10
  */
 
 'use strict';
@@ -74,6 +74,7 @@
             if (!translatorContainer || !translatorSelect) return null;
 
             const branchMap = new Map();
+            const chapterCounts = new Map();
             for (const ch of chapters) {
                 if (!ch.branches) continue;
                 for (const branch of ch.branches) {
@@ -83,6 +84,7 @@
                             : `Перевод ${branch.branch_id}`;
                         branchMap.set(branch.branch_id, teamName);
                     }
+                    chapterCounts.set(branch.branch_id, (chapterCounts.get(branch.branch_id) || 0) + 1);
                 }
             }
 
@@ -91,17 +93,21 @@
                 return branchMap.size === 1 ? [...branchMap.keys()][0] : null;
             }
 
+            const maxCount = Math.max(...chapterCounts.values());
+            const longestBranchId = [...branchMap.keys()].find(id => chapterCounts.get(id) === maxCount);
+
             translatorSelect.innerHTML = '';
             for (const [id, name] of branchMap) {
                 const opt = document.createElement('option');
                 opt.value = id;
                 opt.textContent = name;
+                if (chapterCounts.get(id) === maxCount) opt.dataset.top = 'true';
                 translatorSelect.appendChild(opt);
             }
 
             const initialBranchId = branchIdFromUrl != null && branchMap.has(Number(branchIdFromUrl))
                 ? Number(branchIdFromUrl)
-                : [...branchMap.keys()][0];
+                : longestBranchId;
             translatorSelect.value = initialBranchId;
 
             translatorSelect.onchange = () => {
@@ -115,8 +121,119 @@
                 }
             };
 
+            this._setupTranslatorDropdown(translatorSelect);
+
             translatorContainer.style.display = 'block';
             return initialBranchId;
+        }
+
+        _topBadgeSvg() {
+            const span = document.createElement('span');
+            span.className = 'translator-top-badge';
+            span.title = 'Самый длинный перевод';
+            span.innerHTML = '<svg viewBox="0 0 24 32" width="20" height="26" aria-hidden="true" focusable="false">' +
+                '<path d="M2 17 L2 8 L7 12 L12 3 L17 12 L22 8 L22 17 Z" fill="#ffca28" stroke="#c67c00" ' +
+                'stroke-width="1" stroke-linejoin="round"/>' +
+                '<circle cx="2" cy="8" r="1.6" fill="#ffe082"/>' +
+                '<circle cx="12" cy="3" r="1.8" fill="#ffe082"/>' +
+                '<circle cx="22" cy="8" r="1.6" fill="#ffe082"/>' +
+                '<rect x="2" y="17" width="20" height="3" rx="1" fill="#ffb300" stroke="#c67c00" stroke-width="0.8"/>' +
+                '<text x="12" y="30" text-anchor="middle" font-family="Arial, sans-serif" font-size="9" ' +
+                'font-weight="700" fill="#ff9100" letter-spacing="0.5">ТОП</text></svg>';
+            return span;
+        }
+
+        _setupTranslatorDropdown(selectEl) {
+            const wrap = document.getElementById('translatorDropdown');
+            const trigger = document.getElementById('translatorDropdownTrigger');
+            const list = document.getElementById('translatorDropdownList');
+            if (!wrap || !trigger || !list) return;
+
+            list.innerHTML = '';
+            Array.from(selectEl.options).forEach(opt => {
+                const item = document.createElement('button');
+                item.type = 'button';
+                item.className = 'translator-dropdown-option';
+                item.setAttribute('role', 'option');
+                item.dataset.value = opt.value;
+
+                if (opt.dataset.top === 'true') item.appendChild(this._topBadgeSvg());
+
+                const text = document.createElement('span');
+                text.textContent = opt.textContent;
+                item.appendChild(text);
+
+                item.addEventListener('click', () => {
+                    selectEl.value = opt.value;
+                    selectEl.dispatchEvent(new Event('change'));
+                    this._closeTranslatorDropdown();
+                });
+
+                list.appendChild(item);
+            });
+
+            if (!wrap.dataset.bound) {
+                trigger.addEventListener('click', () => this._toggleTranslatorDropdown());
+                wrap.addEventListener('focusout', (e) => {
+                    if (!wrap.contains(e.relatedTarget)) this._closeTranslatorDropdown();
+                });
+                wrap.addEventListener('keydown', (e) => {
+                    if (e.key === 'Escape') {
+                        this._closeTranslatorDropdown();
+                        trigger.focus();
+                    }
+                });
+                selectEl.addEventListener('change', () => this._syncTranslatorDropdown(selectEl));
+                wrap.dataset.bound = 'true';
+            }
+
+            this._syncTranslatorDropdown(selectEl);
+        }
+
+        _syncTranslatorDropdown(selectEl) {
+            const label = document.getElementById('translatorDropdownLabel');
+            const list = document.getElementById('translatorDropdownList');
+            if (!label || !list) return;
+
+            const selectedOpt = selectEl.options[selectEl.selectedIndex];
+            label.innerHTML = '';
+            if (selectedOpt) {
+                if (selectedOpt.dataset.top === 'true') label.appendChild(this._topBadgeSvg());
+                const text = document.createElement('span');
+                text.textContent = selectedOpt.textContent;
+                label.appendChild(text);
+            }
+
+            Array.from(list.children).forEach(item => {
+                item.classList.toggle('active', item.dataset.value === selectEl.value);
+            });
+        }
+
+        _toggleTranslatorDropdown() {
+            const wrap = document.getElementById('translatorDropdown');
+            if (!wrap) return;
+            if (wrap.dataset.open === 'true') this._closeTranslatorDropdown();
+            else this._openTranslatorDropdown();
+        }
+
+        _openTranslatorDropdown() {
+            const wrap = document.getElementById('translatorDropdown');
+            const trigger = document.getElementById('translatorDropdownTrigger');
+            const list = document.getElementById('translatorDropdownList');
+            if (!wrap || !trigger || !list) return;
+            wrap.dataset.open = 'true';
+            list.hidden = false;
+            trigger.setAttribute('aria-expanded', 'true');
+        }
+
+        _closeTranslatorDropdown() {
+            const wrap = document.getElementById('translatorDropdown');
+            const trigger = document.getElementById('translatorDropdownTrigger');
+            const list = document.getElementById('translatorDropdownList');
+            if (!wrap || !trigger || !list) return;
+            wrap.dataset.open = 'false';
+            list.hidden = true;
+            trigger.setAttribute('aria-expanded', 'false');
         }
 
         getFilteredChapters(branchId) {

@@ -17,6 +17,13 @@
 <div id="translatorContainer">
     <label for="translatorSelect">Перевод:</label>
     <select id="translatorSelect"></select>
+    <div id="translatorDropdown" class="translator-dropdown">
+        <button type="button" id="translatorDropdownTrigger" class="translator-dropdown-trigger" aria-haspopup="listbox" aria-expanded="false">
+            <span id="translatorDropdownLabel" class="translator-dropdown-label"></span>
+            <svg class="translator-dropdown-caret" viewBox="0 0 10 6" width="10" height="6" aria-hidden="true"><path d="M0 0L5 6L10 0Z" fill="currentColor"/></svg>
+        </button>
+        <div id="translatorDropdownList" class="translator-dropdown-list" role="listbox" hidden></div>
+    </div>
 </div>
 
 <div id="chapterRangeContainer">

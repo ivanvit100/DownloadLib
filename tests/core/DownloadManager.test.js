@@ -166,6 +166,14 @@ describe('DownloadManager', () => {
         expect(dm.getChapterKey({})).toBe('v1_ch0');
     });
 
+    it('_chapterVolume returns the chapter volume or falls back to "1"', () => {
+        const dm = new DownloadManager();
+        expect(dm._chapterVolume({ volume: '3' })).toBe('3');
+        expect(dm._chapterVolume({})).toBe('1');
+        expect(dm._chapterVolume({ volume: null })).toBe('1');
+        expect(dm._chapterVolume({ volume: '' })).toBe('1');
+    });
+
     it('Check if chapter is empty', () => {
         const dm = new DownloadManager();
         expect(dm.isChapterEmpty({})).toBe(true);
@@ -1210,7 +1218,6 @@ describe('DownloadManager', () => {
         vi.spyOn(dm, 'saveFile').mockResolvedValue();
         const ctrl = dm.createController();
         const ds = { id: 'dl4', slug: 'slug', controller: ctrl, chapterContents: [], format: 'fb2', splitPages: true, mangaId: null };
-        // ds is intentionally NOT added to activeDownloads
 
         let captured429;
         const origFetch = serviceMock.fetchChapter;
@@ -1230,7 +1237,7 @@ describe('DownloadManager', () => {
     it('updateExistingFile uses empty array when chaptersData.data is absent', async () => {
         const dm = new DownloadManager();
         vi.spyOn(dm, 'saveFile').mockResolvedValue();
-        serviceMock.fetchChaptersList = vi.fn(async () => ({})); // no .data
+        serviceMock.fetchChaptersList = vi.fn(async () => ({}));
         exporterMock.parse = vi.fn(async () => ({
             chapters: [{ volume: '1', number: '1', content: [{ type: 'text', text: 'ok' }] }],
             metadata: { name: 'Test' }, cover: ''
@@ -1239,7 +1246,7 @@ describe('DownloadManager', () => {
         dm.activeDownloads.set('ue5', ds);
 
         const result = await dm.updateExistingFile(ds, serviceMock, {});
-        expect(result.updated).toBe(false); // empty server → nothing to add
+        expect(result.updated).toBe(false);
     });
 
     it('updateExistingFile uses default maxSizeBytes 200MB when maxSizeMB is not set', async () => {
@@ -1253,7 +1260,6 @@ describe('DownloadManager', () => {
             metadata: { name: 'Test' }, cover: ''
         }));
         const ds = { id: 'ue6', slug: 'slug', format: 'fb2', controller: dm.createController(), chapterContents: [] };
-        // maxSizeMB intentionally absent → || 200 branch
         dm.activeDownloads.set('ue6', ds);
 
         const result = await dm.updateExistingFile(ds, serviceMock, {});
