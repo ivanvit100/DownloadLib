@@ -244,6 +244,43 @@ describe('BaseService', () => {
         delete global.fetch;
     });
 
+    it('checkpoint does nothing without gate and delegates to gate when set', async () => {
+        const svc = new BaseService(config);
+        await expect(svc.checkpoint()).resolves.toBeUndefined();
+        svc._gate = { checkpoint: vi.fn().mockResolvedValue() };
+        await svc.checkpoint();
+        expect(svc._gate.checkpoint).toHaveBeenCalledTimes(1);
+    });
+
+    it('interruptibleDelay delegates to delay without gate', async () => {
+        const svc = new BaseService(config);
+        const delaySpy = vi.spyOn(svc, 'delay').mockResolvedValue();
+        await svc.interruptibleDelay(500);
+        expect(delaySpy).toHaveBeenCalledWith(500);
+    });
+
+    it('interruptibleDelay sleeps in slices and checks gate afterwards', async () => {
+        const svc = new BaseService(config);
+        svc._gate = { controller: { shouldStop: () => false }, checkpoint: vi.fn().mockResolvedValue() };
+        const delaySpy = vi.spyOn(svc, 'delay').mockImplementation(() => new Promise(resolve => setTimeout(resolve, 5)));
+        await svc.interruptibleDelay(30);
+        expect(delaySpy).toHaveBeenCalled();
+        expect(delaySpy.mock.calls.every(([ms]) => ms <= 250)).toBe(true);
+        expect(svc._gate.checkpoint).toHaveBeenCalledTimes(1);
+    });
+
+    it('interruptibleDelay stops sleeping as soon as download is stopped', async () => {
+        const svc = new BaseService(config);
+        const error = Object.assign(new Error('Download aborted'), { aborted: true });
+        svc._gate = {
+            controller: { shouldStop: () => true },
+            checkpoint: vi.fn().mockRejectedValue(error)
+        };
+        const delaySpy = vi.spyOn(svc, 'delay').mockResolvedValue();
+        await expect(svc.interruptibleDelay(30000)).rejects.toBe(error);
+        expect(delaySpy).not.toHaveBeenCalled();
+    });
+
     it('fetchMangaMetadata returns null when urls list is empty', async () => {
         const svc = new BaseService({ name: 'T', baseUrl: 'https://test.com', fields: [] });
         const origPush = Array.prototype.push;

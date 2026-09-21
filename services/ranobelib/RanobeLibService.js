@@ -4,7 +4,7 @@
  * @module services/ranobelib/RanobeLibService
  * @license MIT
  * @author ivanvit
- * @version 1.0.9
+ * @version 1.0.10
  */
 
 'use strict';

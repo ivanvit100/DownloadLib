@@ -302,6 +302,125 @@ describe('DownloadManager', () => {
         expect(ds.chapterContents.length).toBe(1);
     });
 
+    it('Discards interrupted chapter in download chapters', async () => {
+        const dm = new DownloadManager();
+        const ds = { id: 'id', slug: 'slug', controller: dm.createController(), chapterContents: [], gate: { interrupted: true } };
+        const res = await dm.downloadChapters(serviceMock, ds, [createChapter('1', '1')], () => {});
+        expect(res).toEqual([]);
+        expect(ds.chapterContents).toEqual([]);
+    });
+
+    it('Discards interrupted chapter in download specific chapters', async () => {
+        const dm = new DownloadManager();
+        const ds = { id: 'id', slug: 'slug', controller: dm.createController(), gate: { interrupted: true } };
+        const res = await dm.downloadSpecificChapters(serviceMock, ds, [createChapter('1', '1')], 1);
+        expect(res).toEqual([]);
+    });
+
+    it('Stops download specific chapters on aborted error without error chapter', async () => {
+        const dm = new DownloadManager();
+        const ds = { id: 'id', slug: 'slug', controller: dm.createController() };
+        const abortedService = {
+            ...serviceMock,
+            fetchChapter: vi.fn(async () => { throw Object.assign(new Error('Download aborted'), { aborted: true }); })
+        };
+        const res = await dm.downloadSpecificChapters(abortedService, ds, [createChapter('1', '1'), createChapter('1', '2')], 2);
+        expect(res).toEqual([]);
+        expect(abortedService.fetchChapter).toHaveBeenCalledTimes(1);
+    });
+
+    it('Stops download specific chapters when gate is interrupted during error', async () => {
+        const dm = new DownloadManager();
+        const ds = { id: 'id', slug: 'slug', controller: dm.createController(), gate: { interrupted: false } };
+        const failingService = {
+            ...serviceMock,
+            fetchChapter: vi.fn(async () => { ds.gate.interrupted = true; throw new Error('fail'); })
+        };
+        const res = await dm.downloadSpecificChapters(failingService, ds, [createChapter('1', '1')], 1);
+        expect(res).toEqual([]);
+    });
+
+    it('Aborts in-flight image fetch and discards chapter when download is stopped', async () => {
+        const dm = new DownloadManager();
+        let stopped = false;
+        const controller = {
+            isPaused: () => false,
+            shouldStop: () => stopped,
+            stop: () => { stopped = true; },
+            waitIfPaused: async () => {}
+        };
+        const stoppingService = {
+            ...serviceMock,
+            fetchChapter: vi.fn(async () => {
+                stopped = true;
+                await globalThis.fetchPageImage('url', 'mangalib');
+                return { data: { content: [] } };
+            })
+        };
+        globalThis.serviceRegistry.createService = vi.fn(() => stoppingService);
+        await dm.startDownload({ slug: 'slug', serviceKey: 'mangalib', format: 'fb2', controller });
+        expect(stoppingService.fetchChapter).toHaveBeenCalledTimes(1);
+        expect(exporterMock.export).not.toHaveBeenCalled();
+        expect(stoppingService._gate).toBeNull();
+    });
+
+    it('Lets image fetch pass an active gate and keeps newer gates on cleanup', async () => {
+        const dm = new DownloadManager();
+        const nestedService = {
+            ...serviceMock,
+            name: 'ranobelib',
+            fetchChaptersList: vi.fn(async () => ({ data: [] }))
+        };
+        const outerService = {
+            ...serviceMock,
+            fetchChapter: vi.fn(async () => {
+                await globalThis.fetchPageImage('url', 'mangalib');
+                await dm.startDownload({ slug: 'nested', serviceKey: 'ranobelib', format: 'fb2' });
+                outerService._gate = null;
+                return { data: { content: [{ type: 'text', text: 'ok' }] } };
+            })
+        };
+        globalThis.serviceRegistry.createService = vi.fn(key => key === 'ranobelib' ? nestedService : outerService);
+        const result = await dm.startDownload({ slug: 'slug', serviceKey: 'mangalib', format: 'fb2' });
+        expect(result.success).toBe(true);
+        expect(outerService.fetchChapter).toHaveBeenCalled();
+        expect(exporterMock.export).toHaveBeenCalled();
+    });
+
+    it('Holds a finished image fetch until download is resumed', async () => {
+        const dm = new DownloadManager();
+        let paused = false;
+        let resumed = false;
+        const controller = {
+            isPaused: () => paused,
+            shouldStop: () => false,
+            stop: vi.fn(),
+            waitIfPaused: async () => {
+                while (paused) await new Promise(resolve => setTimeout(resolve, 5));
+            }
+        };
+        globalThis.fetchViaTab = vi.fn(async () => {
+            paused = true;
+            resumed = false;
+            setTimeout(() => { resumed = true; paused = false; }, 30);
+            return { ok: true, base64: 'x', contentType: 'image/jpeg' };
+        });
+        const observedResumed = [];
+        const pausingService = {
+            ...serviceMock,
+            fetchChapter: vi.fn(async () => {
+                const response = await globalThis.fetchPageImage('url', 'mangalib');
+                observedResumed.push(resumed);
+                expect(response.ok).toBe(true);
+                return { data: { content: [{ type: 'text', text: 'ok' }] } };
+            })
+        };
+        globalThis.serviceRegistry.createService = vi.fn(() => pausingService);
+        await dm.startDownload({ slug: 'slug', serviceKey: 'mangalib', format: 'fb2', controller });
+        expect(observedResumed.length).toBeGreaterThan(0);
+        expect(observedResumed.every(Boolean)).toBe(true);
+    });
+
     it('Start download with unknown service', async () => {
         const dm = new DownloadManager();
         await expect(dm.startDownload({ serviceKey: 'unknown' })).rejects.toThrow();

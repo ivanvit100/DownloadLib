@@ -4,7 +4,7 @@
  * @module ui/PopupController
  * @license MIT
  * @author ivanvit
- * @version 1.0.9
+ * @version 1.0.10
  */
 
 'use strict';
@@ -32,17 +32,25 @@
             console.log('[PopupController] Initializing...');
             this.downloadManager = new global.DownloadManager();
             this.chapterController = new global.ChapterController();
-            this.currentDownloadId = null;
             this.isDownloading = false;
             this.isPaused = false;
             this.shouldStop = false;
+            this._shellEventsBound = false;
+            this.currentDownloadId = null;
             this.loadedFile = null;
             this.currentSlug = null;
             this.currentServiceKey = null;
             this.currentTitle = null;
             this.authToken = null;
-            this._shellEventsBound = false;
             this._activeTabId = null;
+
+            const pauseBtn = $el('pauseBtn');
+            const stopBtn = $el('stopBtn');
+            if (pauseBtn) {
+                pauseBtn.disabled = false;
+                pauseBtn.textContent = 'Пауза';
+            }
+            if (stopBtn) stopBtn.disabled = false;
 
             this.downloadManager.eventBus.on('download:started', (state) => {
                 this.currentDownloadId = state.id;
@@ -632,6 +640,7 @@
 
             if (pauseBtn) {
                 pauseBtn.addEventListener('click', () => {
+                    if (this.shouldStop) return;
                     this.isPaused = !this.isPaused;
                     pauseBtn.textContent = this.isPaused ? 'Продолжить' : 'Пауза';
                     const status = $el('status');
@@ -802,7 +811,12 @@
 
         stopDownload() {
             this.shouldStop = true;
+            this.isPaused = false;
             this.isDownloading = false;
+            const pauseBtn = $el('pauseBtn');
+            const stopBtn = $el('stopBtn');
+            if (pauseBtn) pauseBtn.disabled = true;
+            if (stopBtn) stopBtn.disabled = true;
             if (this.currentDownloadId)
                 this.downloadManager.stop(this.currentDownloadId);
             const status = $el('status');
@@ -813,8 +827,9 @@
         updateProgress(message, percent) {
             const statusEl = $el('status');
             const progressEl = $el('progress');
-            if (statusEl) statusEl.textContent = message;
-            else console.warn('Status element not found when updating progress status');
+            if (statusEl) {
+                if (!this.isPaused) statusEl.textContent = message;
+            } else console.warn('Status element not found when updating progress status');
             if (progressEl) progressEl.value = percent;
             else console.warn('Progress element not found when updating progress percentage');
         }
@@ -823,6 +838,15 @@
             this.isDownloading = false;
             this.isPaused = false;
             this.shouldStop = false;
+
+            const pauseBtn = $el('pauseBtn');
+            const stopBtn = $el('stopBtn');
+            if (pauseBtn) {
+                pauseBtn.disabled = false;
+                pauseBtn.textContent = 'Пауза';
+            }
+            if (stopBtn) stopBtn.disabled = false;
+
             this.loadedFile = null;
             this.currentDownloadId = null;
 

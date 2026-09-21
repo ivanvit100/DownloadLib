@@ -4,7 +4,7 @@
  * @module services/BaseService
  * @license MIT
  * @author ivanvit
- * @version 1.0.2
+ * @version 1.0.10
  */
 
 'use strict';
@@ -117,19 +117,35 @@
             return this.blobToBase64(blob);
         }
 
+        async checkpoint() {
+            if (this._gate) await this._gate.checkpoint();
+        }
+
+        async interruptibleDelay(ms) {
+            if (!this._gate) return this.delay(ms);
+            const end = Date.now() + ms;
+            while (Date.now() < end) {
+                if (this._gate.controller.shouldStop()) break;
+                await this.delay(Math.min(250, end - Date.now()));
+            }
+            await this.checkpoint();
+        }
+
         async fetchWithRetry(url, opts, retries = 3) {
             for (let i = 0; i < retries; i++) {
+                await this.checkpoint();
                 try {
                     return await fetch(url, opts);
                 } catch (e) {
                     if (i === retries - 1) throw e;
-                    await this.delay(1000 * (i + 1));
+                    await this.interruptibleDelay(1000 * (i + 1));
                 }
             }
         }
 
         async fetchWithRateLimitRetry(url, opts, maxRetries = 5) {
             for (let attempt = 0; attempt < maxRetries; attempt++) {
+                await this.checkpoint();
                 const response = await fetch(url, opts);
                 if (response.status === 429) {
                     const retryAfter = parseInt(response.headers.get('Retry-After'), 10);
@@ -141,7 +157,7 @@
                     else if (typeof self !== 'undefined' && self.globalRateLimiter && self.globalRateLimiter.throttle)
                         self.globalRateLimiter.throttle(waitMs);
                     else console.warn(`[${this.name}] No globalRateLimiter found, proceeding with local delay.`);
-                    await this.delay(waitMs);
+                    await this.interruptibleDelay(waitMs);
                     continue;
                 }
                 return response;

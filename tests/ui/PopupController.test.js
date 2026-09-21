@@ -260,6 +260,48 @@ describe('PopupController', () => {
         expect(document.getElementById('status').textContent).toBe('Досрочное завершение...');
     });
 
+    it('stopDownload disables pause and stop buttons', () => {
+        const controller = new PopupController();
+        controller.isPaused = true;
+        controller.stopDownload();
+        expect(controller.isPaused).toBe(false);
+        expect(document.getElementById('pauseBtn').disabled).toBe(true);
+        expect(document.getElementById('stopBtn').disabled).toBe(true);
+    });
+
+    it('stopDownload works when pause and stop buttons are missing', () => {
+        document.getElementById('pauseBtn').remove();
+        document.getElementById('stopBtn').remove();
+        const controller = new PopupController();
+        controller.stopDownload();
+        expect(controller.shouldStop).toBe(true);
+    });
+
+    it('updateProgress keeps pause status but updates progress bar while paused', () => {
+        const controller = new PopupController();
+        document.getElementById('status').textContent = 'Пауза...';
+        controller.isPaused = true;
+        controller.updateProgress('msg', 55);
+        expect(document.getElementById('status').textContent).toBe('Пауза...');
+        expect(Number(document.getElementById('progress').getAttribute('value'))).toBe(55);
+    });
+
+    it('Pause button toggles pause and is ignored after stop', () => {
+        const controller = new PopupController();
+        controller.setupEventListeners();
+        const pauseBtn = document.getElementById('pauseBtn');
+        pauseBtn.click();
+        expect(controller.isPaused).toBe(true);
+        expect(pauseBtn.textContent).toBe('Продолжить');
+        pauseBtn.click();
+        expect(controller.isPaused).toBe(false);
+        expect(pauseBtn.textContent).toBe('Пауза');
+        controller.shouldStop = true;
+        pauseBtn.click();
+        expect(controller.isPaused).toBe(false);
+        expect(pauseBtn.textContent).toBe('Пауза');
+    });
+
     it('Returns true for params in separate window', async () => {
         const controller = new PopupController();
         window.location.search = '?download=true';

@@ -4,13 +4,39 @@
  * @module core/DownloadManager
  * @license MIT
  * @author ivanvit
- * @version 1.0.9
+ * @version 1.0.10
  */
 
 'use strict';
 
 (function(global) {
     console.log('[DownloadManager] Loading...');
+
+    let activeGate = null;
+
+    /**
+     * Функция, прерывающая загрузку при паузе или завершении загрузки.
+     * @param { DownloadManager } controller - Контроллер загрузки,
+     * предоставляющий методы для проверки состояния загрузки.
+     * @returns {interrupted: boolean, checkpoint: function(): Promise<void> } - Флаги состояния загрузки
+     * и функция для проверки состояния загрузки.
+     */
+    function createGate(controller) {
+        const gate = {
+            controller,
+            interrupted: false,
+            async checkpoint() {
+                await controller.waitIfPaused();
+                if (controller.shouldStop()) {
+                    gate.interrupted = true;
+                    const error = new Error('Download aborted');
+                    error.aborted = true;
+                    throw error;
+                }
+            }
+        };
+        return gate;
+    }
 
     class DownloadManager {
         constructor() {
@@ -147,6 +173,10 @@
             this.eventBus.emit('download:started', downloadState);
 
             const keepAlive = this._startKeepAlive();
+            const gate = createGate(downloadState.controller);
+            downloadState.gate = gate;
+            service._gate = gate;
+            activeGate = gate;
 
             try {
                 if (loadedFile) return await this.updateExistingFile(downloadState, service, loadedFile);
@@ -178,6 +208,8 @@
                 this.eventBus.emit('download:failed', { downloadState, error });
                 throw error;
             } finally {
+                if (activeGate === gate) activeGate = null;
+                if (service._gate === gate) service._gate = null;
                 this._stopKeepAlive(keepAlive);
                 setTimeout(() => this.activeDownloads.delete(downloadId), 5000);
             }
@@ -254,6 +286,7 @@
                     this.updateStatus(downloadId, `Глава ${i + 1}/${chapters.length}: ${chapter.name || chapter.number}`, progress);
 
                     const chapterResult = await this.downloadSingleChapter(service, downloadState, chapter);
+                    if (downloadState.gate?.interrupted) break;
                     const chapterSize = this.estimateChapterSize(chapterResult);
                     const chapterVolume = this._chapterVolume(chapter);
                     const volumeChanged = currentBatch.length > 0 && chapterVolume !== currentVolume;
@@ -557,8 +590,10 @@
                         number: chapter.number
                     };
 
+                    if (downloadState.gate?.interrupted) break;
                     results.push(chapterResult);
                 } catch (error) {
+                    if (error?.aborted || downloadState.gate?.interrupted) break;
                     console.error(`[DownloadManager] Failed to download chapter ${chapter.number}:`, error);
                     const errorChapter = {
                         title: chapter.name || `Том ${chapter.volume}, Глава ${chapter.number}`,
@@ -660,56 +695,10 @@
                         progress
                     );
 
-                    try {
-                        const fetchArgs = [downloadState.slug, chapter.number, chapter.volume || '1'];
-                        if (chapter.branchId != null) fetchArgs.push(chapter.branchId);
-                        const chapterData = await service.fetchChapter(...fetchArgs);
-
-                        const rawContent = chapterData.data || chapterData;
-                        const contentToExtract = rawContent.content || rawContent;
-
-                        const extractedContent = service.extractText
-                            ? service.extractText(contentToExtract)
-                            : contentToExtract;
-
-                        const processedContent = service.processChapterContent
-                            ? await service.processChapterContent(
-                                extractedContent,
-                                document.getElementById('status'),
-                                {
-                                    chapterMeta: rawContent,
-                                    chapterObj: chapter,
-                                    mangaSlug: downloadState.slug,
-                                    mangaId: downloadState.mangaId,
-                                    splitLongImages: downloadState.splitPages && downloadState.format !== 'simple'
-                                }
-                            )
-                            : extractedContent;
-
-                        const chapterResult = {
-                            title: chapter.name || `Том ${chapter.volume}, Глава ${chapter.number}`,
-                            content: processedContent,
-                            volume: chapter.volume,
-                            number: chapter.number
-                        };
-
-                        results.push(chapterResult);
-                        downloadState.chapterContents.push(chapterResult);
-                    } catch (error) {
-                        console.error(`[DownloadManager] Failed to download chapter ${chapter.number}:`, error);
-                        const errorChapter = {
-                            title: chapter.name || `Том ${chapter.volume}, Глава ${chapter.number}`,
-                            content: [{
-                                type: 'text',
-                                text: `[Ошибка загрузки главы: ${error.message}]`
-                            }],
-                            volume: chapter.volume,
-                            number: chapter.number
-                        };
-
-                        results.push(errorChapter);
-                        downloadState.chapterContents.push(errorChapter);
-                    }
+                    const chapterResult = await this.downloadSingleChapter(service, downloadState, chapter);
+                    if (downloadState.gate?.interrupted) break;
+                    results.push(chapterResult);
+                    downloadState.chapterContents.push(chapterResult);
                 }
             } finally {
                 service._on429 = null;
@@ -813,7 +802,16 @@
     }
 
     async function fetchPageImage(url, serviceKey) {
+        const gate = activeGate;
+        if (gate) await gate.checkpoint();
+        const result = await fetchPageImageUngated(url, serviceKey);
+        if (gate) await gate.checkpoint();
+        return result;
+    }
+
+    async function fetchPageImageUngated(url, serviceKey) {
         if (global.globalRateLimiter) await global.globalRateLimiter.trackRequest(serviceKey || 'image');
+        if (activeGate) await activeGate.checkpoint();
 
         if (typeof global.fetchViaTab === 'function') {
             const viaTab = await global.fetchViaTab(url, serviceKey);

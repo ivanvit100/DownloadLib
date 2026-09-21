@@ -4,7 +4,7 @@
  * @module ui/HistoryController
  * @license MIT
  * @author ivanvit
- * @version 1.0.7
+ * @version 1.0.10
  */
 
 'use strict';
@@ -17,11 +17,15 @@
             null);
 
     const FORMAT_LABELS = { epub: 'EPUB', fb2: 'FB2', pdf: 'PDF', mobi: 'MOBI' };
-    const SERVICE_COLORS = { ranobelib: '#2196f3', mangalib: '#ff9100' };
+    const DEFAULT_COLOR = '#ff9100';
     const SERVICE_URLS = {
         mangalib: slug => `https://mangalib.me/ru/manga/${slug}`,
         ranobelib: slug => `https://ranobelib.me/ru/book/${slug}`
     };
+
+    function getServiceColor(serviceKey) {
+        return global.serviceRegistry?.getService(serviceKey)?.config?.primaryColor || DEFAULT_COLOR;
+    }
 
     function formatDate(ts) {
         return new Date(ts).toLocaleString('ru-RU', {
@@ -56,7 +60,7 @@
         },
 
         _createCard(entry) {
-            const color = SERVICE_COLORS[entry.service] || '#ff9100';
+            const color = getServiceColor(entry.service);
 
             const card = document.createElement('div');
             card.className = 'history-card';

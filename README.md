@@ -48,9 +48,21 @@
         <sub><b>RanobeLib</b></sub>
       </td>
       <td align="center">
+        <img src="./screenshots/plugin_example.png" alt="plugin" width="300"/>
+        <br/>
+        <sub><b>Плагин</b></sub>
+      </td>
+    </tr>
+    <tr>
+      <td align="center">
         <img src="./screenshots/history_example.png" alt="MangaLib" width="300"/>
         <br/>
         <sub><b>История</b></sub>
+      </td>
+      <td align="center">
+        <img src="./screenshots/settings_example.png" alt="MangaLib" width="300"/>
+        <br/>
+        <sub><b>Настройки</b></sub>
       </td>
       <td align="center">
         <img src="./screenshots/button_example.png" alt="Кнопка на сайте" width="300"/>
@@ -89,6 +101,10 @@
   <tr>
     <td>⚙️ <b>Выбор перевода</b></td>
     <td>Возможность выбрать понравившегося переводчика при имеющихся альтернативных переводах</td>
+  </tr>
+  <tr>
+    <td>🔗 <b>Система плагинов</b></td>
+    <td>Возможность расширять список поддерживаемых сайтов и форматов</td>
   </tr>
   <tr>
     <td>🖱️ <b>Кнопка на сайте</b></td>
