@@ -44,6 +44,11 @@
     if (!globalThis.authTokenStore) globalThis.authTokenStore = {};
     const authTokens = globalThis.authTokenStore;
 
+    /**
+     * Определяет сервис (mangalib/ranobelib) по хосту URL.
+     * @param {string} url - Проверяемый URL запроса.
+     * @returns {string|null} Ключ сервиса ('mangalib'/'ranobelib') или null, если сервис не распознан.
+     */
     function detectServiceByUrl(url) {
         if (url.includes('ranobelib.me')) return 'ranobelib';
         if (url.includes('mangalib.me') || url.includes('mangalib.org')) return 'mangalib';
@@ -54,6 +59,14 @@
 
     globalThis.detectServiceByUrl = detectServiceByUrl;
 
+    /**
+     * Перехватывает Bearer-токен из заголовка Authorization запроса к api.cdnlibs.org
+     * и сохраняет его в глобальном хранилище токенов, если он изменился.
+     * @param {object} details - Данные запроса из webRequest (requestHeaders, originUrl, documentUrl и т.д.).
+     * @param {string} [serviceName] - Заранее известный ключ сервиса; если не передан,
+     * определяется по origin/document URL.
+     * @returns {void}
+     */
     function captureAuthToken(details, serviceName) {
         if (details.url.startsWith('https://api.cdnlibs.org/')) {
             const authHeader = details.requestHeaders?.find(h => h.name.toLowerCase() === 'authorization');
@@ -71,6 +84,14 @@
         }
     }
 
+    /**
+     * Подставляет сохранённый Bearer-токен сервиса в заголовок Authorization исходящего
+     * запроса к api.cdnlibs.org, заменяя существующее значение или добавляя новый заголовок.
+     * @param {Array<{name: string, value: string}>} headers - Список заголовков запроса (мутируется на месте).
+     * @param {string} serviceName - Ключ сервиса, для которого нужно подставить токен.
+     * @param {string} url - URL запроса, к которому относятся заголовки.
+     * @returns {void}
+     */
     function injectAuthToken(headers, serviceName, url) {
         if (serviceName && authTokens[serviceName] && url.startsWith('https://api.cdnlibs.org/')) {
             const authIdx = headers.findIndex(h => h.name.toLowerCase() === 'authorization');
@@ -80,6 +101,11 @@
         }
     }
 
+    /**
+     * Проверяет, относится ли URL к запросу изображения (CDN обложек/страниц манги).
+     * @param {string} url - Проверяемый URL запроса.
+     * @returns {boolean} true, если URL соответствует одному из известных хостов/путей изображений.
+     */
     function isImageRequest(url) {
         return url.includes('mixlib.me') ||
             url.includes('imglib.info') ||
@@ -92,6 +118,12 @@
             url.includes('/uploads/');
     }
 
+    /**
+     * Определяет сервис запроса по служебным заголовкам (x-dl-service, site-id, Referer),
+     * а для запросов изображений — по хосту URL.
+     * @param {object} details - Данные запроса из webRequest, включая requestHeaders.
+     * @returns {string|null} Ключ сервиса ('mangalib'/'ranobelib') или null, если определить не удалось.
+     */
     function detectServiceByReferer(details) {
         const headers = details.requestHeaders || [];
         const serviceHeader = headers.find(h => h.name.toLowerCase() === 'x-dl-service');
@@ -120,6 +152,12 @@
         return null;
     }
 
+    /**
+     * Проверяет, инициирован ли запрос самим расширением (а не сторонней страницей),
+     * анализируя tabId, origin/document/initiator URL и служебный заголовок x-extension-request.
+     * @param {object} details - Данные запроса из webRequest.
+     * @returns {boolean} true, если запрос исходит от расширения.
+     */
     function isFromExtension(details) {
         if (details.tabId === -1 && !details.documentUrl && !details.originUrl) return true;
 
@@ -152,10 +190,24 @@
         'https://*.mangalib.org/*'
     ];
 
+    /**
+     * Регистрирует блокирующие обработчики webRequest для Firefox: подстановку/захват
+     * заголовков авторизации, применение конфигов сервисов и исправление CORS для изображений.
+     * Не выполняет ничего вне Firefox или при отсутствии webRequest API.
+     * @returns {void}
+     */
     function setupFirefoxListeners() {
         if (!isFirefox || !browserAPI?.webRequest) return;
         console.log('[RequestInterceptor] Firefox: Setting up webRequest with blocking mode');
 
+        /**
+         * Обработчик onBeforeSendHeaders: запоминает Origin для запросов изображений,
+         * захватывает токен из чужих запросов и подставляет заголовки сервиса/токен
+         * авторизации для запросов, исходящих от самого расширения.
+         * @param {object} details - Данные запроса из webRequest, включая requestHeaders.
+         * @returns {Promise<{requestHeaders?: Array<{name: string, value: string}>}>} Изменённые заголовки
+         * (для запросов от расширения) или пустой объект, если заголовки не меняются.
+         */
         browserAPI.webRequest.onBeforeSendHeaders.addListener(
             async (details) => {
                 const fromExtension = isFromExtension(details);
@@ -211,6 +263,14 @@
             ['blocking', 'requestHeaders']
         );
 
+        /**
+         * Обработчик onHeadersReceived: добавляет заголовки Access-Control-Allow-Origin/
+         * -Credentials к ответам на запросы изображений, у которых отсутствует ACAO,
+         * чтобы страница расширения могла прочитать содержимое через fetch.
+         * @param {object} details - Данные ответа из webRequest, включая responseHeaders.
+         * @returns {{responseHeaders: Array<{name: string, value: string}>}} Заголовки ответа
+         * (дополненные CORS-заголовками при необходимости).
+         */
         browserAPI.webRequest.onHeadersReceived.addListener(
             (details) => {
                 if (!isImageRequest(details.url)) return {};
@@ -244,10 +304,24 @@
         console.log('[RequestInterceptor] Firefox: WebRequest blocking interceptor installed');
     }
 
+    /**
+     * Регистрирует небольшой обработчик webRequest для Chrome, который только
+     * захватывает токены авторизации и учитывает запросы расширения в rate limiter
+     * (сама подстановка заголовков в Chrome выполняется через declarativeNetRequest).
+     * Не выполняет ничего вне Chrome/Chromium или при отсутствии webRequest API.
+     * @returns {void}
+     */
     function setupChromeRateLimiter() {
         if (!isChrome || !browserAPI?.webRequest) return;
         console.log('[RequestInterceptor] Chrome: Setting up rate limiter');
 
+        /**
+         * Обработчик onBeforeSendHeaders: захватывает токен из чужих запросов
+         * или учитывает запрос сервиса в rate limiter, если он исходит от расширения.
+         * Заголовки не модифицирует (небезопасный, неблокирующий режим).
+         * @param {object} details - Данные запроса из webRequest, включая requestHeaders.
+         * @returns {Promise<void>}
+         */
         browserAPI.webRequest.onBeforeSendHeaders.addListener(
             async (details) => {
                 const fromExtension = isFromExtension(details);
@@ -275,9 +349,20 @@
         console.log('[RequestInterceptor] Chrome: Rate limiter installed');
     }
 
+    /**
+     * Регистрирует блокирующий обработчик webRequest, отменяющий запросы к рекламным/
+     * баннерным ресурсам (слайдер mangalib, яндекс-редиректы) на страницах сервисов.
+     * @returns {void}
+     */
     function setupAdBlocker() {
         if (!browserAPI?.webRequest?.onBeforeRequest) return;
 
+        /**
+         * Обработчик onBeforeRequest: отменяет запрос, если он сделан со страницы
+         * одного из сервисов и ведёт на известный рекламный ресурс.
+         * @param {object} details - Данные запроса из webRequest.
+         * @returns {{cancel: boolean}|undefined} Объект отмены запроса или undefined, если запрос не блокируется.
+         */
         browserAPI.webRequest.onBeforeRequest.addListener(
             (details) => {
                 let isService = false;

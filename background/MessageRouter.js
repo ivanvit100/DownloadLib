@@ -40,6 +40,12 @@
         'img3.mixlib.me', 'img2.imgslib.link', 'cover.cdnlibs.org', 'cover.imglib.info'
     ];
 
+    /**
+     * Проверяет, относится ли URL к одному из известных CDN-хостов изображений,
+     * которые можно безопасно загрузить напрямую из background-контекста.
+     * @param {string} url - Проверяемый URL изображения.
+     * @returns {boolean} true, если хост URL входит в список CDN_IMAGE_HOSTS.
+     */
     function isCdnImageUrl(url) {
         try {
             return CDN_IMAGE_HOSTS.includes(new URL(url).hostname);
@@ -48,6 +54,11 @@
         }
     }
 
+    /**
+     * Строит список match-паттернов вкладок для поиска открытой вкладки сервиса.
+     * @param {string} [serviceKey] - Ключ сервиса.
+     * @returns {string[]} Список match-паттернов вида '*://host/*'.
+     */
     function _getTabPatterns(serviceKey) {
         if (serviceKey === 'ranobelib')
             return ['*://ranobelib.me/*'];
@@ -57,6 +68,12 @@
         return pluginHosts.map(h => `*://${h}/*`);
     }
 
+    /**
+     * Загружает изображение напрямую из background-контекста и кодирует его в base64.
+     * @param {string} url - URL изображения.
+     * @returns {Promise<{ok: true, base64: string, contentType: string}|{ok: false, error: string}>}
+     * Результат загрузки: base64-содержимое и MIME-тип при успехе, либо описание ошибки.
+     */
     async function fetchImageFromBackground(url) {
         try {
             const response = await fetch(url, { credentials: 'omit' });
@@ -78,6 +95,13 @@
         }
     }
 
+    /**
+     * Открывает всплывающее окно расширения по заданному URL, используя windows API
+     * или, если он недоступен, откатываясь на создание вкладки.
+     * @param {string} url - URL страницы, которую нужно открыть.
+     * @returns {Promise<boolean|null>} true при успешном создании окна/вкладки, false при неудаче,
+     * null — если ни windows, ни tabs API недоступны.
+     */
     async function openPopupWindow(url) {
         if (browserAPI.windows) {
             const win = await browserAPI.windows.create({
@@ -92,13 +116,33 @@
         return null;
     }
 
+    /**
+     * Карта обработчиков runtime-сообщений: ключ — значение поля `action` сообщения,
+     * значение — функция-обработчик `(msg, sender, respond) => boolean`, возвращающая true
+     * для указания, что ответ будет отправлен асинхронно через `respond`.
+     * @type {Map<string, function(object, object, function(*): void): boolean>}
+     */
     const handlers = new Map([
+        /**
+         * Возвращает сохранённый auth-токен указанного сервиса.
+         * @param {{serviceKey?: string}} msg - Сообщение с ключом сервиса.
+         * @param {object} _sender - Отправитель сообщения (не используется).
+         * @param {function({token: string|null}): void} respond - Функция отправки ответа.
+         * @returns {true}
+         */
         ['getAuthToken', (msg, _sender, respond) => {
             const token = msg.serviceKey ? (authTokens[msg.serviceKey] || null) : null;
             respond({ token });
             return true;
         }],
 
+        /**
+         * Сохраняет auth-токен сервиса в глобальном хранилище токенов.
+         * @param {{serviceKey?: string, token?: string}} msg - Сообщение с ключом сервиса и токеном.
+         * @param {object} _sender - Отправитель сообщения (не используется).
+         * @param {function({ok: true}): void} respond - Функция отправки ответа.
+         * @returns {true}
+         */
         ['cacheAuthToken', (msg, _sender, respond) => {
             if (msg.serviceKey && msg.token) {
                 authTokens[msg.serviceKey] = msg.token;
@@ -108,17 +152,41 @@
             return true;
         }],
 
+        /**
+         * Устанавливает лимит запросов в минуту для общего rate limiter.
+         * @param {{limit: number}} msg - Сообщение с новым значением лимита.
+         * @param {object} _sender - Отправитель сообщения (не используется).
+         * @param {function({ok: true}): void} respond - Функция отправки ответа.
+         * @returns {true}
+         */
         ['setRateLimit', (msg, _sender, respond) => {
             rateLimiter.setLimit(msg.limit);
             respond({ ok: true });
             return true;
         }],
 
+        /**
+         * Возвращает текущую статистику rate limiter'а.
+         * @param {object} _msg - Сообщение (не используется).
+         * @param {object} _sender - Отправитель сообщения (не используется).
+         * @param {function({ok: true, stats: object}): void} respond - Функция отправки ответа.
+         * @returns {true}
+         */
         ['getRateLimiterStats', (_msg, _sender, respond) => {
             respond({ ok: true, stats: rateLimiter.getStats() });
             return true;
         }],
 
+        /**
+         * Загружает изображение по URL: напрямую либо через
+         * найденную вкладку сервиса — сначала пробуя scripting.executeScript,
+         * затем сообщение content script'у как запасной вариант.
+         * @param {{url: string, serviceKey?: string}} msg - Сообщение с URL изображения и опциональным ключом сервиса.
+         * @param {object} _sender - Отправитель сообщения (не используется).
+         * @param {function({ok: boolean, base64?: string, contentType?: string, error?: string}): void} respond
+         * Функция отправки ответа.
+         * @returns {true}
+         */
         ['fetchImage', (msg, _sender, respond) => {
             (async () => {
                 try {
@@ -193,6 +261,15 @@
             return true;
         }],
 
+        /**
+         * Выполняет fetch с учётом rate limiter'а сервиса, автоматически повторяя запрос
+         * с 30-секундной блокировкой при получении статуса 429 (до MAX_RETRIES попыток).
+         * @param {{url: string, options?: object}} msg - Сообщение с URL и опциями fetch.
+         * @param {object} _sender - Отправитель сообщения (не используется).
+         * @param {function({ok: boolean, status?: number, statusText?: string, body?: string,
+         * contentType?: string, error?: string}): void} respond - Функция отправки ответа.
+         * @returns {true}
+         */
         ['fetchWithRateLimit', (msg, _sender, respond) => {
             (async () => {
                 try {
@@ -229,6 +306,14 @@
             return true;
         }],
 
+        /**
+         * Определяет slug тайтла и сервис по URL вкладки-отправителя и открывает
+         * всплывающее окно загрузки (popup.html) с параметрами скачивания.
+         * @param {{format?: string}} msg - Сообщение с желаемым форматом экспорта.
+         * @param {object} sender - Отправитель сообщения; используется sender.tab.url и sender.tab.id.
+         * @param {function({ok: boolean, error?: string}): void} respond - Функция отправки ответа.
+         * @returns {true}
+         */
         ['openDownloadWindow', (msg, sender, respond) => {
             (async () => {
                 try {
@@ -267,6 +352,13 @@
             return true;
         }],
 
+        /**
+         * Открывает всплывающее окно расширения по произвольному URL, переданному в сообщении.
+         * @param {{url: string}} msg - Сообщение с URL, который нужно открыть.
+         * @param {object} _sender - Отправитель сообщения (не используется).
+         * @param {function({ok: boolean, error?: string}): void} respond - Функция отправки ответа.
+         * @returns {true}
+         */
         ['openWindowWithUrl', (msg, _sender, respond) => {
             (async () => {
                 try {
@@ -284,6 +376,12 @@
 
     const _inSWContext = typeof importScripts === 'function';
 
+    /**
+     * Сохраняет код плагина в IndexedDB.
+     * @param {string} format - Ключ формата плагина, под которым сохраняется код.
+     * @param {string} code - Исходный код плагина.
+     * @returns {Promise<void>} Промис, разрешающийся после успешной записи в хранилище plugins.
+     */
     function _storePluginInIDB(format, code) {
         return new Promise((res, rej) => {
             const req = indexedDB.open('dl-plugins', 1);
@@ -306,6 +404,11 @@
         });
     }
 
+    /**
+     * Определяет текущий статус service worker'а расширения для диагностики хранения плагинов.
+     * @returns {Promise<string>} Один из статусов: 'sw-background' (выполняется внутри SW),
+     * 'no-navigator-sw', 'not-registered', 'registered:<state>' или 'error:<message>'.
+     */
     async function _getSwStatus() {
         if (_inSWContext) return 'sw-background';
         if (typeof navigator === 'undefined' || !navigator.serviceWorker) return 'no-navigator-sw';
@@ -319,6 +422,14 @@
         }
     }
 
+    /**
+     * Сохраняет код кастомного плагина: в Cache API внутри service worker'а
+     * или в IndexedDB в остальных контекстах.
+     * @param {{format: string, code: string}} msg - Сообщение с ключом формата и исходным кодом плагина.
+     * @param {object} _sender - Отправитель сообщения (не используется).
+     * @param {function({ok: boolean, swStatus: string, error?: string}): void} respond - Функция отправки ответа.
+     * @returns {true}
+     */
     handlers.set('plugin:cache', (msg, _sender, respond) => {
         const { format, code } = msg;
         (async () => {
@@ -341,6 +452,13 @@
         return true;
     });
 
+    /**
+     * Выполняет код плагина в контексте указанной вкладки через scripting.executeScript.
+     * @param {{tabId: number, code: string}} msg - Сообщение с id вкладки и исполняемым кодом.
+     * @param {object} _sender - Отправитель сообщения (не используется).
+     * @param {function({ok: boolean, error?: string}): void} respond - Функция отправки ответа.
+     * @returns {true}
+     */
     handlers.set('plugin:exec', (msg, _sender, respond) => {
         const { tabId, code } = msg;
         (async () => {
@@ -364,6 +482,15 @@
     });
 
     if (browserAPI && browserAPI.runtime && browserAPI.runtime.onMessage) {
+        /**
+         * Диспетчеризует входящее runtime-сообщение обработчику из карты `handlers`
+         * по значению поля `message.action`.
+         * @param {{action: string}} message - Входящее сообщение.
+         * @param {object} sender - Отправитель сообщения.
+         * @param {function(*): void} sendResponse - Функция отправки ответа отправителю.
+         * @returns {boolean} Результат вызова найденного обработчика (true — асинхронный ответ),
+         * либо false, если обработчик для данного action не зарегистрирован.
+         */
         browserAPI.runtime.onMessage.addListener((message, sender, sendResponse) => {
             const handler = handlers.get(message.action);
             if (handler) return handler(message, sender, sendResponse);
@@ -373,6 +500,11 @@
         console.log('[MessageRouter] Message listener installed');
     }
 
+    /**
+     * Устанавливает слушатель long-lived подключений с именем 'downloadKeepAlive',
+     * которые popup держит открытыми во время загрузки, чтобы service worker не выгружался.
+     * @returns {void}
+     */
     function _installKeepAliveListener() {
         if (!browserAPI?.runtime?.onConnect) return;
         browserAPI.runtime.onConnect.addListener(port => {
@@ -390,6 +522,11 @@
     ];
     const PLUGIN_SCRIPT_ID_PREFIX = 'dl-plugin-';
 
+    /**
+     * Читает включённые пользовательские плагины из storage.local и обновляет
+     * глобальную карту `globalThis.pluginServiceHosts` (сервис -> список хостов).
+     * @returns {Promise<object[]>} Список включённых плагинов с непустым списком hosts.
+     */
     async function _syncPluginServiceHosts() {
         if (!browserAPI?.storage?.local) return [];
         const result = await browserAPI.storage.local.get('custom_plugins');
@@ -404,6 +541,12 @@
         return plugins;
     }
 
+    /**
+     * Синхронизирует зарегистрированные content scripts плагинов с текущим списком
+     * пользовательских плагинов: удаляет старые регистрации и регистрирует заново
+     * PLUGIN_CONTENT_SCRIPTS для хостов каждого включённого плагина.
+     * @returns {Promise<void>}
+     */
     async function _syncPluginContentScripts() {
         let plugins;
         try {
@@ -438,6 +581,13 @@
     }
 
     if (browserAPI?.storage?.onChanged) {
+        /**
+         * Реагирует на изменение списка кастомных плагинов в storage.local,
+         * повторно синхронизируя зарегистрированные content scripts.
+         * @param {object} changes - Объект изменений storage (ключ → {oldValue, newValue}).
+         * @param {string} area - Область хранилища ('local', 'sync' и т.д.).
+         * @returns {void}
+         */
         browserAPI.storage.onChanged.addListener((changes, area) => {
             if (area === 'local' && changes.custom_plugins) _syncPluginContentScripts();
         });

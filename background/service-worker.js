@@ -17,11 +17,22 @@ try {
     throw e;
 }
 
+/**
+ * Обработчик события 'install': пропускает ожидание и активирует новую версию
+ * service worker'а немедленно, не дожидаясь закрытия всех старых вкладок.
+ * @returns {void}
+ */
 self.addEventListener('install', () => {
     console.log('[ServiceWorker] Installing...');
     self.skipWaiting();
 });
 
+/**
+ * Обработчик события 'activate': сразу берёт под контроль все открытые вкладки
+ * расширения, не дожидаясь их перезагрузки.
+ * @param {ExtendableEvent} event - Событие активации service worker'а.
+ * @returns {void}
+ */
 self.addEventListener('activate', (event) => {
     console.log('[ServiceWorker] Activating...');
     event.waitUntil(self.clients.claim());
@@ -29,6 +40,14 @@ self.addEventListener('activate', (event) => {
 
 const PLUGIN_CACHE = 'dl-plugins-v1';
 
+/**
+ * Обработчик postMessage-сообщений типа CACHE_PLUGIN: сохраняет код плагина
+ * в Cache Storage по виртуальному пути /plugin-runtime/{format}.js и уведомляет
+ * отправителя о результате через MessageChannel-порт.
+ * @param {MessageEvent<{type: string, format?: string, code?: string}>} e - Событие сообщения,
+ * содержащее тип, формат плагина и его код; e.ports[0] используется для ответа.
+ * @returns {Promise<void>}
+ */
 self.addEventListener('message', async e => {
     if (e.data?.type !== 'CACHE_PLUGIN') return;
     const { format, code } = e.data;
@@ -45,6 +64,13 @@ self.addEventListener('message', async e => {
     }
 });
 
+/**
+ * Обработчик события 'fetch': перехватывает запросы к виртуальному пути
+ * /plugin-runtime/*, отдавая закэшированный код плагина или заглушку 404,
+ * если плагин с таким именем не был сохранён в кэше.
+ * @param {FetchEvent} e - Событие сетевого запроса.
+ * @returns {void}
+ */
 self.addEventListener('fetch', e => {
     const { pathname } = new URL(e.request.url);
     if (!pathname.startsWith('/plugin-runtime/')) return;
