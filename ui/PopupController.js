@@ -23,11 +23,25 @@
         return;
     }
 
+    /**
+     * Короткий алиас для document.getElementById.
+     * @param {string} id - id искомого элемента.
+     * @returns {?HTMLElement} Найденный элемент или null.
+     */
     function $el(id) {
         return document.getElementById(id);
     }
 
+    /**
+     * Главный контроллер попапа расширения: управляет отображением метаданных
+     * тайтла, запуском/паузой/остановкой загрузки, переключением между шаблонами
+     * (title, settings, history) и состоянием формы скачивания.
+     */
     class PopupController {
+        /**
+         * Создаёт менеджер загрузок и контроллер глав, инициализирует поля состояния
+         * загрузки и запускает первичную настройку интерфейса.
+         */
         constructor() {
             console.log('[PopupController] Initializing...');
             this.downloadManager = new global.DownloadManager();
@@ -63,6 +77,13 @@
             console.log('[PopupController] Initialized');
         }
 
+        /**
+         * Инициализирует TemplateLoader и события оболочки, затем показывает либо
+         * экран настроек (если открыт с параметром ?settings), либо главный экран
+         * тайтла: загружает метаданные, проверяет здоровье API и подписывается
+         * на изменение списка кастомных плагинов для обновления списка форматов.
+         * @returns {Promise<void>}
+         */
         async _init() {
             global.TemplateLoader.init('view');
             this._bindShellEvents();
@@ -98,6 +119,11 @@
             }
         }
 
+        /**
+         * Возвращает попап к главному экрану тайтла из истории/настроек: заново
+         * показывает шаблон title, навешивает обработчики и перезагружает метаданные.
+         * @returns {Promise<void>}
+         */
         async _restoreMainView() {
             const logoInfo = $el('logoInfo');
             if (logoInfo) logoInfo.textContent = '';
@@ -108,6 +134,11 @@
             this.checkApiHealth();
         }
 
+        /**
+         * Однократно навешивает обработчики на постоянные элементы оболочки попапа
+         * (кнопки истории и настроек), которые не пересоздаются при смене шаблонов.
+         * @returns {void}
+         */
         _bindShellEvents() {
             if (this._shellEventsBound) return;
             this._shellEventsBound = true;
@@ -130,6 +161,12 @@
             } else console.warn('[PopupController] settingsBtn not found in shell');
         }
 
+        /**
+         * Навешивает обработчики на элементы шаблона title: заполняет и сохраняет выбор
+         * формата экспорта, чекбокс разбиения страниц, выбор кастомного файла для
+         * обновления и валидацию диапазона выбора глав.
+         * @returns {void}
+         */
         _bindTitleEvents() {
             const btn = $el('downloadBtn');
             if (!btn) {
@@ -233,11 +270,23 @@
             console.log('[PopupController] Title events bound');
         }
 
+        /**
+         * Устанавливает CSS-свойство display элемента по его id, если элемент найден.
+         * @param {string} id - id элемента.
+         * @param {string} display - Значение CSS display.
+         * @returns {void}
+         */
         _setVisibility(id, display) {
             const el = $el(id);
             if (el) el.style.display = display;
         }
 
+        /**
+         * Собирает ссылки на все DOM-элементы формы загрузки в один объект для удобной передачи.
+         * @returns {object} Объект со ссылками на элементы: btn, formatSelector, status,
+         * progress, controls, hiddenFileInput, customFileBtn, fileInputContainer,
+         * chapterRangeContainer, fromSelect, toSelect.
+         */
         _getDownloadElements() {
             return {
                 btn: $el('downloadBtn'),
@@ -254,6 +303,11 @@
             };
         }
 
+        /**
+         * Определяет, открыт ли попап в отдельном окне (а не как выпадающий попап
+         * тулбара): по параметрам URL (download/fileUpload) либо по типу текущего окна.
+         * @returns {Promise<boolean>} true, если попап работает как отдельное окно.
+         */
         async isInSeparateWindow() {
             try {
                 const urlParams = new URLSearchParams(window.location.search);
@@ -267,6 +321,14 @@
             }
         }
 
+        /**
+         * Открывает URL в новом контексте вне текущего выпадающего попапа: в Firefox —
+         * создаёт отдельное окно (или вкладку, если windows API недоступен), в остальных
+         * браузерах — просит background-скрипт открыть окно (обходя ограничения closable
+         * попапа тулбара при клике на элементы, требующие постоянного окна).
+         * @param {string} url - URL, который нужно открыть.
+         * @returns {Promise<void>}
+         */
         async openInNewContext(url) {
             const isFirefox = typeof global.getBrowserEnv === 'function'
                 ? global.getBrowserEnv().isFirefox
@@ -296,6 +358,12 @@
             else console.error('No window/tab API available');
         }
 
+        /**
+         * Применяет фирменные цвета и логотип сервиса к оформлению попапа.
+         * @param {string} serviceKey - Ключ сервиса.
+         * @param {?HTMLImageElement} siteLogo - Элемент логотипа сервиса (может отсутствовать).
+         * @returns {void}
+         */
         _applyServiceTheme(serviceKey, siteLogo) {
             const cfg = global.serviceRegistry?.getService(serviceKey)?.config || {};
             document.body.style.setProperty('--primary-color', cfg.primaryColor || '#ff9100');
@@ -304,6 +372,14 @@
             else console.warn('Site logo element not found when setting logo for service:', serviceKey);
         }
 
+        /**
+         * Применяет и сохраняет в localStorage параметры формата, максимального размера
+         * части и разбиения страниц, переданные через URL попапа (используется при
+         * открытии попапа из фонового скрипта с заранее заданными настройками).
+         * @param {{formatFromUrl: ?string, maxSizeMBFromUrl: ?string, splitPagesFromUrl: ?string,
+         * formatSelector: ?HTMLSelectElement}} params - Значения параметров из URL и элемент селектора формата.
+         * @returns {void}
+         */
         _applyUrlParams({ formatFromUrl, maxSizeMBFromUrl, splitPagesFromUrl, formatSelector }) {
             if (formatFromUrl && formatSelector) {
                 formatSelector.value = formatFromUrl;
@@ -320,6 +396,15 @@
             }
         }
 
+        /**
+         * Отрисовывает нормализованные метаданные тайтла: обложку (с догрузкой через
+         * фоновый fetch), заголовок и краткое описание, сводку "глав/рейтинг/авторы"
+         * и дату выхода.
+         * @param {{patched: object, chaptersCount: ?number, slug: string, coverImg: HTMLImageElement,
+         * desc: HTMLElement, releaseEl: ?HTMLElement, logoInfo: HTMLElement}} params - Нормализованные
+         * метаданные тайтла и ссылки на DOM-элементы для отрисовки.
+         * @returns {void}
+         */
         _renderMeta({ patched, chaptersCount, slug, coverImg, desc, releaseEl, logoInfo }) {
             const title = patched.name || slug;
             this.currentTitle = title;
@@ -355,6 +440,13 @@
             else console.warn('Release date element not found when setting release date:', release);
         }
 
+        /**
+         * Переводит форму загрузки в состояние готовности: разблокирует кнопку
+         * скачивания и, в режиме обновления файла, предлагает сразу выбрать файл.
+         * @param {{btn: HTMLButtonElement, status: ?HTMLElement, fileUploadMode: boolean,
+         * hiddenFileInput: ?HTMLInputElement}} params - Элементы формы и флаг режима обновления файла.
+         * @returns {void}
+         */
         _setReadyState({ btn, status, fileUploadMode, hiddenFileInput }) {
             btn.disabled = false;
             if (status) status.textContent = 'Нажмите "Скачать" для загрузки книги';
@@ -366,6 +458,14 @@
             }
         }
 
+        /**
+         * Отображает ошибку загрузки метаданных тайтла в блоке описания и блокирует
+         * кнопку скачивания.
+         * @param {Error} error - Возникшая ошибка.
+         * @param {{desc: ?HTMLElement, status: ?HTMLElement, btn: ?HTMLButtonElement}} elements
+         * Элементы UI, в которых нужно отразить ошибку.
+         * @returns {void}
+         */
         _handleLoadError(error, { desc, status, btn }) {
             console.error('[PopupController] Failed to load metadata:', error);
             if (desc) desc.textContent = `Ошибка: ${error.message}`;
@@ -373,6 +473,11 @@
             if (btn) btn.disabled = true;
         }
 
+        /**
+         * Показывает экран "неподдерживаемый сервис" со ссылками на переход к
+         * поддерживаемым сервисам (mangalib/ranobelib) и на репозиторий проекта.
+         * @returns {Promise<void>}
+         */
         async _showWrongServiceState() {
             await global.TemplateLoader.show('wrong-service');
             const logoInfo = $el('logoInfo');
@@ -405,6 +510,11 @@
             });
         }
 
+        /**
+         * Показывает экран "тайтл не определён" (пользователь на поддерживаемом сервисе,
+         * но не на странице конкретного тайтла) со ссылкой на репозиторий проекта.
+         * @returns {Promise<void>}
+         */
         async _showNoTitleState() {
             await global.TemplateLoader.show('no-title');
             const logoInfo = $el('logoInfo');
@@ -415,6 +525,16 @@
             });
         }
 
+        /**
+         * Определяет сервис и slug тайтла: либо напрямую из параметров URL (когда попап
+         * открыт с заранее известными данными для авто-скачивания/обновления файла),
+         * либо по URL активной вкладки браузера. Если сервис активной вкладки не
+         * поддерживается, показывает экран "неподдерживаемый сервис" и возвращает null.
+         * @param {{autoDownload: boolean, fileUploadMode: boolean, slugFromUrl: ?string,
+         * serviceFromUrl: ?string, tabIdFromUrl: ?number}} params - Флаги режима и данные из URL.
+         * @returns {Promise<?{slug: ?string, serviceKey: string, service: object, activeTabId: ?number}>}
+         * Разрешённые slug/сервис и id активной вкладки, либо null, если сервис не поддерживается.
+         */
         async _resolveService({ autoDownload, fileUploadMode, slugFromUrl, serviceFromUrl, tabIdFromUrl }) {
             if ((autoDownload || fileUploadMode) && slugFromUrl && serviceFromUrl) {
                 const serviceKey = serviceFromUrl;
@@ -447,6 +567,15 @@
             return { slug, serviceKey: service.name, service, activeTabId };
         }
 
+        /**
+         * Навешивает обработчик на кнопку выбора файла для обновления: в отдельном
+         * окне сразу открывает системный диалог выбора файла, а в выпадающем попапе
+         * тулбара — открывает попап заново в отдельном окне (диалог выбора файла не
+         * работает корректно в закрывающемся при потере фокуса попапе).
+         * @param {{customFileBtn: ?HTMLButtonElement, status: ?HTMLElement, hiddenFileInput: HTMLInputElement,
+         * slug: string, serviceKey: string}} params - Элементы UI и данные текущего тайтла.
+         * @returns {void}
+         */
         _setupFileUploadButton({ customFileBtn, status, hiddenFileInput, slug, serviceKey }) {
             if (!customFileBtn) {
                 console.warn('[PopupController] customFileBtn not found');
@@ -485,6 +614,13 @@
             };
         }
 
+        /**
+         * Главный сценарий загрузки экрана тайтла: разбирает параметры URL, определяет
+         * сервис и slug, применяет токен авторизации и тему сервиса, загружает
+         * метаданные тайтла и список глав, отрисовывает их и переводит форму
+         * в состояние готовности к скачиванию (либо запускает автоскачивание).
+         * @returns {Promise<void>}
+         */
         async loadMetadata() {
             await Promise.resolve();
             const status = $el('status');
@@ -571,6 +707,12 @@
             }
         }
 
+        /**
+         * Пытается догрузить обложку через контекст вкладки сервиса (обходя CORS/rate-limit
+         * ограничения), возвращая data-URL с base64-содержимым.
+         * @param {string} url - Исходный URL обложки.
+         * @returns {Promise<string>} data-URL с изображением, либо исходный URL при ошибке загрузки.
+         */
         async _fetchCover(url) {
             try {
                 const result = await global.fetchViaTab(url, this.currentServiceKey);
@@ -581,6 +723,12 @@
             return url;
         }
 
+        /**
+         * Обрезает текст до заданной длины, добавляя многоточие при обрезке.
+         * @param {?string} text - Исходный текст.
+         * @param {number} [maxLength=128] - Максимальная длина результата (без многоточия).
+         * @returns {?string} Обрезанный текст, исходный text, если он короче лимита или пуст.
+         */
         truncateText(text, maxLength = 128) {
             if (!text) return text;
             const str = String(text).trim();
@@ -588,6 +736,13 @@
             return `${str.substring(0, maxLength)}...`;
         }
 
+        /**
+         * Навешивает обработчики на кнопки скачивания, паузы и остановки на главном
+         * экране тайтла. Клик по скачиванию в выпадающем попапе тулбара (без загруженного
+         * файла обновления) переоткрывает попап в отдельном окне с параметрами загрузки
+         * в URL, чтобы процесс скачивания не прерывался закрытием попапа.
+         * @returns {void}
+         */
         setupEventListeners() {
             const downloadBtn = $el('downloadBtn');
             const pauseBtn = $el('pauseBtn');
@@ -652,6 +807,11 @@
             if (stopBtn) stopBtn.addEventListener('click', () => this.stopDownload());
         }
 
+        /**
+         * Подписывается на события шины downloadManager'а (прогресс, завершение, ошибка)
+         * и обновляет соответствующим образом интерфейс попапа.
+         * @returns {void}
+         */
         subscribeToEvents() {
             this.downloadManager.eventBus.on('download:progress', (state) => {
                 this.updateProgress(state.status, state.progress);
@@ -667,12 +827,30 @@
             });
         }
 
+        /**
+         * Строит объект диапазона глав из значений select-элементов, если контейнер
+         * диапазона видим.
+         * @param {?HTMLSelectElement} fromSelect - Select начала диапазона.
+         * @param {?HTMLSelectElement} toSelect - Select конца диапазона.
+         * @param {?HTMLElement} container - Контейнер блока выбора диапазона.
+         * @returns {?{from: number, to: number}} Диапазон индексов глав, либо null,
+         * если селекторы/контейнер отсутствуют или скрыты.
+         */
         _buildChapterRange(fromSelect, toSelect, container) {
             if (fromSelect && toSelect && container && container.style.display !== 'none')
                 return { from: parseInt(fromSelect.value), to: parseInt(toSelect.value) };
             return null;
         }
 
+        /**
+         * Переводит интерфейс в состояние "идёт загрузка": скрывает элементы выбора
+         * (формат, переводчик, разбиение страниц, файл, диапазон), показывает прогресс-бар
+         * и панель с параметрами текущей загрузки, обновляет статус.
+         * @param {{btn: HTMLButtonElement, hiddenFileInput: ?HTMLInputElement, customFileBtn: ?HTMLButtonElement,
+         * fileInputContainer: ?HTMLElement, progress: ?HTMLElement, controls: ?HTMLElement,
+         * chapterRangeContainer: ?HTMLElement, status: ?HTMLElement}} elements - Элементы формы загрузки.
+         * @returns {void}
+         */
         _setDownloadingUIState({ btn, hiddenFileInput, customFileBtn,
             fileInputContainer, progress, controls, chapterRangeContainer, status }) {
             btn.disabled = true;
@@ -706,6 +884,13 @@
             if (status) status.textContent = statusText;
         }
 
+        /**
+         * Отображает итог операции обновления существующего файла (если результат
+         * загрузки содержит поле updated); для обычного скачивания ничего не делает.
+         * @param {object} result - Результат downloadManager.startDownload.
+         * @param {?HTMLElement} status - Элемент статуса для вывода сообщения.
+         * @returns {void}
+         */
         _handleDownloadResult(result, status) {
             if (!('updated' in result)) return;
             const message = result.updated
@@ -715,6 +900,13 @@
             else console.warn('Status element not found when showing download result message');
         }
 
+        /**
+         * Запускает загрузку текущего тайтла: собирает параметры (диапазон глав, ветку
+         * перевода, формат, лимиты), переводит UI в состояние загрузки, вызывает
+         * downloadManager.startDownload с контроллером паузы/остановки, а по завершении
+         * отображает результат и добавляет запись в историю загрузок.
+         * @returns {Promise<void>}
+         */
         async startDownload() {
             if (!this.currentSlug || !this.currentServiceKey) {
                 this.showError('Не удалось определить тайтл');
@@ -781,11 +973,27 @@
             }
         }
 
+        /**
+         * Возвращает текст выбранной опции select-элемента.
+         * @param {?HTMLSelectElement} select - Проверяемый select.
+         * @returns {?string} Текст выбранной опции, либо null, если select отсутствует
+         * или ничего не выбрано.
+         */
         _getSelectText(select) {
             if (!select || select.selectedIndex < 0) return null;
             return select.options[select.selectedIndex]?.text || null;
         }
 
+        /**
+         * Применяет сохранённый лимит запросов в минуту на стороне background-скрипта
+         * и собирает параметры предстоящей загрузки: диапазон глав, ветку перевода
+         * и текстовые значения для записи в историю.
+         * @param {{fromSelect: ?HTMLSelectElement, toSelect: ?HTMLSelectElement,
+         * chapterRangeContainer: ?HTMLElement}} params - Элементы выбора диапазона глав.
+         * @returns {Promise<{chapterRange: ?{from: number, to: number}, branchId: ?number,
+         * historyParams: {chapterFrom: ?string, chapterTo: ?string, translator: ?string}}>}
+         * Параметры для запуска загрузки и записи в историю.
+         */
         async _prepareDownload({ fromSelect, toSelect, chapterRangeContainer }) {
             const limit = parseInt(localStorage.getItem('downloadlib_default_rate_limit')) || 85;
             await browserAPI.runtime.sendMessage({ action: 'setRateLimit', limit });
@@ -809,6 +1017,11 @@
             };
         }
 
+        /**
+         * Останавливает текущую загрузку: снимает паузу, выставляет флаг остановки,
+         * блокирует кнопки паузы/остановки и просит downloadManager прервать загрузку.
+         * @returns {void}
+         */
         stopDownload() {
             this.shouldStop = true;
             this.isPaused = false;
@@ -824,6 +1037,12 @@
             else console.warn('Status element not found when setting status on download stop');
         }
 
+        /**
+         * Обновляет текст статуса (если загрузка не на паузе) и значение прогресс-бара.
+         * @param {string} message - Текст статуса загрузки.
+         * @param {number} percent - Процент выполнения (0-100).
+         * @returns {void}
+         */
         updateProgress(message, percent) {
             const statusEl = $el('status');
             const progressEl = $el('progress');
@@ -834,6 +1053,13 @@
             else console.warn('Progress element not found when updating progress percentage');
         }
 
+        /**
+         * Возвращает интерфейс попапа в исходное состояние после завершения, ошибки
+         * или остановки загрузки: сбрасывает флаги, очищает загруженный файл, снова
+         * показывает элементы выбора формата/файла/диапазона глав и переводчика,
+         * скрывает прогресс-бар и панель параметров загрузки.
+         * @returns {void}
+         */
         resetUI() {
             this.isDownloading = false;
             this.isPaused = false;
@@ -889,6 +1115,11 @@
             } else console.warn('Translator container not found when resetting UI');
         }
 
+        /**
+         * Показывает сообщение об ошибке во всплывающем блоке на 5 секунд.
+         * @param {string} message - Текст сообщения об ошибке.
+         * @returns {void}
+         */
         showError(message) {
             const errorEl = $el('error');
             if (errorEl) {
@@ -898,6 +1129,11 @@
             } else console.warn('Error element not found when showing error message');
         }
 
+        /**
+         * Показывает сообщение об успехе во всплывающем блоке на 5 секунд.
+         * @param {string} message - Текст сообщения об успехе.
+         * @returns {void}
+         */
         showSuccess(message) {
             const successEl = $el('success');
             if (successEl) {
@@ -907,6 +1143,12 @@
             } else console.warn('Success element not found when showing success message');
         }
 
+        /**
+         * Проверяет (с кэшированием на 4 часа в localStorage) статус последнего запуска
+         * health-check воркфлоу проекта на GitHub и показывает предупреждение о
+         * возможной неработоспособности части запросов к API, если проверка провалена.
+         * @returns {Promise<void>}
+         */
         async checkApiHealth() {
             const CACHE_KEY = 'DLoadLib_API_check';
             const CACHE_TTL = 4 * 60 * 60 * 1000;
@@ -933,6 +1175,12 @@
             }
         }
 
+        /**
+         * Вставляет перед кнопкой скачивания предупреждение о нестабильности API
+         * со ссылкой на страницу issues репозитория.
+         * @param {string} repoUrl - URL страницы issues репозитория проекта.
+         * @returns {void}
+         */
         _showApiWarning(repoUrl) {
             const warning = document.createElement('div');
             warning.id = 'apiWarning';

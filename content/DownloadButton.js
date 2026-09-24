@@ -15,6 +15,12 @@
     const FORMAT_STORAGE_KEY = 'manga_parser_selected_format';
     const _dlApi = (typeof browser !== 'undefined' && browser) || (typeof chrome !== 'undefined' && chrome) || null;
 
+    /**
+     * Находит на странице все кнопки чтения и добавляет рядом с каждой ещё не
+     * добавленную кнопку загрузки DownloadLib, подхватывая выбранный формат
+     * из storage и открывая окно загрузки по клику.
+     * @returns {void}
+     */
     function injectDownloadButton() {
         document.querySelectorAll(READ_BTN_SELECTOR).forEach(readLink => {
             const container = readLink.parentElement;
@@ -58,6 +64,13 @@
     }
 
     if (_dlApi && _dlApi.storage && _dlApi.storage.onChanged) {
+        /**
+         * Обновляет текст всех подписей формата на кнопках загрузки при изменении
+         * выбранного формата в storage.local.
+         * @param {object} changes - Объект изменений storage (ключ → {oldValue, newValue}).
+         * @param {string} area - Область хранилища ('local', 'sync' и т.д.).
+         * @returns {void}
+         */
         _dlApi.storage.onChanged.addListener((changes, area) => {
             if (area !== 'local' || !changes[FORMAT_STORAGE_KEY]) return;
             const newFormat = (changes[FORMAT_STORAGE_KEY].newValue || 'fb2').toUpperCase();
@@ -65,6 +78,12 @@
         });
     }
 
+    /**
+     * Обработчик MutationObserver: при появлении новой кнопки чтения (или узла,
+     * содержащего её) повторно вызывает injectDownloadButton() для добавления кнопки загрузки.
+     * @param {MutationRecord[]} mutations - Список изменений DOM, полученных от observer'а.
+     * @returns {void}
+     */
     const observer = new MutationObserver(mutations => {
         for (const mutation of mutations) {
             for (const node of mutation.addedNodes) {
@@ -79,6 +98,11 @@
         }
     });
 
+    /**
+     * Запускает наблюдение observer'ом за document.body; если body ещё не существует,
+     * откладывает попытку до следующего кадра анимации.
+     * @returns {void}
+     */
     const startObserving = () => {
         if (document.body)
             observer.observe(document.body, { childList: true, subtree: true });

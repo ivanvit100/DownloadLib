@@ -23,6 +23,12 @@
         'img[src*="gift-ranobe"]'
     ].join(', ');
 
+    /**
+     * Проверяет, содержит ли узел интерактивные поля ввода (текст, поиск, чекбокс,
+     * textarea) — используется, чтобы не удалить блок, являющийся частью формы/интерфейса.
+     * @param {Node} node - Проверяемый DOM-узел.
+     * @returns {boolean} true, если внутри узла есть хотя бы одно интерактивное поле.
+     */
     function hasInteractiveFields(node) {
         /* istanbul ignore next */
         if (!node || node.nodeType !== 1) return false;
@@ -31,12 +37,24 @@
         );
     }
 
+    /**
+     * Проверяет, содержит ли узел блок .text-content — используется на RanobeLib,
+     * чтобы не удалить легитимный текстовый блок, случайно попавший под .mo_b.
+     * @param {Node} node - Проверяемый DOM-узел.
+     * @returns {boolean} true, если внутри узла есть .text-content.
+     */
     function hasTextContentBlock(node) {
         /* istanbul ignore next */
         if (!node || node.nodeType !== 1) return false;
         return !!node.querySelector('.text-content');
     }
 
+    /**
+     * Удаляет узел .mo_b, если он похож на рекламную вставку: не содержит
+     * интерактивных полей, а на RanobeLib — ещё и текстового контента.
+     * @param {Node} node - Кандидат на удаление.
+     * @returns {void}
+     */
     function removeMoBIfAdLike(node) {
         /* istanbul ignore next */
         if (!node || node.nodeType !== 1) return;
@@ -47,10 +65,19 @@
         node.remove();
     }
 
+    /**
+     * Проверяет наличие на странице видимых диалогов/модальных окон.
+     * @returns {boolean} true, если найден хотя бы один видимый popup, dialog или modal.
+     */
     function hasVisibleDialogs() {
         return !!document.querySelector('.popup:not(.is-hidden), [role="dialog"]:not(.is-hidden), .modal.show');
     }
 
+    /**
+     * Снимает блокировку прокрутки страницы (классы/стили, оставленные закрытым
+     * рекламным попапом), если на странице не осталось других видимых диалогов.
+     * @returns {void}
+     */
     function restoreScrollIfSafe() {
         if (hasVisibleDialogs()) return;
 
@@ -68,6 +95,13 @@
         }
     }
 
+    /**
+     * Находит ближайший корень попапа для узла и удаляет его, если внутри есть
+     * маркеры рекламы (AD_POPUP_MARKERS_SELECTOR) и нет интерактивных полей;
+     * перед удалением кликает по кнопке закрытия попапа, если она есть.
+     * @param {Node} node - Узел, добавленный/проверяемый на принадлежность к рекламному попапу.
+     * @returns {void}
+     */
     function removeAdPopupIfMatches(node) {
         /* istanbul ignore next */
         if (!node || node.nodeType !== 1) return;
@@ -111,6 +145,11 @@
     `;
     document.documentElement.appendChild(style);
 
+    /**
+     * Выполняет полный проход по документу и удаляет все текущие рекламные
+     * элементы: слайдер, рекламные .mo_b-блоки и рекламные попапы.
+     * @returns {void}
+     */
     function cleanUp() {
         document.querySelectorAll(SLIDER_SELECTOR).forEach(el => el.remove());
         document.querySelectorAll(MO_B_SELECTOR).forEach(removeMoBIfAdLike);
@@ -119,6 +158,11 @@
 
     let debounceTimer = null;
 
+    /**
+     * Откладывает вызов cleanUp() на 200мс, схлопывая несколько срабатываний
+     * MutationObserver подряд в один проход очистки.
+     * @returns {void}
+     */
     function debouncedCleanUp() {
         if (debounceTimer) return;
         debounceTimer = setTimeout(() => {
@@ -130,6 +174,13 @@
     if (document.body) cleanUp();
     else console.warn('[AdCleaner] Document body not available, skipping initial cleanup');
 
+    /**
+     * Обработчик MutationObserver: при появлении слайдера удаляет его немедленно,
+     * а при появлении .mo_b-блока, попапа или узла, содержащего маркеры рекламы,
+     * планирует отложенную полную очистку через debouncedCleanUp().
+     * @param {MutationRecord[]} mutations - Список изменений DOM, полученных от observer'а.
+     * @returns {void}
+     */
     const observer = new MutationObserver(mutations => {
         for (const mutation of mutations) {
             for (const node of mutation.addedNodes) {
@@ -161,6 +212,11 @@
         }
     });
 
+    /**
+     * Запускает наблюдение observer'ом за document.body; если body ещё не существует,
+     * откладывает попытку до следующего кадра анимации.
+     * @returns {void}
+     */
     const startObserving = () => {
         if (document.body)
             observer.observe(document.body, { childList: true, subtree: true });

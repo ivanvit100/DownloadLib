@@ -13,6 +13,17 @@
     const _api = (typeof browser !== 'undefined' && browser) || (typeof chrome !== 'undefined' && chrome) || null;
     if (!_api || !_api.runtime) return;
 
+    /**
+     * Обрабатывает сообщение 'fetchImageFromTab' от background-скрипта: загружает
+     * изображение по URL в контексте вкладки (в обход CORS/rate-limit ограничений
+     * фонового контекста) и возвращает его содержимое в виде base64.
+     * @param {{action: string, url: string}} message - Сообщение с URL изображения для загрузки.
+     * @param {object} _sender - Отправитель сообщения (не используется).
+     * @param {function({ok: boolean, base64?: string, contentType?: string, error?: string}): void} sendResponse
+     * Функция отправки ответа.
+     * @returns {boolean} true, если сообщение обработано и ответ будет отправлен асинхронно;
+     * false, если action не 'fetchImageFromTab'.
+     */
     _api.runtime.onMessage.addListener((message, _sender, sendResponse) => {
         if (message.action !== 'fetchImageFromTab') return false;
 

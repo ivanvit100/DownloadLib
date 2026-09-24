@@ -14,15 +14,36 @@
 
     const RANGE_MODE_KEY = 'manga_parser_range_mode';
 
+    /**
+     * Загружает список глав тайтла, настраивает выбор переводчика (ветки) и заполняет
+     * select-элементы диапазона глав/томов на странице попапа.
+     */
     class ChapterController {
+        /**
+         * Создаёт контроллер с пустым кэшем загруженных глав.
+         */
         constructor() {
             this._allChapters = [];
         }
 
+        /**
+         * Возвращает текущий режим построения диапазона, сохранённый в localStorage.
+         * @returns {'chapters'|'volumes'} Режим диапазона: по главам или по томам.
+         */
         _getRangeMode() {
             return localStorage.getItem(RANGE_MODE_KEY) === 'volumes' ? 'volumes' : 'chapters';
         }
 
+        /**
+         * Загружает список глав тайтла у сервиса, при наличии нескольких переводов
+         * настраивает селектор переводчика и заполняет select-элементы диапазона.
+         * @param {object} service - Экземпляр сервиса с методом fetchChaptersList.
+         * @param {string} slug - Slug тайтла.
+         * @param {?string} chapterFromUrl - Сохранённый индекс начала диапазона из URL (или null).
+         * @param {?string} chapterToUrl - Сохранённый индекс конца диапазона из URL (или null).
+         * @param {?number} [branchIdFromUrl] - Заранее выбранный id ветки перевода из URL.
+         * @returns {Promise<?number>} Количество загруженных глав, либо null при ошибке загрузки.
+         */
         async loadAndPopulate(service, slug, chapterFromUrl, chapterToUrl, branchIdFromUrl = null) {
             try {
                 const chaptersData = await service.fetchChaptersList(slug);
@@ -68,6 +89,14 @@
             }
         }
 
+        /**
+         * Строит карту переводческих веток (branch_id → название команды) и заполняет
+         * ими селектор переводчика, выбирая либо ветку из URL, либо ветку с наибольшим
+         * числом глав. Если ветка всего одна, скрывает селектор.
+         * @param {object[]} chapters - Список глав с полем branches.
+         * @param {?number} branchIdFromUrl - Заранее выбранный id ветки перевода из URL.
+         * @returns {?number} id выбранной ветки перевода, либо null, если веток нет.
+         */
         _setupTranslatorSelector(chapters, branchIdFromUrl) {
             const translatorContainer = document.getElementById('translatorContainer');
             const translatorSelect = document.getElementById('translatorSelect');
@@ -127,6 +156,10 @@
             return initialBranchId;
         }
 
+        /**
+         * Создаёт SVG-значок "ТОП" для отметки ветки перевода с наибольшим числом глав.
+         * @returns {HTMLElement} span-элемент со значком.
+         */
         _topBadgeSvg() {
             const span = document.createElement('span');
             span.className = 'translator-top-badge';
@@ -143,6 +176,14 @@
             return span;
         }
 
+        /**
+         * Строит кастомный выпадающий список для селектора переводчика (кнопка-триггер
+         * + список опций поверх нативного select) и один раз навешивает обработчики
+         * открытия/закрытия и синхронизации с select'ом.
+         * @param {HTMLSelectElement} selectEl - Нативный select переводчика, на основе
+         * options которого строится кастомный список.
+         * @returns {void}
+         */
         _setupTranslatorDropdown(selectEl) {
             const wrap = document.getElementById('translatorDropdown');
             const trigger = document.getElementById('translatorDropdownTrigger');
@@ -190,6 +231,12 @@
             this._syncTranslatorDropdown(selectEl);
         }
 
+        /**
+         * Синхронизирует отображаемую метку кастомного дропдауна и подсветку активного
+         * пункта списка с текущим выбранным значением нативного select'а переводчика.
+         * @param {HTMLSelectElement} selectEl - Нативный select переводчика.
+         * @returns {void}
+         */
         _syncTranslatorDropdown(selectEl) {
             const label = document.getElementById('translatorDropdownLabel');
             const list = document.getElementById('translatorDropdownList');
@@ -209,6 +256,10 @@
             });
         }
 
+        /**
+         * Переключает состояние кастомного дропдауна переводчика (открыт/закрыт).
+         * @returns {void}
+         */
         _toggleTranslatorDropdown() {
             const wrap = document.getElementById('translatorDropdown');
             if (!wrap) return;
@@ -216,6 +267,10 @@
             else this._openTranslatorDropdown();
         }
 
+        /**
+         * Открывает кастомный дропдаун переводчика.
+         * @returns {void}
+         */
         _openTranslatorDropdown() {
             const wrap = document.getElementById('translatorDropdown');
             const trigger = document.getElementById('translatorDropdownTrigger');
@@ -226,6 +281,10 @@
             trigger.setAttribute('aria-expanded', 'true');
         }
 
+        /**
+         * Закрывает кастомный дропдаун переводчика.
+         * @returns {void}
+         */
         _closeTranslatorDropdown() {
             const wrap = document.getElementById('translatorDropdown');
             const trigger = document.getElementById('translatorDropdownTrigger');
@@ -236,12 +295,26 @@
             trigger.setAttribute('aria-expanded', 'false');
         }
 
+        /**
+         * Фильтрует ранее загруженные главы, оставляя только те, что относятся
+         * к указанной ветке перевода.
+         * @param {number} branchId - id ветки перевода.
+         * @returns {object[]} Отфильтрованный список глав.
+         */
         getFilteredChapters(branchId) {
             return this._allChapters.filter(
                 ch => ch.branches && ch.branches.some(b => b.branch_id === branchId)
             );
         }
 
+        /**
+         * Очищает и заново заполняет select-элементы "от"/"до" опциями глав или томов,
+         * в зависимости от текущего режима диапазона.
+         * @param {object[]} filteredChapters - Главы (уже отфильтрованные по ветке перевода).
+         * @param {HTMLSelectElement} fromSelect - Select начала диапазона.
+         * @param {HTMLSelectElement} toSelect - Select конца диапазона.
+         * @returns {void}
+         */
         repopulateSelects(filteredChapters, fromSelect, toSelect) {
             fromSelect.innerHTML = '';
             toSelect.innerHTML = '';
@@ -263,6 +336,14 @@
             });
         }
 
+        /**
+         * Заполняет select-элементы "от"/"до" опциями по томам вместо отдельных глав:
+         * для каждого тома добавляет опцию с индексом его первой/последней главы.
+         * @param {object[]} filteredChapters - Главы (уже отфильтрованные по ветке перевода).
+         * @param {HTMLSelectElement} fromSelect - Select начала диапазона.
+         * @param {HTMLSelectElement} toSelect - Select конца диапазона.
+         * @returns {void}
+         */
         _populateByVolume(filteredChapters, fromSelect, toSelect) {
             const volumes = [];
             const firstIndex = new Map();

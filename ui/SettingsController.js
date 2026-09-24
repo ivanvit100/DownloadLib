@@ -15,7 +15,15 @@
     const MAX_SIZE_KEY = 'manga_parser_max_size_mb';
     const RANGE_MODE_KEY = 'manga_parser_range_mode';
 
+    /**
+     * Синглтон-контроллер экрана настроек расширения.
+     * @namespace SettingsController
+     */
     const SettingsController = {
+        /**
+         * Инициализирует экран настроек: отрисовывает все секции и навешивает обработчики.
+         * @returns {void}
+         */
         init() {
             this._renderRateLimit();
             this._renderMaxSize();
@@ -24,18 +32,31 @@
             this._bindEvents();
         },
 
+        /**
+         * Заполняет поле лимита запросов в минуту сохранённым значением.
+         * @returns {void}
+         */
         _renderRateLimit() {
             const input = document.getElementById('settingsRateLimit');
             if (!input) return;
             input.value = localStorage.getItem(RATE_LIMIT_KEY) || '85';
         },
 
+        /**
+         * Заполняет поле максимального размера части файла сохранённым значением.
+         * @returns {void}
+         */
         _renderMaxSize() {
             const input = document.getElementById('settingsMaxSize');
             if (!input) return;
             input.value = localStorage.getItem(MAX_SIZE_KEY) || '200';
         },
 
+        /**
+         * Подсвечивает активную кнопку режима диапазона (по главам/по томам)
+         * согласно сохранённому значению.
+         * @returns {void}
+         */
         _renderRangeMode() {
             const chaptersBtn = document.getElementById('rangeModeChapters');
             const volumesBtn = document.getElementById('rangeModeVolumes');
@@ -45,6 +66,11 @@
             volumesBtn.classList.toggle('active', mode === 'volumes');
         },
 
+        /**
+         * Загружает список установленных плагинов через PluginManager и отрисовывает
+         * их карточки, либо показывает заглушку, если плагинов нет или менеджер недоступен.
+         * @returns {Promise<void>}
+         */
         async _renderPlugins() {
             const list = document.getElementById('pluginList');
             const empty = document.getElementById('pluginEmpty');
@@ -71,6 +97,12 @@
             plugins.forEach(plugin => list.appendChild(this._createPluginCard(plugin)));
         },
 
+        /**
+         * Создаёт DOM-карточку плагина с переключателем включения/отключения
+         * и кнопкой удаления.
+         * @param {{id: string, name: string, enabled?: boolean}} plugin - Данные плагина.
+         * @returns {HTMLElement} Собранный DOM-элемент карточки плагина.
+         */
         _createPluginCard(plugin) {
             const card = document.createElement('div');
             card.className = 'plugin-card';
@@ -113,6 +145,12 @@
             return card;
         },
 
+        /**
+         * Навешивает обработчики на все элементы управления экрана настроек: кнопку
+         * "назад", сохранение лимита запросов и максимального размера части, переключение
+         * режима диапазона глав/томов и загрузку файла нового плагина.
+         * @returns {void}
+         */
         _bindEvents() {
             const backBtn = document.getElementById('settingsBackBtn');
             if (backBtn) {
