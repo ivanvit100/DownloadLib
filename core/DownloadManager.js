@@ -38,13 +38,28 @@
         return gate;
     }
 
+    /**
+     * Оркестрирует полный жизненный цикл загрузки тайтла с сервиса или обновления
+     * существующего файла: получение метаданных и глав, скачивание содержимого
+     * с учётом паузы/остановки, разбиение результата на файлы по лимиту размера
+     * и сохранение готовых файлов.
+     */
     class DownloadManager {
+        /**
+         * Создаёт менеджер с пустой картой активных загрузок и собственной шиной событий.
+         */
         constructor() {
             this.activeDownloads = new Map();
             this.eventBus = new global.EventBus();
             console.log('[DownloadManager] Instance created');
         }
 
+        /**
+         * Создаёт экспортёр указанного формата, при необходимости предварительно
+         * догружая плагины (если формат не зарегистрирован стандартными экспортёрами).
+         * @param {string} format - Ключ формата экспорта.
+         * @returns {Promise<object>} Экземпляр экспортёра.
+         */
         async _createExporter(format) {
             if (!global.ExporterRegistry.getSupportedFormats().includes(format.toLowerCase()) &&
                 global.PluginManager) {
@@ -54,6 +69,14 @@
             return global.ExporterRegistry.create(format);
         }
 
+        /**
+         * Определяет экземпляр сервиса по ключу или по URL и, при наличии токена,
+         * подставляет его в заголовок Authorization конфигурации сервиса.
+         * @param {?string} serviceKey - Ключ сервиса (приоритетнее url).
+         * @param {?string} url - URL тайтла, используется, если serviceKey не передан.
+         * @param {?string} authToken - Токен авторизации для подстановки в заголовки.
+         * @returns {object} Экземпляр сервиса.
+         */
         _resolveService(serviceKey, url, authToken) {
             let service;
             if (serviceKey) {
@@ -72,6 +95,12 @@
             return service;
         }
 
+        /**
+         * Строит начальное состояние новой загрузки на основе переданных опций.
+         * @param {object} options - Опции запуска загрузки (см. startDownload).
+         * @param {object} service - Разрешённый экземпляр сервиса.
+         * @returns {object} Начальное состояние загрузки, регистрируемое в activeDownloads.
+         */
         _createDownloadState(options, service) {
             const { url, format = 'fb2', slug, serviceKey, controller,
                 loadedFile, maxSizeMB = 200, splitPages = true } = options;
@@ -97,6 +126,15 @@
             };
         }
 
+        /**
+         * Загружает список глав тайтла у сервиса, сортирует их и фильтрует
+         * по ветке перевода и/или диапазону индексов.
+         * @param {object} service - Экземпляр сервиса.
+         * @param {object} downloadState - Текущее состояние загрузки (используется slug).
+         * @param {?number} branchId - id ветки перевода для фильтрации, либо null.
+         * @param {?{from: number, to: number}} chapterRange - Диапазон индексов глав, либо null.
+         * @returns {Promise<object[]>} Отфильтрованный и отсортированный список глав.
+         */
         async _fetchAndFilterChapters(service, downloadState, branchId, chapterRange) {
             const chaptersData = await service.fetchChaptersList(downloadState.slug);
             let chapters = this.sortChapters(chaptersData.data || []);
@@ -116,6 +154,14 @@
             return chapters;
         }
 
+        /**
+         * Открывает и поддерживает long-lived порт подключения к background-скрипту
+         * (с автопереподключением при разрыве), чтобы service worker не выгружался
+         * во время длительной загрузки.
+         * @returns {?{stopped: boolean, port: ?object, interval: ?number,
+         * reconnectTimer: ?number}} Объект состояния keep-alive, либо null,
+         * если runtime.connect недоступен.
+         */
         _startKeepAlive() {
             const api = typeof global.getExtensionApi === 'function' ? global.getExtensionApi() : global.extensionApi;
             if (!api?.runtime?.connect) return null;
@@ -148,6 +194,11 @@
             return state;
         }
 
+        /**
+         * Останавливает keep-alive порт: снимает таймеры и отключает соединение.
+         * @param {?object} keepAlive - Объект состояния, возвращённый _startKeepAlive.
+         * @returns {void}
+         */
         _stopKeepAlive(keepAlive) {
             if (!keepAlive) return;
             keepAlive.stopped = true;
@@ -158,6 +209,19 @@
             } catch (e) {  }
         }
 
+        /**
+         * Запускает полный цикл новой загрузки тайтла: разрешает сервис, создаёт
+         * состояние загрузки и keep-alive порт, затем либо обновляет ранее
+         * загруженный файл (если передан loadedFile), либо последовательно
+         * загружает метаданные, обложку, список глав и содержимое глав с разбиением
+         * на файлы по лимиту размера.
+         * @param {{url?: string, format?: string, chapterRange?: {from: number, to: number},
+         * branchId?: number, maxSizeMB?: number, authToken?: string, loadedFile?: File,
+         * serviceKey?: string, slug?: string, controller?: object, splitPages?: boolean}} options
+         * Параметры загрузки.
+         * @returns {Promise<{success: boolean, downloadId: string}>} Результат загрузки.
+         * @throws {Error} При ошибке на любом из этапов загрузки (после эмиссии download:failed).
+         */
         async startDownload(options) {
             console.log('[DownloadManager] Starting download with options:', options);
             const { url, format = 'fb2', chapterRange, branchId = null, maxSizeMB = 200,
@@ -215,6 +279,13 @@
             }
         }
 
+        /**
+         * Загружает обложку тайтла и кодирует её в data-URL с base64-содержимым.
+         * @param {object} service - Экземпляр сервиса (используется для rate limiting по имени).
+         * @param {?string} cover - URL обложки.
+         * @returns {Promise<string>} data-URL с обложкой, либо пустая строка при
+         * отсутствии URL или ошибке загрузки.
+         */
         async _fetchCoverBase64(service, cover) {
             if (!cover || typeof cover !== 'string') return '';
             try {
@@ -228,6 +299,12 @@
             }
         }
 
+        /**
+         * Оценивает приблизительный размер содержимого главы в байтах (для решения
+         * о необходимости разбиения файла по лимиту размера).
+         * @param {?{content: Array}} chapter - Обработанное содержимое главы.
+         * @returns {number} Оценочный размер в байтах.
+         */
         estimateChapterSize(chapter) {
             if (!chapter || !Array.isArray(chapter.content)) return 0;
             let bytes = 0;
@@ -242,14 +319,39 @@
             return bytes;
         }
 
+        /**
+         * Возвращает номер тома главы (или '1', если том не указан).
+         * @param {{volume?: *}} chapter - Глава.
+         * @returns {*} Номер тома.
+         */
         _chapterVolume(chapter) {
             return chapter.volume || '1';
         }
 
+        /**
+         * Строит суффикс названия файла тома, добавляя номер части при разбиении
+         * тома на несколько файлов из-за превышения лимита размера.
+         * @param {*} volume - Номер тома.
+         * @param {number} partIndex - Порядковый номер части (1 — единственная/первая часть).
+         * @returns {string} Суффикс вида " Том N" или " Том N (Часть M)".
+         */
         _buildVolumeSuffix(volume, partIndex) {
             return partIndex > 1 ? ` Том ${volume} (Часть ${partIndex})` : ` Том ${volume}`;
         }
 
+        /**
+         * Загружает содержимое всех глав по порядку и сохраняет результат несколькими
+         * файлами — новый файл начинается при смене тома или при превышении лимита
+         * размера текущего накопленного файла.
+         * @param {object} downloadState - Текущее состояние загрузки.
+         * @param {object} service - Экземпляр сервиса.
+         * @param {object[]} chapters - Список глав для загрузки.
+         * @param {object} manga - Нормализованные метаданные тайтла.
+         * @param {string} coverBase64 - Обложка тайтла в base64.
+         * @param {string} format - Формат экспорта.
+         * @param {number} maxSizeMB - Максимальный размер одного файла в мегабайтах.
+         * @returns {Promise<void>}
+         */
         async downloadWithSizeLimit(downloadState, service, chapters, manga, coverBase64, format, maxSizeMB) {
             const { id: downloadId } = downloadState;
             const maxSizeBytes = maxSizeMB * 1024 * 1024;
@@ -259,6 +361,12 @@
             let currentVolume = null;
             let volumePartIndex = 0;
 
+            /**
+             * Экспортирует накопленный пакет глав текущего тома в файл и сохраняет
+             * его, сбрасывая накопленный пакет и размер.
+             * @param {number} progress - Процент прогресса для отображения статуса.
+             * @returns {Promise<void>}
+             */
             const flushBatch = async (progress) => {
                 if (currentBatch.length === 0) return;
                 volumePartIndex += 1;
@@ -310,6 +418,17 @@
             await flushBatch(95);
         }
 
+        /**
+         * Загружает и обрабатывает содержимое одной главы: получает сырые данные
+         * от сервиса, извлекает страницы/текст и прогоняет через обработку контента
+         * (сжатие изображений и т.п.). При ошибке возвращает главу с текстом-заглушкой
+         * вместо содержимого, не прерывая общую загрузку.
+         * @param {object} service - Экземпляр сервиса.
+         * @param {object} downloadState - Текущее состояние загрузки.
+         * @param {object} chapter - Метаданные главы (number, volume, branchId, name).
+         * @returns {Promise<{title: string, content: Array, volume: *, number: *}>}
+         * Готовое содержимое главы для экспортёра.
+         */
         async downloadSingleChapter(service, downloadState, chapter) {
             try {
                 const fetchArgs = [downloadState.slug, chapter.number, chapter.volume || '1'];
@@ -354,6 +473,18 @@
             }
         }
 
+        /**
+         * Обновляет ранее загруженный файл: сверяет главы на сервере с главами
+         * в файле, докачивает недостающие/пустые главы, объединяет результат
+         * с существующим содержимым и пересохраняет файл(ы) с учётом лимита размера.
+         * @param {object} downloadState - Текущее состояние загрузки.
+         * @param {object} service - Экземпляр сервиса.
+         * @param {File} loadedFile - Ранее загруженный файл для обновления.
+         * @returns {Promise<{success: boolean, downloadId: string, updated: boolean,
+         * addedChapters?: number}>} Результат обновления: updated=false, если файл уже
+         * содержит все главы.
+         * @throws {Error} При ошибке разбора файла или загрузки недостающих глав.
+         */
         async updateExistingFile(downloadState, service, loadedFile) {
             const { id: downloadId, slug, format } = downloadState;
 
@@ -409,6 +540,12 @@
                 let currentVolume = null;
                 let volumePartIndex = 0;
 
+                /**
+                 * Экспортирует накопленный пакет объединённых глав текущего тома
+                 * в обновлённый файл и сохраняет его, сбрасывая накопленный пакет и размер.
+                 * @param {number} progress - Процент прогресса для отображения статуса.
+                 * @returns {Promise<void>}
+                 */
                 const flushMergedBatch = async (progress) => {
                     if (currentBatch.length === 0) return;
                     volumePartIndex += 1;
@@ -457,6 +594,15 @@
             }
         }
 
+        /**
+         * Разбирает ранее скачанный файл в унифицированную структуру (метаданные,
+         * обложка, главы), используя парсер соответствующего формата.
+         * @param {File} file - Файл для разбора.
+         * @param {string} format - Формат файла ('fb2', 'epub', 'mobi', 'simple').
+         * @returns {Promise<{metadata: object, cover: string, chapters: object[]}>}
+         * Разобранное содержимое файла.
+         * @throws {Error} Если формат не поддерживается для парсинга (в т.ч. 'pdf').
+         */
         async parseFile(file, format) {
             if (format === 'fb2') {
                 const text = await this.readFileAsText(file);
@@ -477,6 +623,11 @@
             throw new Error(`Unsupported format: ${format}`);
         }
 
+        /**
+         * Читает содержимое файла как текст в кодировке UTF-8.
+         * @param {File} file - Читаемый файл.
+         * @returns {Promise<string>} Текстовое содержимое файла.
+         */
         readFileAsText(file) {
             return new Promise((resolve, reject) => {
                 const reader = new FileReader();
@@ -486,6 +637,15 @@
             });
         }
 
+        /**
+         * Находит главы, отсутствующие в ранее загруженном файле (или пустые из-за
+         * прошлой ошибки загрузки), начиная с первой главы, совпадающей с содержимым
+         * файла (главы до этой точки, добавленные позже на сервере задним числом,
+         * не считаются пропущенными).
+         * @param {object[]} serverChapters - Актуальный список глав с сервера.
+         * @param {object[]} existingChapters - Главы, уже присутствующие в файле.
+         * @returns {object[]} Список глав с сервера, которые нужно докачать.
+         */
         findMissingChapters(serverChapters, existingChapters) {
             if (existingChapters.length === 0) return [];
 
@@ -519,12 +679,24 @@
             return missing;
         }
 
+        /**
+         * Строит уникальный ключ главы по номеру тома и главы, используемый для
+         * сопоставления глав с сервера и глав в загруженном файле.
+         * @param {{volume?: *, number?: *}} chapter - Глава.
+         * @returns {string} Ключ вида "v{том}_ch{номер}".
+         */
         getChapterKey(chapter) {
             const vol = chapter.volume || '1';
             const num = chapter.number || '0';
             return `v${vol}_ch${num}`;
         }
 
+        /**
+         * Проверяет, пуста ли глава (нет содержимого, либо всё содержимое —
+         * прошлая ошибка загрузки).
+         * @param {{content?: Array}} chapter - Глава из существующего файла.
+         * @returns {boolean} true, если глава не содержит полезного контента.
+         */
         isChapterEmpty(chapter) {
             if (!chapter.content || !Array.isArray(chapter.content)) return true;
 
@@ -540,6 +712,16 @@
             return !hasContent;
         }
 
+        /**
+         * Докачивает заданный список конкретных глав (используется при обновлении
+         * существующего файла), обрабатывая ошибки отдельных глав без прерывания
+         * общего процесса.
+         * @param {object} service - Экземпляр сервиса.
+         * @param {object} downloadState - Текущее состояние загрузки.
+         * @param {object[]} chaptersToDownload - Список глав, которые нужно докачать.
+         * @returns {Promise<object[]>} Список загруженных (или с текстом ошибки) глав,
+         * в том же порядке, что и chaptersToDownload.
+         */
         async downloadSpecificChapters(service, downloadState, chaptersToDownload) {
             const results = [];
             const total = chaptersToDownload.length;
@@ -612,6 +794,15 @@
             return results;
         }
 
+        /**
+         * Объединяет главы из существующего файла с вновь докачанными главами
+         * в порядке актуального списка глав на сервере, подставляя заглушку
+         * для глав, которых нет ни там, ни там.
+         * @param {object[]} existingChapters - Главы из ранее загруженного файла.
+         * @param {object[]} newChapters - Вновь докачанные главы.
+         * @param {object[]} serverChapters - Актуальный список глав с сервера (задаёт порядок).
+         * @returns {object[]} Итоговый список глав для пересборки файла.
+         */
         mergeChapters(existingChapters, newChapters, serverChapters) {
             const newChaptersMap = new Map();
             for (const ch of newChapters) {
@@ -650,6 +841,12 @@
             return result;
         }
 
+        /**
+         * Возвращает публичный снимок состояния активной загрузки (без служебных
+         * полей вроде controller и gate).
+         * @param {string} downloadId - id загрузки.
+         * @returns {?object} Снимок состояния загрузки, либо null, если загрузка не найдена.
+         */
         getDownloadState(downloadId) {
             const state = this.activeDownloads.get(downloadId);
             if (!state) return null;
@@ -669,6 +866,19 @@
             };
         }
 
+        /**
+         * Загружает содержимое списка глав по порядку с учётом паузы/остановки,
+         * не выполняя разбиение на файлы по размеру (используется вызывающей
+         * стороной, которая сама управляет сохранением файлов).
+         * @param {object} service - Экземпляр сервиса.
+         * @param {object} downloadState - Текущее состояние загрузки.
+         * @param {object[]} chapters - Главы для загрузки в этом вызове.
+         * @param {?function} onProgress - Не используется напрямую (прогресс идёт через updateStatus);
+         * оставлено для совместимости сигнатуры.
+         * @param {number} [startIndex=0] - Смещение для расчёта общего прогресса и currentChapterIndex.
+         * @param {?number} [totalChapters] - Общее число глав для расчёта процента (по умолчанию chapters.length).
+         * @returns {Promise<object[]>} Список загруженного содержимого глав.
+         */
         async downloadChapters(service, downloadState, chapters, onProgress, startIndex = 0, totalChapters = null) {
             const results = [];
             const total = totalChapters || chapters.length;
@@ -707,6 +917,13 @@
             return results;
         }
 
+        /**
+         * Создаёт контроллер паузы/остановки по умолчанию для загрузки, запущенной
+         * без собственного controller в опциях.
+         * @returns {{pause: function(): void, resume: function(): void, stop: function(): void,
+         * isPaused: function(): boolean, shouldStop: function(): boolean,
+         * waitIfPaused: function(): Promise<void>}} Контроллер загрузки.
+         */
         createController() {
             let paused = false;
             let stopped = false;
@@ -727,6 +944,13 @@
             };
         }
 
+        /**
+         * Обновляет статус и прогресс активной загрузки и эмитит событие download:progress.
+         * @param {string} downloadId - id загрузки.
+         * @param {string} message - Текст статуса.
+         * @param {number} progress - Процент выполнения (0-100, -1 при ошибке).
+         * @returns {void}
+         */
         updateStatus(downloadId, message, progress) {
             const download = this.activeDownloads.get(downloadId);
             if (download) {
@@ -736,6 +960,11 @@
             }
         }
 
+        /**
+         * Сортирует главы по возрастанию номера тома, а внутри тома — по номеру главы.
+         * @param {object[]} chapters - Список глав (сортируется на месте).
+         * @returns {object[]} Тот же массив, отсортированный.
+         */
         sortChapters(chapters) {
             return chapters.sort((a, b) => {
                 const volA = parseInt(a.volume) || 0;
@@ -745,15 +974,31 @@
             });
         }
 
+        /**
+         * Извлекает slug тайтла из URL страницы манги/книги.
+         * @param {string} url - URL страницы тайтла.
+         * @returns {?string} Slug тайтла, либо null, если URL не соответствует ожидаемому формату.
+         */
         extractSlug(url) {
             const match = url.match(/\/(?:manga|book)\/([^/?]+)/);
             return match ? match[1] : null;
         }
 
+        /**
+         * Генерирует уникальный id новой загрузки.
+         * @returns {string} Строка вида "download_<timestamp>_<random>".
+         */
         generateId() {
             return `download_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
         }
 
+        /**
+         * Сохраняет готовый файл: через FileUtils.downloadBlob, если доступен,
+         * иначе через временную ссылку-скачивание.
+         * @param {Blob} blob - Содержимое файла.
+         * @param {string} filename - Имя сохраняемого файла.
+         * @returns {Promise<void>}
+         */
         async saveFile(blob, filename) {
             if (global.FileUtils)
                 await global.FileUtils.downloadBlob(blob, filename);
@@ -772,6 +1017,11 @@
             }
         }
 
+        /**
+         * Ставит активную загрузку на паузу и эмитит событие download:paused.
+         * @param {string} downloadId - id загрузки.
+         * @returns {void}
+         */
         pause(downloadId) {
             const download = this.activeDownloads.get(downloadId);
             if (download) {
@@ -780,6 +1030,11 @@
             } else console.log(`[DownloadManager] No active download with ID: ${downloadId}`);
         }
 
+        /**
+         * Снимает загрузку с паузы и эмитит событие download:resumed.
+         * @param {string} downloadId - id загрузки.
+         * @returns {void}
+         */
         resume(downloadId) {
             const download = this.activeDownloads.get(downloadId);
             if (download) {
@@ -788,6 +1043,11 @@
             } else console.log(`[DownloadManager] No active download with ID: ${downloadId}`);
         }
 
+        /**
+         * Останавливает активную загрузку и эмитит событие download:stopped.
+         * @param {string} downloadId - id загрузки.
+         * @returns {void}
+         */
         stop(downloadId) {
             const download = this.activeDownloads.get(downloadId);
             if (download) {
@@ -796,11 +1056,25 @@
             } else console.log(`[DownloadManager] No active download with ID: ${downloadId}`);
         }
 
+        /**
+         * Возвращает полное (в т.ч. служебное) внутреннее состояние загрузки.
+         * @param {string} downloadId - id загрузки.
+         * @returns {?object} Внутреннее состояние загрузки, либо null, если не найдена.
+         */
         getStatus(downloadId) {
             return this.activeDownloads.get(downloadId) || null;
         }
     }
 
+    /**
+     * Загружает изображение страницы с проверкой контрольных точек прерывания
+     * загрузки до и после сетевого запроса (позволяет прервать загрузку максимально
+     * быстро, не дожидаясь завершения уже начатого запроса изображения).
+     * @param {string} url - URL изображения.
+     * @param {string} serviceKey - Ключ сервиса (для rate limiting).
+     * @returns {Promise<{ok: boolean, base64?: string, contentType?: string, error?: string}>}
+     * Результат загрузки изображения.
+     */
     async function fetchPageImage(url, serviceKey) {
         const gate = activeGate;
         if (gate) await gate.checkpoint();
@@ -809,6 +1083,16 @@
         return result;
     }
 
+    /**
+     * Загружает изображение страницы без проверки контрольных точек прерывания:
+     * учитывает запрос в общем rate limiter'е, пробует загрузить напрямую через
+     * вкладку сервиса (fetchViaTab), а при неудаче — просит background-скрипт
+     * выполнить fetch, с повторными попытками при временной "заснувшей" background-странице.
+     * @param {string} url - URL изображения.
+     * @param {string} serviceKey - Ключ сервиса (для rate limiting и выбора вкладки).
+     * @returns {Promise<{ok: boolean, base64?: string, contentType?: string, error?: string}>}
+     * Результат загрузки изображения.
+     */
     async function fetchPageImageUngated(url, serviceKey) {
         if (global.globalRateLimiter) await global.globalRateLimiter.trackRequest(serviceKey || 'image');
         if (activeGate) await activeGate.checkpoint();

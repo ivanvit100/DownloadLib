@@ -10,6 +10,14 @@
 'use strict';
 
 (function(global) {
+    /**
+     * Оборачивает callback-based метод в промис, преобразуя chrome.runtime.lastError
+     * (при его наличии) в отклонение промиса.
+     * @param {function} fn - Callback-based функция API (последний аргумент — колбэк результата).
+     * @param {object} context - Контекст (this), с которым нужно вызвать fn.
+     * @param {Array} args - Аргументы вызова fn (без колбэка).
+     * @returns {Promise<*>} Промис, разрешающийся результатом колбэка или отклоняющийся ошибкой.
+     */
     function toPromise(fn, context, args) {
         return new Promise((resolve, reject) => {
             try {
@@ -27,6 +35,14 @@
         });
     }
 
+    /**
+     * Оборачивает callback-based Chrome extension API в promise-based интерфейс,
+     * совместимый по форме вызова с нативным WebExtensions API Firefox (browser.*).
+     * @param {?object} chromeApi - Глобальный объект chrome, либо null.
+     * @returns {?object} Promise-based обёртка над chromeApi (runtime, tabs, windows,
+     * downloads, storage.local — с промисифицированными методами; scripting,
+     * webRequest, declarativeNetRequest — переданы как есть), либо null, если chromeApi не передан.
+     */
     function createChromePromiseApi(chromeApi) {
         if (!chromeApi) return null;
 
@@ -63,6 +79,12 @@
         };
     }
 
+    /**
+     * Определяет доступное расширение-API текущего браузера: нативный browser
+     * (Firefox, уже promise-based) или chrome (промисифицируется отдельно).
+     * @returns {{api: ?object, nativeName: 'browser'|'chrome'|'none'}} Найденный API
+     * и имя нативного пространства имён.
+     */
     function resolveNativeApi() {
         if (typeof global.browser !== 'undefined' && global.browser)
             return { api: global.browser, nativeName: 'browser' };
@@ -71,6 +93,14 @@
         return { api: null, nativeName: 'none' };
     }
 
+    /**
+     * Определяет характеристики текущего браузерного окружения. Наличие пространства
+     * имён browser само по себе не означает Firefox (Chrome тоже его предоставляет) —
+     * надёжным признаком служит поддержка chrome.declarativeNetRequest.
+     * @param {'browser'|'chrome'|'none'} nativeName - Имя нативного API из resolveNativeApi.
+     * @returns {{nativeName: string, isFirefox: boolean, isChromium: boolean, supportsDnr: boolean}}
+     * Флаги окружения.
+     */
     function resolveEnv(nativeName) {
         const hasChrome = typeof global.chrome !== 'undefined' && !!global.chrome;
         const hasBrowser = typeof global.browser !== 'undefined' && !!global.browser;
@@ -88,10 +118,19 @@
         };
     }
 
+    /**
+     * Возвращает единый promise-based API расширения для текущего браузера.
+     * @returns {?object} Ранее определённый extensionApi, либо null.
+     */
     function getExtensionApi() {
         return global.extensionApi || null;
     }
 
+    /**
+     * Возвращает характеристики текущего браузерного окружения.
+     * @returns {{nativeName: string, isFirefox: boolean, isChromium: boolean, supportsDnr: boolean}}
+     * Ранее определённый browserEnv, либо безопасные значения по умолчанию, если он не был вычислен.
+     */
     function getBrowserEnv() {
         return global.browserEnv || {
             nativeName: 'none',
@@ -110,11 +149,24 @@
     let _serviceTabId = null;
     let _serviceTabExpiry = 0;
 
+    /**
+     * Запоминает id вкладки текущего сервиса на час — используется как приоритетный
+     * кандидат для последующих запросов fetchViaTab без повторного tabs.query.
+     * @param {number} tabId - id вкладки сервиса.
+     * @returns {void}
+     */
     function setServiceTab(tabId) {
         _serviceTabId = tabId;
         _serviceTabExpiry = Date.now() + 3600000;
     }
 
+    /**
+     * Ищет хосты кастомного плагина, зарегистрированного под указанным ключом сервиса.
+     * @param {object} api - Promise-based API расширения.
+     * @param {string} serviceKey - Ключ сервиса (или плагина).
+     * @returns {Promise<string[]>} Список хостов плагина, либо пустой массив,
+     * если плагин не найден, отключён или storage недоступен.
+     */
     async function _resolvePluginHosts(api, serviceKey) {
         if (!api?.storage?.local) return [];
         try {
@@ -127,6 +179,12 @@
         }
     }
 
+    /**
+     * Строит список match-паттернов вкладок для поиска открытой вкладки сервиса.
+     * @param {object} api - Promise-based API расширения.
+     * @param {string} [serviceKey] - Ключ сервиса ('ranobelib', 'mangalib' или ключ плагина).
+     * @returns {Promise<string[]>} Список match-паттернов вида '*://host/*'.
+     */
     async function _getTabPatterns(api, serviceKey) {
         if (serviceKey === 'ranobelib') return ['*://ranobelib.me/*'];
         if (!serviceKey || serviceKey === 'mangalib') return ['*://mangalib.me/*', '*://mangalib.org/*'];
@@ -134,6 +192,14 @@
         return hosts.map(h => `*://${h}/*`);
     }
 
+    /**
+     * Загружает ресурс по URL в контексте вкладки сервиса (в обход CORS и ограничений
+     * фонового контекста), кэшируя найденную вкладку сервиса на час между вызовами.
+     * @param {string} url - URL ресурса для загрузки.
+     * @param {string} [serviceKey] - Ключ сервиса, вкладку которого нужно использовать.
+     * @returns {Promise<?{ok: boolean, base64?: string, contentType?: string}>} Результат
+     * загрузки в виде base64, либо null, если подходящая вкладка не найдена или запрос не удался.
+     */
     async function fetchViaTab(url, serviceKey) {
         const api = getExtensionApi();
         if (!api?.scripting?.executeScript) return null;
@@ -160,6 +226,13 @@
         try {
             const results = await api.scripting.executeScript({
                 target: { tabId },
+                /**
+                 * Инжектируется в контекст вкладки: загружает ресурс по URL и
+                 * кодирует его в base64.
+                 * @param {string} imageUrl - URL загружаемого ресурса.
+                 * @returns {Promise<?{ok: true, base64: string, contentType: string}>}
+                 * Результат загрузки, либо null при ошибке.
+                 */
                 func: async (imageUrl) => {
                     try {
                         const r = await fetch(imageUrl);

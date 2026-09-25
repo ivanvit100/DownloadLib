@@ -18,7 +18,19 @@
             (typeof global.chrome !== 'undefined' && global.chrome) ||
             null);
 
+    /**
+     * Синглтон-менеджер извлечения и кэширования токена авторизации сервиса.
+     * @namespace AuthManager
+     */
     const AuthManager = {
+        /**
+         * Получает токен авторизации сервиса: сначала из кэша background-скрипта,
+         * а если там его нет и передан tabId — извлекает JWT из local/sessionStorage
+         * вкладки через scripting.executeScript и кэширует найденный токен.
+         * @param {string} serviceKey - Ключ сервиса.
+         * @param {?number} [tabId] - id вкладки, из которой можно извлечь токен напрямую.
+         * @returns {Promise<?string>} Найденный токен, либо null, если токен не найден.
+         */
         async getToken(serviceKey, tabId = null) {
             try {
                 const cached = await browserAPI.runtime.sendMessage({ action: 'getAuthToken', serviceKey });
@@ -31,9 +43,21 @@
                 try {
                     const results = await browserAPI.scripting.executeScript({
                         target: { tabId },
+                        /**
+                         * Инжектируется в контекст вкладки: сканирует local/sessionStorage
+                         * в поисках JWT-токена (в чистом виде, с префиксом Bearer, либо
+                         * вложенного в JSON-объект).
+                         * @returns {?string} Найденный JWT-токен, либо null.
+                         */
                         func: () => {
                             const RE = /^eyJ[\w\-+=/]+\.eyJ[\w\-+=/]+\.[\w\-+=/]+$/;
 
+                            /**
+                             * Проверяет, является ли строка JWT-токеном (напрямую, с
+                             * префиксом Bearer, либо ищет его внутри JSON-значения).
+                             * @param {*} val - Проверяемое значение.
+                             * @returns {?string} Найденный JWT-токен, либо null.
+                             */
                             function findJwt(val) {
                                 if (typeof val !== 'string' || !val) return null;
                                 if (RE.test(val)) return val;
@@ -42,6 +66,11 @@
                                 try { return scanObj(JSON.parse(val)); } catch { return null; }
                             }
 
+                            /**
+                             * Рекурсивно обходит значения объекта в поисках JWT-токена.
+                             * @param {*} o - Проверяемый объект.
+                             * @returns {?string} Найденный JWT-токен, либо null.
+                             */
                             function scanObj(o) {
                                 if (!o || typeof o !== 'object') return null;
                                 for (const v of Object.values(o)) {
@@ -75,6 +104,15 @@
             return null;
         },
 
+        /**
+         * Получает токен авторизации сервиса и, если он найден, подставляет его
+         * в заголовок Authorization конфигурации переданного сервиса.
+         * @param {string} serviceKey - Ключ сервиса.
+         * @param {?number} activeTabId - id активной вкладки для извлечения токена.
+         * @param {object} service - Экземпляр сервиса, в config.headers которого
+         * будет подставлен токен.
+         * @returns {Promise<?string>} Применённый токен, либо null, если токен не найден.
+         */
         async apply(serviceKey, activeTabId, service) {
             try {
                 const token = await this.getToken(serviceKey, activeTabId);

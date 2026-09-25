@@ -12,7 +12,20 @@
 (function(global) {
     console.log('[ImageCompressor] Loading...');
 
+    /**
+     * Утилита сжатия изображений через canvas с минимальными визуальными потерями.
+     */
     class ImageCompressor {
+        /**
+         * Перекодирует base64-изображение через canvas с заданным качеством/форматом.
+         * При ошибке загрузки исходного изображения возвращает его без изменений.
+         * @param {string} base64 - Исходное содержимое изображения в base64 (без префикса data:).
+         * @param {string} contentType - MIME-тип исходного изображения.
+         * @param {{quality?: number, format?: string}} [options] - Качество сжатия (0-1)
+         * и целевой MIME-тип canvas.toDataURL.
+         * @returns {Promise<{base64: string, contentType: string}>} Сжатое (или исходное
+         * при ошибке) содержимое изображения и его MIME-тип.
+         */
         static compress(base64, contentType, options = {}) {
             const { quality = 0.92, format = 'image/jpeg' } = options;
 

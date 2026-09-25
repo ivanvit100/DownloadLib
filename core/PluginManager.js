@@ -14,6 +14,10 @@
 
     const STORAGE_KEY = 'custom_plugins';
 
+    /**
+     * Возвращает доступный API расширения (promise-based, либо нативный browser/chrome).
+     * @returns {?object} API расширения, либо null, если ни один вариант недоступен.
+     */
     function _getApi() {
         return typeof global.getExtensionApi === 'function'
             ? global.getExtensionApi()
@@ -22,6 +26,11 @@
                null);
     }
 
+    /**
+     * Читает список сохранённых пользовательских плагинов из storage.local.
+     * @returns {Promise<object[]>} Список плагинов, либо пустой массив при ошибке
+     * или отсутствии storage API.
+     */
     async function _storageGet() {
         const api = _getApi();
         if (!api?.storage?.local) return [];
@@ -34,12 +43,23 @@
         }
     }
 
+    /**
+     * Сохраняет список плагинов в storage.local.
+     * @param {object[]} plugins - Список плагинов для сохранения.
+     * @returns {Promise<void>}
+     */
     async function _storageSet(plugins) {
         const api = _getApi();
         if (!api?.storage?.local) return;
         await api.storage.local.set({ [STORAGE_KEY]: plugins });
     }
 
+    /**
+     * Загружает и выполняет внешний скрипт, добавляя тег script в document.head.
+     * @param {string} src - URL скрипта (обычно виртуальный путь /plugin-runtime/*.js).
+     * @returns {Promise<void>} Промис, разрешающийся после загрузки скрипта
+     * (тег удаляется из DOM в обоих случаях), либо отклоняющийся при ошибке загрузки.
+     */
     function _injectScript(src) {
         return new Promise((resolve, reject) => {
             const script = document.createElement('script');
@@ -57,12 +77,33 @@
         });
     }
 
+    /**
+     * Загружает код плагина как ES-модуль через временный Blob URL
+     * (запасной способ, если загрузка через service worker недоступна).
+     * @param {string} code - Исходный код плагина.
+     * @returns {Promise<*>} Промис динамического импорта модуля; Blob URL освобождается
+     * после завершения импорта независимо от результата.
+     */
     function _injectFromBlob(code) {
         const blob = new Blob([code], { type: 'text/javascript' });
         const url = URL.createObjectURL(blob);
         return import(url).finally(() => URL.revokeObjectURL(url));
     }
 
+    /**
+     * Создаёт изолированный iframe-песочницу (sandbox="allow-scripts") для безопасного
+     * выполнения кода плагина, не зарегистрировавшего свой формат обычным способом.
+     * В Firefox песочница строится из инлайн-скрипта (srcdoc) с минимальными заглушками
+     * BaseService/BaseExporter/ExporterRegistry, в Chrome — загружается sandbox.html
+     * из пакета расширения (там разрешён CSP unsafe-eval). Общение с песочницей идёт
+     * через postMessage с сопоставлением ответов по числовому id запроса.
+     * @returns {Promise<{exec: function(string): Promise<object>,
+     * exportVia: function(string, object, object[], ?string): Promise<object>,
+     * destroy: function(): void}>} Объект-хендл песочницы: exec — выполняет код и
+     * возвращает зарегистрированные в нём метаданные экспортёра, exportVia — вызывает
+     * export() зарегистрированного в песочнице экспортёра, destroy — снимает
+     * обработчики и удаляет iframe.
+     */
     function _createSandbox() {
         return new Promise((resolve, reject) => {
             const iframe = document.createElement('iframe');
@@ -146,6 +187,13 @@
                 };
                 window.addEventListener('message', onMsg);
                 resolve({
+                    /**
+                     * Выполняет произвольный код внутри песочницы (например,
+                     * зависимость вроде jszip или сам код плагина).
+                     * @param {string} code - Код для выполнения.
+                     * @returns {Promise<object>} Метаданные, зарегистрированные кодом
+                     * через ExporterRegistry.register внутри песочницы.
+                     */
                     exec(code) {
                         return new Promise((res, rej) => {
                             seq += 1;
@@ -161,6 +209,16 @@
                             iframe.contentWindow.postMessage({ _t: 'sb-exec', _id: id, code }, '*');
                         });
                     },
+                    /**
+                     * Просит песочницу вызвать export() зарегистрированного в ней
+                     * экспортёра формата и вернуть результат.
+                     * @param {string} fmt - Формат экспорта, ранее зарегистрированный в песочнице.
+                     * @param {object} manga - Нормализованные метаданные тайтла.
+                     * @param {object[]} chapters - Содержимое глав для экспорта.
+                     * @param {?string} cover - Обложка тайтла в base64.
+                     * @returns {Promise<{filename: string, mimeType: string, buf: ArrayBuffer}>}
+                     * Результат экспорта, сериализованный через postMessage.
+                     */
                     exportVia(fmt, manga, chapters, cover) {
                         return new Promise((res, rej) => {
                             seq += 1;
@@ -177,6 +235,10 @@
                                 { _t: 'sb-export', _id: id, fmt, manga, chapters, cover }, '*');
                         });
                     },
+                    /**
+                     * Снимает обработчик сообщений и удаляет iframe песочницы из DOM.
+                     * @returns {void}
+                     */
                     destroy() {
                         window.removeEventListener('message', onMsg);
                         iframe.remove();
@@ -186,11 +248,29 @@
         });
     }
 
+    /**
+     * Управляет пользовательскими плагинами расширения: кастомными форматами
+     * экспорта и кастомными сервисами (парсерами сайтов). Хранит их метаданные
+     * в storage.local и умеет загружать код плагина несколькими способами —
+     * через background service worker, Blob-модуль или изолированную песочницу.
+     */
     class PluginManager {
+        /**
+         * Возвращает список всех сохранённых плагинов.
+         * @returns {Promise<object[]>} Список плагинов.
+         */
         static list() {
             return _storageGet();
         }
 
+        /**
+         * Сохраняет плагин: если передан код, извлекает из него метаданные
+         * (@dl-format/@dl-service и связанные аннотации) и переопределяет ими
+         * поля плагина, затем добавляет или обновляет запись в storage.local
+         * и синхронизирует облегчённый кэш форматов/сервисов в localStorage.
+         * @param {{id: string, code?: string}} plugin - Данные плагина для сохранения.
+         * @returns {Promise<void>}
+         */
         static async save(plugin) {
             if (plugin.code) {
                 const meta = PluginManager.parseMetadata(plugin.code);
@@ -219,6 +299,11 @@
             PluginManager._syncLocalStorage(plugins);
         }
 
+        /**
+         * Удаляет плагин по id из storage.local и синхронизирует облегчённый кэш.
+         * @param {string} id - id плагина.
+         * @returns {Promise<void>}
+         */
         static async remove(id) {
             const plugins = await _storageGet();
             const updated = plugins.filter(p => p.id !== id);
@@ -226,6 +311,12 @@
             PluginManager._syncLocalStorage(updated);
         }
 
+        /**
+         * Включает или отключает плагин по id.
+         * @param {string} id - id плагина.
+         * @param {boolean} enabled - Новое состояние включённости.
+         * @returns {Promise<void>}
+         */
         static async toggle(id, enabled) {
             const plugins = await _storageGet();
             const plugin  = plugins.find(p => p.id === id);
@@ -236,6 +327,12 @@
             }
         }
 
+        /**
+         * Строит облегчённый кэш включённых форматов/сервисов плагинов в localStorage
+         * (синхронно читаемый другими модулями без обращения к storage.local).
+         * @param {object[]} plugins - Полный список плагинов.
+         * @returns {void}
+         */
         static _syncLocalStorage(plugins) {
             try {
                 const formats = {};
@@ -257,10 +354,22 @@
             }
         }
 
+        /**
+         * Генерирует уникальный id нового плагина.
+         * @returns {string} Строка вида "plugin_<timestamp>_<random>".
+         */
         static generateId() {
             return `plugin_${Date.now()}_${Math.random().toString(36).substring(2, 11)}`;
         }
 
+        /**
+         * Извлекает метаданные плагина из doc-комментария в его коде: аннотации
+         * @dl-format/@dl-label (плагин формата) либо @dl-service/@dl-service-label/
+         * @dl-host (плагин сервиса), а также опциональный JSON-блок @dl-service-config.
+         * @param {string} code - Исходный код плагина.
+         * @returns {{format: ?string, label: ?string, service: ?string, serviceLabel: ?string,
+         * hosts: string[], serviceConfig: ?object}} Извлечённые метаданные плагина.
+         */
         static parseMetadata(code) {
             const formatMatch  = code.match(/^\s*\*\s*@dl-format\s+([a-z][a-z0-9_-]*)\s*$/m);
             const labelMatch   = code.match(/^\s*\*\s*@dl-label\s+(.+)/m);
@@ -287,6 +396,11 @@
             };
         }
 
+        /**
+         * Возвращает список форматов экспорта, добавленных включёнными плагинами,
+         * в формате, ожидаемом селектором формата в UI.
+         * @returns {Promise<{value: string, label: string}[]>} Список опций формата.
+         */
         static async getFormats() {
             const plugins = await _storageGet();
             return plugins
@@ -294,6 +408,15 @@
                 .map(p => ({ value: p.format, label: p.label || p.format.toUpperCase() }));
         }
 
+        /**
+         * Пытается загрузить плагин, попросив background-скрипт выполнить его код
+         * напрямую в указанной вкладке через scripting.executeScript (самый быстрый
+         * способ, доступный когда открыта собственная страница расширения).
+         * @param {object} api - API расширения с runtime.sendMessage.
+         * @param {number} tabId - id вкладки, в которой нужно выполнить код плагина.
+         * @param {{format?: string, code: string}} plugin - Данные плагина.
+         * @returns {Promise<boolean>} true при успешной загрузке этим способом.
+         */
         static async _tryScriptingExec(api, tabId, plugin) {
             try {
                 const res = await api.runtime.sendMessage({
@@ -312,6 +435,18 @@
             return false;
         }
 
+        /**
+         * Загружает плагин формата экспорта каскадом запасных способов: кэширует код
+         * в background-скрипте (Cache API/IndexedDB), затем пробует подключить его как
+         * внешний скрипт с виртуального пути /plugin-runtime/*, затем как Blob-модуль,
+         * и в крайнем случае регистрирует прокси-экспортёр, выполняющий код в изолированной
+         * песочнице (для случаев, когда прямое выполнение кода в контексте страницы
+         * запрещено политикой безопасности).
+         * @param {object} api - API расширения с runtime.sendMessage.
+         * @param {{service?: string, format?: string, name?: string, serviceLabel?: string,
+         * label?: string, code: string}} plugin - Данные плагина.
+         * @returns {Promise<void>}
+         */
         static async _loadViaSW(api, plugin) {
             const key  = plugin.service || plugin.format;
             const name = plugin.name || plugin.serviceLabel || plugin.label || key;
@@ -344,7 +479,21 @@
                 const { format: fmt, code } = plugin;
                 const lbl = plugin.label || fmt.toUpperCase();
 
+                /**
+                 * Экспортёр-заглушка, регистрируемый в ExporterRegistry вместо плагина,
+                 * код которого не удалось выполнить напрямую: каждый экспорт запускает
+                 * изолированную песочницу, выполняет в ней код плагина и делегирует
+                 * ей фактическое построение файла.
+                 */
                 class FormatSandboxProxy extends global.BaseExporter {
+                    /**
+                     * Выполняет код плагина в песочнице и делегирует ей экспорт тайтла.
+                     * @param {object} manga - Нормализованные метаданные тайтла.
+                     * @param {object[]} chapters - Содержимое глав для экспорта.
+                     * @param {?string} coverBase64 - Обложка тайтла в base64.
+                     * @returns {Promise<{blob: Blob, filename: string, mimeType: string}>}
+                     * Результат экспорта.
+                     */
                     async export(manga, chapters, coverBase64) {
                         const runtimeApi = _getApi();
                         let jsZipCode = null;
@@ -378,6 +527,14 @@
             console.error(`[PluginManager] All load methods failed for "${name}"`);
         }
 
+        /**
+         * Регистрирует в serviceRegistry прокси-сервис для плагина сервиса (кастомного
+         * парсера сайта), собирая класс сервиса на основе BaseService и конфигурации
+         * плагина (хосты, конфиг сервера изображений и т.д.).
+         * @param {{service: string, serviceConfig?: object, hosts?: string[],
+         * serviceLabel?: string}} plugin - Данные плагина сервиса.
+         * @returns {void}
+         */
         static _loadServiceProxy(plugin) {
             if (!global.BaseService || !global.serviceRegistry) {
                 console.warn(`[PluginManager] BaseService/serviceRegistry not available for: ${plugin.service}`);
@@ -387,6 +544,14 @@
             const hosts = new Set((plugin.hosts || []).map(h => h.toLowerCase()));
             const serviceName = plugin.service;
 
+            /**
+             * Строит query-параметры запроса главы для API кастомного сервиса.
+             * @param {*} number - Номер главы.
+             * @param {*} volume - Номер тома.
+             * @param {?number} branchId - id ветки перевода.
+             * @param {object} extraParams - Дополнительные параметры запроса, специфичные для сервиса.
+             * @returns {URLSearchParams} Собранные query-параметры.
+             */
             function _buildChapterParams(number, volume, branchId, extraParams) {
                 const p = new URLSearchParams();
                 p.set('number', number != null ? String(number) : '1');
@@ -396,9 +561,23 @@
                 return p;
             }
 
+            /**
+             * Прокси-реализация BaseService для кастомного сервиса, описанного плагином:
+             * определяет принадлежность URL по списку хостов плагина и переопределяет
+             * загрузку страниц главы конфигурацией плагина (сервер изображений, сжатие).
+             */
             class PluginServiceProxy extends global.BaseService {
+                /**
+                 * Создаёт сервис с конфигурацией плагина.
+                 */
                 constructor() { super(config); }
 
+                /**
+                 * Проверяет, относится ли URL к одному из хостов плагина.
+                 * @param {string} url - Проверяемый URL.
+                 * @returns {boolean} true, если хост URL входит в список хостов плагина
+                 * (точное совпадение или поддомен).
+                 */
                 static matches(url) {
                     try {
                         const h = new URL(url).hostname.toLowerCase();
@@ -406,6 +585,11 @@
                     } catch { return false; }
                 }
 
+                /**
+                 * Извлекает список страниц главы в унифицированном текстовом формате.
+                 * @param {object} content - Сырое содержимое главы от API сервиса.
+                 * @returns {{type: 'image', src: string}[]} Список страниц как изображений.
+                 */
                 extractText(content) {
                     const pages = this.extractPages(content);
                     return pages.map(page => ({
@@ -414,6 +598,12 @@
                     }));
                 }
 
+                /**
+                 * Возвращает конфигурацию активного сервера изображений сервиса,
+                 * выбранного пользователем (или сервер по умолчанию из конфигурации плагина).
+                 * @returns {?object} Конфигурация сервера изображений, либо null,
+                 * если плагин не описывает серверы изображений.
+                 */
                 _getActiveServer() {
                     if (!config.imageServers) return null;
                     const key = (typeof localStorage !== 'undefined' && localStorage.getItem(`${serviceName}_image_server`))
@@ -422,6 +612,17 @@
                     return config.imageServers[key] || config.imageServers.compression || null;
                 }
 
+                /**
+                 * Загружает данные главы: сначала пытается выполнить запрос в контексте
+                 * открытой вкладки сервиса (в обход CORS/куки-ограничений фонового
+                 * контекста), а при неудаче откатывается на базовую реализацию BaseService.
+                 * @param {string} slug - Slug тайтла.
+                 * @param {*} number - Номер главы.
+                 * @param {*} [volume='1'] - Номер тома.
+                 * @param {?number} [branchId] - id ветки перевода.
+                 * @param {object} [extraParams] - Дополнительные параметры запроса, специфичные для сервиса.
+                 * @returns {Promise<object>} Данные главы от API сервиса.
+                 */
                 async fetchChapter(slug, number, volume = '1', branchId = null, extraParams = {}) {
                     const api = this.extensionApi;
                     if (api?.scripting?.executeScript && api?.tabs?.query) {
@@ -437,6 +638,13 @@
                                 const hdrs = this.config.headers || {};
                                 const [injRes] = await api.scripting.executeScript({
                                     target: { tabId },
+                                    /**
+                                     * Инжектируется в контекст вкладки: выполняет GET-запрос
+                                     * с переданными заголовками и куки вкладки.
+                                     * @param {string} u - URL запроса.
+                                     * @param {object} h - Заголовки запроса.
+                                     * @returns {Promise<{ok: boolean, body: ?string}>} Результат запроса.
+                                     */
                                     func: async (u, h) => {
                                         try {
                                             const r = await fetch(u, {
@@ -455,6 +663,13 @@
                     return await super.fetchChapter(slug, number, volume, branchId, extraParams);
                 }
 
+                /**
+                 * Строит абсолютный URL страницы главы из ссылки, используя домен
+                 * активного сервера изображений или домен из конфигурации плагина.
+                 * @param {*} ref - Ссылка на страницу: готовый URL, объект с полем src,
+                 * либо относительный путь.
+                 * @returns {?string} Абсолютный URL страницы, либо null, если ref пуст.
+                 */
                 resolvePageUrl(ref) {
                     if (!ref) return null;
                     const str = String(ref?.src || ref);
@@ -464,6 +679,14 @@
                     return str.startsWith('/') ? `${domain}${str}` : `${domain}/${str}`;
                 }
 
+                /**
+                 * Загружает страницу главы и кодирует её в base64, сжимая изображение,
+                 * если это не отключено конфигурацией активного сервера.
+                 * @param {*} ref - Ссылка на страницу.
+                 * @param {{compressionFormat?: string, compressionQuality?: number}} [opts] - Параметры сжатия.
+                 * @returns {Promise<?{base64: string, contentType: string}>} Загруженное
+                 * изображение, либо null при ошибке загрузки или отсутствии URL.
+                 */
                 async loadPageAsBase64(ref, opts = {}) {
                     const url = this.resolvePageUrl(ref?.src || ref);
                     if (!url) return null;
@@ -487,6 +710,15 @@
                     return { base64: response.base64, contentType: response.contentType };
                 }
 
+                /**
+                 * Загружает все страницы главы пакетами (по 5 одновременно), обновляя
+                 * статус прогресса, и приводит результат к унифицированному формату
+                 * контента главы (изображения либо текст-заглушка при ошибке загрузки).
+                 * @param {Array} extracted - Список страниц, извлечённых extractText/extractPages.
+                 * @param {?{textContent: string}} status - Элемент статуса для отображения прогресса.
+                 * @param {{compressionFormat?: string, compressionQuality?: number}} [opts] - Параметры сжатия.
+                 * @returns {Promise<object[]>} Список элементов содержимого главы (изображения/текст).
+                 */
                 async processChapterContent(extracted, status, opts = {}) {
                     const pages = Array.isArray(extracted) ? extracted : [];
                     const loadOpts = {
@@ -528,6 +760,13 @@
             console.log(`[PluginManager] Loaded (proxy): ${plugin.serviceLabel || plugin.service}`);
         }
 
+        /**
+         * Загружает все включённые плагины: сервисные плагины регистрируются как
+         * прокси-сервисы напрямую, плагины форматов сначала пробуют выполниться
+         * через scripting.executeScript в собственной вкладке расширения, а при
+         * неудаче — каскадом запасных способов через _loadViaSW.
+         * @returns {Promise<void>}
+         */
         static async loadAll() {
             const plugins = await _storageGet();
             const enabled = plugins.filter(p => p.enabled !== false && (p.format || p.service));

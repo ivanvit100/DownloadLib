@@ -12,7 +12,16 @@
 (function(global) {
     console.log('[RateLimiter] Loading...');
 
+    /**
+     * Ограничитель частоты запросов со скользящим окном в минуту, очередью
+     * ожидающих запросов и поддержкой временной блокировки при 429.
+     */
     class RateLimiter {
+        /**
+         * Создаёт ограничитель с заданным лимитом запросов в минуту.
+         * @param {{maxRequestsPerMinute?: number}} [options] - Максимальное число
+         * запросов в минуту (по умолчанию 85).
+         */
         constructor(options = {}) {
             this._requestsInLastMinute = 0;
             this._maxRequestsPerMinute = options.maxRequestsPerMinute || 85;
@@ -25,6 +34,11 @@
             console.log(`[RateLimiter] Initialized with limit: ${this._maxRequestsPerMinute} requests/minute`);
         }
 
+        /**
+         * Устанавливает новый лимит запросов в минуту (с запасом в 1 запрос от указанного значения).
+         * @param {number|string} limit - Новый лимит; при некорректном значении используется минимум 2.
+         * @returns {void}
+         */
         setLimit(limit) {
             let lmt = parseInt(limit);
             if (isNaN(lmt) || lmt < 2) lmt = 2;
@@ -32,6 +46,13 @@
             console.log(`[RateLimiter] Rate limit set to: ${this._maxRequestsPerMinute} requests/minute`);
         }
 
+        /**
+         * Полностью блокирует выполнение запросов на заданную длительность
+         * (реакция на HTTP 429), после чего возобновляет обработку очереди.
+         * Повторный вызов во время активной блокировки игнорируется.
+         * @param {number} [duration=30000] - Длительность блокировки в миллисекундах.
+         * @returns {void}
+         */
         throttle(duration = 30000) {
             if (this._throttled) {
                 console.warn(`[RateLimiter] Already throttled, ignoring duplicate`);
@@ -48,6 +69,12 @@
             }, duration);
         }
 
+        /**
+         * Обрабатывает очередь ожидающих запросов, разрешая их промисы по мере
+         * освобождения окна лимита (или снятия блокировки throttle), и планирует
+         * освобождение слота лимита через минуту после каждого выполненного запроса.
+         * @returns {Promise<void>}
+         */
         async _processQueue() {
             if (this._isProcessing) return;
             this._isProcessing = true;
@@ -78,6 +105,12 @@
             this._isProcessing = false;
         }
 
+        /**
+         * Ставит запрос в очередь и возвращает промис, который разрешится, когда
+         * запросу будет позволено выполниться в рамках текущего лимита.
+         * @param {string} [source='unknown'] - Метка источника запроса (для логирования).
+         * @returns {Promise<void>} Промис, разрешающийся при разрешении на выполнение запроса.
+         */
         trackRequest(source = 'unknown') {
             return new Promise((resolve) => {
                 this._pendingQueue.push({ source, resolve });
@@ -85,6 +118,13 @@
             });
         }
 
+        /**
+         * Учитывает уже выполненный вне очереди запрос в текущем окне лимита,
+         * без ожидания разрешения (используется для запросов, перехваченных webRequest).
+         * Если лимит уже исчерпан, запрос не учитывается.
+         * @param {string} [source='unknown'] - Метка источника запроса (для логирования).
+         * @returns {void}
+         */
         recordRequest(source = 'unknown') {
             if (this._requestsInLastMinute >= this._maxRequestsPerMinute) return;
             this._requestsInLastMinute += 1;
@@ -96,15 +136,32 @@
             }, 60000);
         }
 
+        /**
+         * Алиас trackRequest для более читаемого вызова в местах, семантически
+         * означающих "получить разрешение" перед действием.
+         * @param {string} [serviceName='default'] - Метка источника запроса (для логирования).
+         * @returns {Promise<void>} Промис, разрешающийся при разрешении на выполнение запроса.
+         */
         acquire(serviceName = 'default') {
             return this.trackRequest(serviceName);
         }
 
+        /**
+         * Дожидается разрешения лимита и затем выполняет переданную функцию.
+         * @param {string} serviceName - Метка источника запроса (для логирования).
+         * @param {function(): *} fn - Функция, которую нужно выполнить в рамках лимита.
+         * @returns {Promise<*>} Результат выполнения fn.
+         */
         async execute(serviceName, fn) {
             await this.trackRequest(serviceName);
             return fn();
         }
 
+        /**
+         * Возвращает текущую статистику ограничителя.
+         * @returns {{requestsInLastMinute: number, maxRequestsPerMinute: number,
+         * queueSize: number, timestamps: number[]}} Снимок текущего состояния лимита.
+         */
         getStats() {
             return {
                 requestsInLastMinute: this._requestsInLastMinute,
@@ -114,6 +171,10 @@
             };
         }
 
+        /**
+         * Полностью сбрасывает состояние ограничителя: счётчики, очередь и блокировку throttle.
+         * @returns {void}
+         */
         reset() {
             this._requestsInLastMinute = 0;
             this._requestTimestamps = [];
