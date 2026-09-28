@@ -12,7 +12,17 @@
 (function(global) {
     console.log('[FB2Exporter] Loading...');
 
+    /**
+     * Экспортёр и парсер формата FB2 (FictionBook 2.0): собирает XML-документ
+     * потоково через генераторы, чтобы не держать весь текст книги в памяти
+     * целиком, и умеет разбирать ранее экспортированный FB2-файл обратно.
+     */
     class FB2Exporter extends global.BaseExporter {
+        /**
+         * Строит XML-теги имени автора (first/middle/last-name) из полного имени.
+         * @param {?string} author - Полное имя автора, разделённое пробелами.
+         * @returns {string} XML-фрагмент с тегами имени.
+         */
         createAuthorsDescription(author) {
             if (author) {
                 const parts = author.split(' ');
@@ -24,14 +34,30 @@
             return `         <first-name>Неизвестно</first-name>\n`;
         }
 
+        /**
+         * Оборачивает описание одного автора в тег &lt;author&gt;.
+         * @param {?string} author - Полное имя автора.
+         * @returns {string} XML-фрагмент тега author.
+         */
         createAuthorsTag(author) {
             return `     <author>\n${this.createAuthorsDescription(author)}     </author>\n`;
         }
 
+        /**
+         * Строит XML-фрагмент со всеми тегами author тайтла.
+         * @param {string[]} authors - Список имён авторов.
+         * @returns {string} Объединённый XML-фрагмент тегов author.
+         */
         createAuthors(authors) {
             return authors.map(author => this.createAuthorsTag(author)).join('');
         }
 
+        /**
+         * Преобразует ограниченное подмножество inline HTML-тегов (b/strong, i/em,
+         * s/strike/del, code) в соответствующие теги FB2, удаляя остальную разметку.
+         * @param {?string} html - Исходный HTML-фрагмент.
+         * @returns {string} Текст с FB2-тегами вместо HTML.
+         */
         _htmlToFb2(html) {
             if (!html) return '';
             const m = '\x00';
@@ -48,6 +74,13 @@
                 .replace(/\0/g, '<');
         }
 
+        /**
+         * Генерирует XML-строки FB2 для HTML-блока текста, разбивая его по &lt;br&gt;
+         * на параграфы (или строки стихотворения при выравнивании по центру).
+         * @param {string} html - HTML-содержимое блока.
+         * @param {?string} align - Выравнивание блока ('center' для стихотворной формы).
+         * @yields {string} Строки XML-разметки FB2.
+         */
         *_yieldFb2HtmlBlock(html, align) {
             const parts = html.split(/<br\s*\/?>/i);
             if (align === 'center') {
@@ -70,6 +103,13 @@
             }
         }
 
+        /**
+         * Генерирует XML-строки FB2 для plain-текстового блока, разбивая его
+         * по переносам строк на параграфы (или строки стихотворения при выравнивании по центру).
+         * @param {string} text - Текстовое содержимое блока.
+         * @param {?string} align - Выравнивание блока ('center' для стихотворной формы).
+         * @yields {string} Строки XML-разметки FB2.
+         */
         *_yieldFb2TextBlock(text, align) {
             const lines = text.split('\n');
             if (align === 'center') {
@@ -92,6 +132,13 @@
             }
         }
 
+        /**
+         * Генерирует XML-строки FB2 для всего содержимого главы: текстовые блоки
+         * (HTML или plain text) и изображения, ранее зарегистрированные в
+         * createFB2Stream с присвоенным block._fb2ImageId.
+         * @param {{content?: Array}} chapter - Содержимое главы.
+         * @yields {string} Строки XML-разметки FB2.
+         */
         *_yieldChapterContent(chapter) {
             if (!chapter.content || !Array.isArray(chapter.content)) return;
 
@@ -107,6 +154,13 @@
             }
         }
 
+        /**
+         * Генерирует XML-строки блока &lt;description&gt; FB2: title-info с авторами,
+         * названием, аннотацией и обложкой, а также publish-info и возрастной рейтинг.
+         * @param {object} manga - Нормализованные метаданные тайтла.
+         * @param {?string} coverBase64 - Обложка тайтла в base64 (наличие влияет на coverpage).
+         * @yields {string} Строки XML-разметки FB2.
+         */
         *_yieldDescriptionBlock(manga, coverBase64) {
             yield '  <title-info>\n';
             yield `    <genre>prose</genre>\n`;
@@ -136,6 +190,15 @@
                 yield `  <custom-info info-type="age-rating">${this.escapeXml(manga.rating)}</custom-info>\n`;
         }
 
+        /**
+         * Генерирует полный FB2-документ потоково: описание, тело со всеми главами
+         * (и секцией обложки, если она есть) и блок бинарных вложений (обложка
+         * и изображения страниц) в конце документа.
+         * @param {object} manga - Нормализованные метаданные тайтла.
+         * @param {object[]} chapters - Содержимое глав.
+         * @param {?string} coverBase64 - Обложка тайтла в base64.
+         * @yields {string} Части итогового FB2-документа.
+         */
         *createFB2Stream(manga, chapters, coverBase64) {
             yield '<?xml version="1.0" encoding="utf-8"?>\n';
             yield `<FictionBook xmlns="http://www.gribuser.ru/xml/fictionbook/2.0" xmlns:l="http://www.w3.org/1999/xlink">\n`;
@@ -191,6 +254,13 @@
             yield '</FictionBook>';
         }
 
+        /**
+         * Собирает поток createFB2Stream в единый Blob FB2-файла.
+         * @param {object} manga - Нормализованные метаданные тайтла.
+         * @param {object[]} chapters - Содержимое глав.
+         * @param {?string} coverBase64 - Обложка тайтла в base64.
+         * @returns {{blob: Blob, filename: string, mimeType: string}} Результат экспорта.
+         */
         export(manga, chapters, coverBase64) {
             const chunks = [];
             for (const chunk of this.createFB2Stream(manga, chapters, coverBase64))
@@ -207,6 +277,11 @@
             };
         }
 
+        /**
+         * Извлекает список имён авторов из тега title-info FB2-документа.
+         * @param {?Element} titleInfo - Элемент title-info распарсенного FB2-документа.
+         * @returns {string[]} Список имён авторов (не короче одного элемента).
+         */
         _parseFB2Authors(titleInfo) {
             const authors = [];
             const authorNodes = titleInfo?.querySelectorAll('author') || [];
@@ -220,6 +295,15 @@
             return authors;
         }
 
+        /**
+         * Разбирает один параграф FB2 в элемент содержимого главы: текстовый блок,
+         * либо изображение, найденное по ссылке на соответствующий тег binary.
+         * @param {Element} p - Элемент &lt;p&gt; секции.
+         * @param {Document} doc - Весь распарсенный FB2-документ (для поиска binary по id).
+         * @returns {?{type: 'text', text: string}|{type: 'image', data: {base64: string,
+         * contentType: string}}} Элемент содержимого, либо null, если изображение
+         * ссылается на несуществующий binary.
+         */
         _parseFB2ParagraphContent(p, doc) {
             const imageEl = p.querySelector('image');
             if (!imageEl) {
@@ -237,6 +321,12 @@
             return { type: 'image', data: { base64, contentType } };
         }
 
+        /**
+         * Извлекает номер тома и главы из строки заголовка вида "Том X, Глава Y".
+         * @param {string} title - Заголовок главы/секции.
+         * @returns {?{volume: string, number: string}} Найденные том/номер главы,
+         * либо null, если заголовок не соответствует ожидаемому формату.
+         */
         _extractVolNum(title) {
             const m = title.match(/Том\s+([^\s,]+)[,\s]+Глава\s+(\S+)/);
             if (m) return { volume: m[1], number: m[2] };
@@ -245,6 +335,13 @@
             return null;
         }
 
+        /**
+         * Разбирает все секции верхнего уровня FB2-документа в список глав,
+         * пропуская служебную секцию обложки, если она была добавлена при экспорте.
+         * @param {Document} doc - Распарсенный FB2-документ.
+         * @param {boolean} hasCover - Содержит ли документ секцию обложки для пропуска.
+         * @returns {object[]} Список разобранных глав.
+         */
         _parseFB2Sections(doc, hasCover) {
             const chapters = [];
             const sections = doc.querySelectorAll('body > section');
@@ -269,6 +366,13 @@
             return chapters;
         }
 
+        /**
+         * Извлекает дату выхода тайтла из тега date title-info, либо из
+         * publish-info/year как запасной вариант.
+         * @param {?Element} titleInfo - Элемент title-info распарсенного FB2-документа.
+         * @param {Document} doc - Весь распарсенный FB2-документ.
+         * @returns {string} Найденная дата выхода, либо пустая строка.
+         */
         _parseFB2ReleaseDate(titleInfo, doc) {
             const dateEl = titleInfo ? titleInfo.querySelector('date') : null;
             if (dateEl) {
@@ -281,6 +385,14 @@
             return yearEl ? yearEl.textContent.trim() : '';
         }
 
+        /**
+         * Извлекает описание, дату выхода, жанры (из keywords) и возрастной рейтинг
+         * из title-info и остального FB2-документа.
+         * @param {?Element} titleInfo - Элемент title-info распарсенного FB2-документа.
+         * @param {Document} doc - Весь распарсенный FB2-документ.
+         * @returns {{summary: string, releaseDate: string, genres: string[], rating: string}}
+         * Извлечённые метаданные тайтла.
+         */
         _parseFB2Metadata(titleInfo, doc) {
             const summary = titleInfo?.querySelector('annotation')?.textContent?.trim() || '';
             const releaseDate = this._parseFB2ReleaseDate(titleInfo, doc);
@@ -292,6 +404,14 @@
             return { summary, releaseDate, genres, rating };
         }
 
+        /**
+         * Разбирает FB2-документ обратно в унифицированную структуру: метаданные,
+         * обложку и главы.
+         * @param {string} text - Текстовое содержимое FB2-файла (XML).
+         * @param {string} filename - Имя файла (используется как запасное название,
+         * если тег book-title отсутствует).
+         * @returns {{metadata: object, cover: string, chapters: object[]}} Разобранное содержимое.
+         */
         parseFB2(text, filename) {
             const parser = new DOMParser();
             const doc = parser.parseFromString(text, 'text/xml');

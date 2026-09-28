@@ -12,7 +12,21 @@
 (function(global) {
     console.log('[EPUBExporter] Loading...');
 
+    /**
+     * Экспортёр и парсер формата EPUB 2.0: собирает ZIP-контейнер со стандартной
+     * структурой (mimetype, META-INF/container.xml, OEBPS с главами-XHTML,
+     * изображениями, content.opf и toc.ncx) и умеет разбирать сторонние EPUB-файлы обратно.
+     */
     class EPUBExporter extends global.BaseExporter {
+        /**
+         * Собирает EPUB-файл: обложку, изображения страниц, главы в виде XHTML-файлов
+         * и служебные файлы пакета (container.xml, content.opf, toc.ncx).
+         * @param {object} manga - Нормализованные метаданные тайтла.
+         * @param {object[]} chapters - Содержимое глав.
+         * @param {?string} coverBase64 - Обложка тайтла в base64.
+         * @returns {Promise<{blob: Blob, filename: string, mimeType: string}>} Результат экспорта.
+         * @throws {Error} Если библиотека JSZip не загружена.
+         */
         async export(manga, chapters, coverBase64) {
             if (typeof JSZip === 'undefined')
                 throw new Error('JSZip library not loaded');
@@ -78,6 +92,10 @@
             };
         }
 
+        /**
+         * Строит содержимое META-INF/container.xml, указывающего на content.opf.
+         * @returns {string} XML-содержимое container.xml.
+         */
         createContainer() {
             return `<?xml version="1.0"?>
 <container version="1.0" xmlns="urn:oasis:names:tc:opendocument:xmlns:container">
@@ -87,6 +105,15 @@
 </container>`;
         }
 
+        /**
+         * Строит XHTML-документ одной главы: заголовок, обложку (для первой главы)
+         * и содержимое (текст и/или изображения страниц); для глав, состоящих
+         * только из изображений, использует упрощённую разметку без отступов.
+         * @param {object} chapter - Содержимое главы (title, content с block._epubImagePath
+         * для изображений, проставленным на этапе export()).
+         * @param {boolean} includeCover - Нужно ли включить в главу изображение обложки.
+         * @returns {string} XHTML-содержимое главы.
+         */
         createChapterXHTML(chapter, includeCover) {
             const title = this.escapeXml(chapter.title);
             const blocks = Array.isArray(chapter.content) ? chapter.content : [];
@@ -152,14 +179,33 @@
 </html>`;
         }
 
+        /**
+         * Строит тег dc:creator для одного автора.
+         * @param {?string} author - Имя автора.
+         * @returns {string} XML-тег dc:creator.
+         */
         createAuthorsDescription(author) {
             return `<dc:creator>${this.escapeXml(author || 'Неизвестно')}</dc:creator>`;
         }
 
+        /**
+         * Строит блок тегов dc:creator для всех авторов тайтла.
+         * @param {string[]} authors - Список имён авторов.
+         * @returns {string} Объединённый XML-фрагмент тегов dc:creator.
+         */
         createAuthors(authors) {
             return authors.map(author => this.createAuthorsDescription(author)).join('\n    ');
         }
 
+        /**
+         * Строит содержимое OEBPS/content.opf: метаданные, дублинское ядро
+         * (title, creator, description, subject, date), манифест файлов и spine
+         * порядка чтения глав.
+         * @param {object} manga - Нормализованные метаданные тайтла.
+         * @param {string} manifest - Накопленный XML-фрагмент тегов &lt;item&gt; манифеста.
+         * @param {string} spine - Накопленный XML-фрагмент тегов &lt;itemref&gt; spine.
+         * @returns {string} XML-содержимое content.opf.
+         */
         createOPF(manga, manifest, spine) {
             const title = this.escapeXml(manga.name || 'Без названия');
             const authors = this.createAuthors(manga.authors);
@@ -193,6 +239,12 @@
 </package>`;
         }
 
+        /**
+         * Строит содержимое OEBPS/toc.ncx — оглавление EPUB 2.0 (навигационную карту).
+         * @param {object} manga - Нормализованные метаданные тайтла.
+         * @param {string} navPoints - Накопленный XML-фрагмент тегов &lt;navPoint&gt;.
+         * @returns {string} XML-содержимое toc.ncx.
+         */
         createNCX(manga, navPoints) {
             const title = this.escapeXml(manga.name || 'Без названия');
             const identifier = this.escapeXml(manga.id ? `urn:manga:${manga.id}` : (manga.name || 'unknown'));
@@ -212,6 +264,13 @@
 </ncx>`;
         }
 
+        /**
+         * Строит один тег &lt;navPoint&gt; оглавления для главы.
+         * @param {string} title - Заголовок главы.
+         * @param {string} href - Путь к XHTML-файлу главы.
+         * @param {number} order - Порядковый номер главы (playOrder).
+         * @returns {string} XML-фрагмент тега navPoint.
+         */
         createNavPoint(title, href, order) {
             return `<navPoint id="navPoint-${order}" playOrder="${order}">
       <navLabel><text>${this.escapeXml(title)}</text></navLabel>
@@ -219,6 +278,13 @@
     </navPoint>\n`;
         }
 
+        /**
+         * Находит файл content.opf внутри EPUB-архива: сначала по пути,
+         * указанному в META-INF/container.xml, а если это не удалось —
+         * перебором файлов с расширением .opf.
+         * @param {object} zipContent - Загруженный JSZip-архив EPUB-файла.
+         * @returns {Promise<?object>} Найденный файл .opf внутри архива, либо null.
+         */
         async _resolveOpfFile(zipContent) {
             const containerXml = await zipContent.file('META-INF/container.xml')?.async('text');
 
@@ -240,6 +306,17 @@
             return null;
         }
 
+        /**
+         * Разбирает content.opf: дополняет объект metadata найденными полями
+         * (title, authors, description, genres, releaseDate, rating), извлекает
+         * обложку по ссылке из манифеста и порядок чтения глав из spine.
+         * @param {?object} opfFile - Файл content.opf внутри архива (из _resolveOpfFile).
+         * @param {object} metadata - Объект метаданных, дополняемый на месте.
+         * @param {object} zipContent - Загруженный JSZip-архив EPUB-файла.
+         * @returns {Promise<{cover: string, spineOrder: string[]}>} Обложка
+         * в виде data-URL и список id глав в порядке чтения (spine), либо пустые значения,
+         * если opfFile не передан.
+         */
         async _parseOpfFile(opfFile, metadata, zipContent) {
             if (!opfFile) return { cover: '', spineOrder: [] };
 
@@ -295,6 +372,15 @@
             return { cover, spineOrder };
         }
 
+        /**
+         * Разбирает произвольный EPUB-файл (не обязательно созданный этим же
+         * экспортёром) обратно в унифицированную структуру: метаданные, обложку
+         * и главы с текстом и изображениями, в порядке spine (или по имени файла,
+         * если spine недоступен).
+         * @param {File} file - EPUB-файл для разбора.
+         * @returns {Promise<{metadata: object, cover: string, chapters: object[]}>} Разобранное содержимое.
+         * @throws {Error} Если библиотека JSZip не загружена.
+         */
         async parseEPUB(file) {
             if (typeof JSZip === 'undefined')
                 throw new Error('JSZip library not loaded. Include it in popup.html');
@@ -386,6 +472,12 @@
             };
         }
 
+        /**
+         * Извлекает номер тома и главы из строки заголовка вида "Том X, Глава Y".
+         * @param {string} title - Заголовок главы.
+         * @returns {?{volume: string, number: string}} Найденные том/номер главы,
+         * либо null, если заголовок не соответствует ожидаемому формату.
+         */
         _extractVolNum(title) {
             const m = title.match(/Том\s+([^\s,]+)[,\s]+Глава\s+(\S+)/);
             if (m) return { volume: m[1], number: m[2] };
@@ -394,6 +486,11 @@
             return null;
         }
 
+        /**
+         * Кодирует Blob в data-URL с base64-содержимым.
+         * @param {Blob} blob - Исходный Blob.
+         * @returns {Promise<string>} data-URL с base64-содержимым.
+         */
         blobToBase64(blob) {
             return new Promise((resolve, reject) => {
                 const reader = new FileReader();

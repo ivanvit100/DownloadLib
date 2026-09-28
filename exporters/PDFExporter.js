@@ -12,7 +12,20 @@
 (function(global) {
     console.log('[PDFExporter] Loading...');
 
+    /**
+     * Экспортёр формата PDF: текст глав рендерится в изображения через canvas
+     * (постранично, с переносом слов), изображения страниц манги добавляются как есть,
+     * итоговый документ собирается библиотекой html2pdf с оглавлением-закладками.
+     */
     class PDFExporter extends global.BaseExporter {
+        /**
+         * Строит объект метаданных PDF-документа (title, author, subject, keywords).
+         * @param {object} manga - Нормализованные метаданные тайтла.
+         * @param {string} title - Название тайтла.
+         * @param {string} authors - Авторы, объединённые в строку.
+         * @returns {{title: string, author: string, subject?: string, keywords?: string}}
+         * Свойства PDF-документа.
+         */
         _buildPdfProperties(manga, title, authors) {
             const props = { title, author: authors };
             if (manga.summary) props.subject = manga.summary;
@@ -23,10 +36,23 @@
             return props;
         }
 
+        /**
+         * Очищает строку для использования в качестве имени файла: заменяет
+         * запрещённые символы на подчёркивания и обрезает длину.
+         * @param {string} filename - Исходное имя файла.
+         * @returns {string} Строка, безопасная для имени файла (не длиннее 200 символов).
+         */
         sanitizeFilename(filename) {
             return filename.replace(/[<>:"/\\|?*]/g, '_').substring(0, 200);
         }
 
+        /**
+         * Рендерит один лист текста (уже разбитый splitTextIntoPages по высоте
+         * страницы) в изображение страницы A4 через canvas.
+         * @param {string} text - Текст страницы (уже уместившийся по высоте).
+         * @param {?string} [titleText] - Заголовок главы для отображения над текстом (только на первой странице главы).
+         * @returns {string} data-URL изображения страницы (JPEG).
+         */
         renderTextToCanvas(text, titleText = null) {
             const canvas = document.createElement('canvas');
             const ctx = canvas.getContext('2d');
@@ -76,6 +102,16 @@
             return dataUrl;
         }
 
+        /**
+         * Разбивает текст главы на страницы, помещающиеся по высоте/ширине A4:
+         * сначала переносит длинные абзацы по словам (измеряя ширину через canvas),
+         * затем группирует получившиеся строки в страницы с учётом резерва места
+         * под заголовок на первой странице.
+         * @param {string} text - Полный текст главы.
+         * @param {?string} [firstPageTitle] - Заголовок главы, для которого нужно
+         * оставить место на первой странице.
+         * @returns {string[]} Список страниц текста (каждая — многострочная строка).
+         */
         splitTextIntoPages(text, firstPageTitle = null) {
             const canvas = document.createElement('canvas');
             const ctx = canvas.getContext('2d');
@@ -155,6 +191,12 @@
             return pages;
         }
 
+        /**
+         * Приводит значение обложки к готовому data-URL: пропускает уже готовый
+         * data-URL, оборачивает "голый" base64 в data-URL image/jpeg.
+         * @param {*} input - Обложка (data-URL, "голый" base64, либо иное значение).
+         * @returns {?string} Готовый data-URL, либо null, если формат не распознан.
+         */
         ensureDataUrl(input) {
             if (!input) return null;
             if (typeof input === 'string' && /^data:[\w+/.-]+;base64,/.test(input)) return input;
@@ -163,10 +205,22 @@
             return null;
         }
 
+        /**
+         * Пауза на заданное число миллисекунд (даёт браузеру отрисовать UI между
+         * тяжёлыми операциями рендеринга страниц PDF).
+         * @param {number} ms - Длительность паузы в миллисекундах.
+         * @returns {Promise<void>}
+         */
         delay(ms) {
             return new Promise(resolve => setTimeout(resolve, ms));
         }
 
+        /**
+         * Разделяет содержимое главы на объединённый текст и список блоков изображений.
+         * @param {{content?: Array}} ch - Содержимое главы.
+         * @returns {{chapterText: string, chapterImages: object[]}} Текст главы
+         * (HTML очищен) и список блоков изображений.
+         */
         _parseChapterContent(ch) {
             let chapterText = '';
             const chapterImages = [];
@@ -190,6 +244,13 @@
             return { chapterText, chapterImages };
         }
 
+        /**
+         * Добавляет новую страницу PDF-документа, кроме самой первой страницы
+         * (которая создаётся автоматически при инициализации документа).
+         * @param {object} pdf - Экземпляр PDF-документа jsPDF.
+         * @param {{isFirst: boolean}} state - Общее состояние генерации документа.
+         * @returns {void}
+         */
         _ensureNewPage(pdf, state) {
             if (state.isFirst) {
                 state.isFirst = false;
@@ -198,6 +259,16 @@
             pdf.addPage();
         }
 
+        /**
+         * Добавляет страницу обложки тайтла в PDF-документ, вписывая изображение
+         * в границы страницы с сохранением пропорций.
+         * @param {object} pdf - Экземпляр PDF-документа jsPDF.
+         * @param {*} coverBase64 - Обложка тайтла (data-URL или "голый" base64).
+         * @param {number} pageWidth - Ширина страницы документа.
+         * @param {number} pageHeight - Высота страницы документа.
+         * @param {{isFirst: boolean, pageCount: number}} state - Общее состояние генерации документа.
+         * @returns {Promise<void>}
+         */
         async _addCoverToPdf(pdf, coverBase64, pageWidth, pageHeight, state) {
             const coverDataUrl = await this.ensureDataUrl(coverBase64);
             if (!coverDataUrl) {
@@ -225,6 +296,19 @@
             img.src = '';
         }
 
+        /**
+         * Добавляет в PDF-документ все страницы одной главы: сначала текстовые
+         * страницы (отрендеренные в изображения), затем страницы-изображения.
+         * Периодически делает паузу delay(), чтобы браузер успевал отрисовывать UI.
+         * @param {object} pdf - Экземпляр PDF-документа jsPDF.
+         * @param {object} ch - Содержимое главы.
+         * @param {number} chIdx - Индекс главы (для заголовка-заглушки и логов).
+         * @param {number} pageWidth - Ширина страницы документа.
+         * @param {number} pageHeight - Высота страницы документа.
+         * @param {{isFirst: boolean, pageCount: number}} state - Общее состояние генерации документа.
+         * @returns {Promise<?{title: string, page: number}>} Закладка оглавления
+         * (заголовок главы и номер первой страницы), либо null, если глава пуста.
+         */
         async _addChapterPages(pdf, ch, chIdx, pageWidth, pageHeight, state) {
             const { chapterText, chapterImages } = this._parseChapterContent(ch);
             const chapterTitle = ch.title || `Глава ${chIdx + 1}`;
@@ -280,6 +364,15 @@
             return { title: chapterTitle, page: bookmarkPage };
         }
 
+        /**
+         * Собирает полный PDF-документ: обложку, текст и изображения всех глав
+         * постранично, и оглавление-закладки по главам.
+         * @param {object} manga - Нормализованные метаданные тайтла.
+         * @param {object[]} chapters - Содержимое глав.
+         * @param {?string} coverBase64 - Обложка тайтла в base64.
+         * @returns {Promise<{blob: Blob, filename: string, mimeType: string}>} Результат экспорта.
+         * @throws {Error} Если библиотека html2pdf не загружена.
+         */
         async export(manga, chapters, coverBase64) {
             if (typeof html2pdf === 'undefined')
                 throw new Error('html2pdf library not loaded');

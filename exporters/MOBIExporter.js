@@ -13,18 +13,36 @@
 (function(global) {
     console.log('[MOBIExporter] Loading...');
 
+    /**
+     * Накопительный бинарный писатель: собирает бинарные структуры формата MOBI
+     * (Palm Database / PalmDOC) из последовательности чанков без промежуточных
+     * копирований всего буфера, кроме как при явном patch32().
+     */
     class BufWriter {
+        /**
+         * Создаёт writer с пустым буфером.
+         */
         constructor() {
             this._chunks = [];
             this._len = 0;
         }
 
+        /**
+         * Записывает один байт.
+         * @param {number} v - Значение байта (маскируется до 0xFF).
+         * @returns {void}
+         */
         /* istanbul ignore next */
         u8(v) {
             this._chunks.push(new Uint8Array([v & 0xFF]));
             this._len += 1;
         }
 
+        /**
+         * Записывает 16-битное беззнаковое число в порядке байтов big-endian.
+         * @param {number} v - Записываемое значение.
+         * @returns {void}
+         */
         be16(v) {
             const b = new Uint8Array(2);
             b[0] = (v >> 8) & 0xFF;
@@ -33,6 +51,11 @@
             this._len += 2;
         }
 
+        /**
+         * Записывает 32-битное беззнаковое число в порядке байтов big-endian.
+         * @param {number} v - Записываемое значение.
+         * @returns {void}
+         */
         be32(v) {
             const b = new Uint8Array(4);
             b[0] = (v >>> 24) & 0xFF;
@@ -43,24 +66,46 @@
             this._len += 4;
         }
 
+        /**
+         * Записывает произвольный массив байтов.
+         * @param {Uint8Array|number[]} arr - Записываемые байты.
+         * @returns {void}
+         */
         bytes(arr) {
             const u = arr instanceof Uint8Array ? arr : new Uint8Array(arr);
             this._chunks.push(u);
             this._len += u.length;
         }
 
+        /**
+         * Записывает n нулевых байтов.
+         * @param {number} n - Количество нулевых байтов.
+         * @returns {void}
+         */
         zeros(n) {
             this._chunks.push(new Uint8Array(n));
             this._len += n;
         }
 
+        /**
+         * Дополняет буфер нулевыми байтами до выравнивания по границе 4 байт.
+         * @returns {void}
+         */
         pad4() {
             const r = this._len & 3;
             if (r) this.zeros(4 - r);
         }
 
+        /**
+         * Текущая длина записанных данных в байтах.
+         * @returns {number}
+         */
         get length() { return this._len; }
 
+        /**
+         * Собирает все накопленные чанки в единый Uint8Array.
+         * @returns {Uint8Array} Объединённый буфер.
+         */
         toUint8Array() {
             const out = new Uint8Array(this._len);
             let off = 0;
@@ -68,6 +113,14 @@
             return out;
         }
 
+        /**
+         * Перезаписывает 32-битное big-endian значение по указанному смещению
+         * в уже накопленном буфере (используется для заполнения длины поля
+         * после того, как она стала известна).
+         * @param {number} off - Смещение в байтах внутри буфера.
+         * @param {number} v - Записываемое значение.
+         * @returns {number} Переданное смещение off (для удобства цепочки вызовов).
+         */
         patch32(off, v) {
             const out = this.toUint8Array();
             out[off  ] = (v >>> 24) & 0xFF;
@@ -82,8 +135,20 @@
 
     const _enc = new TextEncoder();
 
+    /**
+     * Кодирует строку в UTF-8 байты.
+     * @param {string} str - Исходная строка.
+     * @returns {Uint8Array} UTF-8 представление строки.
+     */
     function toUTF8(str) { return _enc.encode(str); }
 
+    /**
+     * Разбивает UTF-8 байты на чанки не длиннее maxBytes, не разрезая
+     * многобайтовые последовательности символов посередине.
+     * @param {Uint8Array} bytes - Исходные UTF-8 байты.
+     * @param {number} maxBytes - Максимальный размер одного чанка.
+     * @returns {Uint8Array[]} Список чанков.
+     */
     function splitUTF8(bytes, maxBytes) {
         const chunks = [];
         let pos = 0;
@@ -96,6 +161,16 @@
         return chunks;
     }
 
+    /**
+     * Строит блок EXTH (расширенные метаданные MOBI): автор, описание, жанры
+     * (subject), дату публикации, дублирующий заголовок и язык.
+     * @param {Uint8Array} titleBytes - Заголовок книги в UTF-8.
+     * @param {Uint8Array} authorBytes - Автор(ы) в UTF-8.
+     * @param {?Uint8Array} descBytes - Описание в UTF-8, либо null.
+     * @param {Uint8Array[]} subjectBytesArr - Список жанров/тегов в UTF-8.
+     * @param {?Uint8Array} dateBytes - Дата публикации в UTF-8, либо null.
+     * @returns {Uint8Array} Собранный блок EXTH.
+     */
     function buildEXTH(titleBytes, authorBytes, descBytes, subjectBytesArr, dateBytes) {
         const subjects = subjectBytesArr || [];
         const w = new BufWriter();
@@ -145,6 +220,20 @@
         return w.toUint8Array();
     }
 
+    /**
+     * Строит record 0 — заголовок PalmDOC + заголовок MOBI + блок EXTH + заголовок книги.
+     * @param {Uint8Array} titleBytes - Заголовок книги в UTF-8.
+     * @param {Uint8Array} authorBytes - Автор(ы) в UTF-8.
+     * @param {?Uint8Array} descBytes - Описание в UTF-8, либо null.
+     * @param {Uint8Array[]} subjectBytesArr - Список жанров/тегов в UTF-8.
+     * @param {?Uint8Array} dateBytes - Дата публикации в UTF-8, либо null.
+     * @param {number} textLen - Полная длина HTML-текста книги в байтах.
+     * @param {number} textRecCount - Число текстовых записей (records 1..T).
+     * @param {number} firstImageRec - Номер первой записи-изображения (или 0xFFFFFFFF, если изображений нет).
+     * @param {number} flisRec - Номер записи FLIS.
+     * @param {number} fcisRec - Номер записи FCIS.
+     * @returns {Uint8Array} Собранная record 0.
+     */
     function buildRecord0(
         titleBytes, authorBytes, descBytes, subjectBytesArr, dateBytes,
         textLen, textRecCount, firstImageRec, flisRec, fcisRec
@@ -204,6 +293,10 @@
         return w.toUint8Array();
     }
 
+    /**
+     * Строит служебную запись FLIS (File List), обязательную для формата MOBI.
+     * @returns {Uint8Array} Собранная запись FLIS.
+     */
     function buildFLIS() {
         const w = new BufWriter();
         w.bytes([0x46, 0x4C, 0x49, 0x53]);
@@ -213,6 +306,12 @@
         return w.toUint8Array();
     }
 
+    /**
+     * Строит служебную запись FCIS (File Compression Information), содержащую
+     * общую длину текста книги.
+     * @param {number} textLen - Полная длина HTML-текста книги в байтах.
+     * @returns {Uint8Array} Собранная запись FCIS.
+     */
     function buildFCIS(textLen) {
         const w = new BufWriter();
         w.bytes([0x46, 0x43, 0x49, 0x53]);
@@ -224,6 +323,14 @@
         return w.toUint8Array();
     }
 
+    /**
+     * Собирает все записи в единый Palm Database (.mobi) файл: заголовок PDB
+     * с именем книги и таблицей смещений записей, за которым следуют сами записи.
+     * @param {Uint8Array} titleBytes - Заголовок книги в UTF-8 (обрезается до 31 байта для имени PDB).
+     * @param {Uint8Array[]} records - Список всех записей файла по порядку (record 0, текстовые
+     * записи, записи изображений, FLIS, FCIS, EOF-маркер).
+     * @returns {Uint8Array} Полный бинарный MOBI-файл.
+     */
     function buildPalmDB(titleBytes, records) {
         const N = records.length;
         const HEADER = 78;
@@ -279,6 +386,11 @@
         return out;
     }
 
+    /**
+     * Декодирует base64-строку в бинарный массив байтов.
+     * @param {string} b64 - Base64-строка (пробелы допустимы и удаляются).
+     * @returns {Uint8Array} Декодированные байты.
+     */
     function b64toBytes(b64) {
         const bin = atob(b64.replace(/\s/g, ''));
         const arr = new Uint8Array(bin.length);
@@ -286,7 +398,24 @@
         return arr;
     }
 
+    /**
+     * Экспортёр и парсер формата MOBI (Mobipocket 6) для устройств Kindle: собирает
+     * бинарный файл вручную на чистом JavaScript (без WASM и внешних библиотек),
+     * представляя книгу как один HTML-документ, разбитый на текстовые записи
+     * PalmDOC, с изображениями страниц как отдельными записями.
+     */
     class MOBIExporter extends global.BaseExporter {
+        /**
+         * Строит единый HTML-документ книги: обложку (если есть), заголовки глав
+         * и их содержимое, ссылаясь на изображения по индексу записи (recindex)
+         * и одновременно накапливая эти изображения в imageList.
+         * @param {string} title - Название тайтла.
+         * @param {object[]} chapters - Содержимое глав.
+         * @param {boolean} hasCover - Есть ли у книги обложка (занимает recindex 0001).
+         * @param {{base64: string, contentType: string}[]} imageList - Накопитель
+         * изображений, дополняется на месте по мере обхода глав.
+         * @returns {string} HTML-содержимое всей книги.
+         */
         createHTML(title, chapters, hasCover, imageList) {
             let html = '<!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Transitional//EN"'
                      + ' "http://www.w3.org/TR/xhtml1/DTD/xhtml1-transitional.dtd">\n'
@@ -321,6 +450,15 @@
             return html;
         }
 
+        /**
+         * Собирает полный MOBI-файл: HTML-тело книги, разбитое на текстовые записи
+         * PalmDOC, записи изображений (обложка первой), служебные записи FLIS/FCIS
+         * и заголовочную record 0 с метаданными, объединённые в единый Palm Database.
+         * @param {object} manga - Нормализованные метаданные тайтла.
+         * @param {object[]} chapters - Содержимое глав.
+         * @param {?string} coverBase64 - Обложка тайтла в base64.
+         * @returns {{blob: Blob, filename: string, mimeType: string}} Результат экспорта.
+         */
         export(manga, chapters, coverBase64) {
             const title  = manga.name || 'Без названия';
             const author = manga.authors.filter(Boolean).join(', ') || 'Неизвестно';
@@ -377,6 +515,11 @@
             };
         }
 
+        /**
+         * Разбирает MOBI-файл обратно в унифицированную структуру.
+         * @param {File} file - MOBI-файл для разбора.
+         * @returns {Promise<{metadata: object, cover: string, chapters: object[]}>} Разобранное содержимое.
+         */
         parse(file) {
             return new Promise((resolve, reject) => {
                 const reader = new FileReader();
@@ -389,6 +532,11 @@
             });
         }
 
+        /**
+         * Читает таблицу смещений записей Palm Database из заголовка файла.
+         * @param {DataView} view - DataView всего файла.
+         * @returns {number[]} Список смещений каждой записи в файле.
+         */
         _parseMOBIRecordOffsets(view) {
             const numRecords = view.getUint16(76, false);
             const offsets = [];
@@ -397,6 +545,16 @@
             return offsets;
         }
 
+        /**
+         * Разбирает блок EXTH record 0, извлекая авторов, описание, жанры и дату публикации.
+         * @param {Uint8Array} bytes - Байты всего файла.
+         * @param {DataView} view - DataView всего файла.
+         * @param {TextDecoder} dec - Декодер UTF-8.
+         * @param {number} r0 - Смещение record 0 в файле.
+         * @param {ArrayBuffer} buffer - Буфер всего файла (для проверки границ).
+         * @returns {{authors: string[], summary: string, genres: string[], releaseDate: string}}
+         * Извлечённые метаданные (пустые значения, если блок EXTH отсутствует).
+         */
         _parseMOBIExth(bytes, view, dec, r0, buffer) {
             const authors = [], genres = [];
             let summary = '', releaseDate = '';
@@ -422,6 +580,15 @@
             return { authors, summary, genres, releaseDate };
         }
 
+        /**
+         * Разбирает бинарное содержимое MOBI-файла: проверяет сигнатуру MOBI,
+         * извлекает заголовок, метаданные (EXTH), обложку и восстанавливает
+         * HTML-текст книги из текстовых записей, затем парсит его в главы.
+         * @param {ArrayBuffer} buffer - Бинарное содержимое файла.
+         * @param {string} filename - Имя файла (запасное название книги).
+         * @returns {{metadata: object, cover: string, chapters: object[]}} Разобранное содержимое.
+         * @throws {Error} Если файл не содержит сигнатуру MOBI.
+         */
         _parseMOBI(buffer, filename) {
             const bytes = new Uint8Array(buffer);
             const view  = new DataView(buffer);
@@ -476,6 +643,17 @@
             };
         }
 
+        /**
+         * Разбирает восстановленный HTML-текст книги в список глав: заголовки h2
+         * начинают новую главу, теги p/div с картинкой (по recindex) или текстом
+         * добавляются в содержимое текущей главы.
+         * @param {string} html - Восстановленный HTML-текст книги.
+         * @param {number} firstImageRec - Номер первой записи-изображения (из record 0).
+         * @param {number[]} recordOffsets - Список смещений всех записей файла.
+         * @param {Uint8Array} bytes - Байты всего файла (для чтения изображений по смещению).
+         * @param {number} bufferLen - Общая длина файла в байтах.
+         * @returns {object[]} Список разобранных глав.
+         */
         _parseMOBIHtml(html, firstImageRec, recordOffsets, bytes, bufferLen) {
             const parser = new DOMParser();
             const doc  = parser.parseFromString(html, 'text/html');
@@ -528,6 +706,12 @@
             return chapters;
         }
 
+        /**
+         * Извлекает номер тома и главы из строки заголовка вида "Том X, Глава Y".
+         * @param {string} title - Заголовок главы.
+         * @returns {?{volume: string, number: string}} Найденные том/номер главы,
+         * либо null, если заголовок не соответствует ожидаемому формату.
+         */
         _extractVolNum(title) {
             const m = title.match(/Том\s+([^\s,]+)[,\s]+Глава\s+(\S+)/);
             if (m) return { volume: m[1], number: m[2] };
@@ -536,6 +720,12 @@
             return null;
         }
 
+        /**
+         * Кодирует бинарные данные в base64, обрабатывая массив чанками во
+         * избежание переполнения стека вызовов на больших изображениях.
+         * @param {Uint8Array} bytes - Исходные байты.
+         * @returns {string} Base64-строка.
+         */
         _bytesToBase64(bytes) {
             let binary = '';
             const CHUNK = 0x8000;
