@@ -109,6 +109,28 @@ describe('ImageCompressor — compress()', () => {
         expect(canvas.height).toBe(1200);
     });
 
+    it('scales image down proportionally to fit maxWidth/maxHeight', async () => {
+        const drawImage = vi.fn();
+        const { canvas } = makeCanvas({ drawImage });
+        global.Image = makeImage({ naturalWidth: 1400, naturalHeight: 2000 });
+        global.document = { createElement: () => canvas };
+
+        await ImageCompressor.compress('input', 'image/jpeg', { maxWidth: 560, maxHeight: 740 });
+        expect(canvas.width).toBe(518);
+        expect(canvas.height).toBe(740);
+        expect(drawImage).toHaveBeenCalledWith(expect.anything(), 0, 0, 518, 740);
+    });
+
+    it('does not upscale images smaller than maxWidth/maxHeight', async () => {
+        const { canvas } = makeCanvas();
+        global.Image = makeImage({ naturalWidth: 300, naturalHeight: 400 });
+        global.document = { createElement: () => canvas };
+
+        await ImageCompressor.compress('input', 'image/jpeg', { maxWidth: 560, maxHeight: 740 });
+        expect(canvas.width).toBe(300);
+        expect(canvas.height).toBe(400);
+    });
+
     it('passes specified quality to toDataURL', async () => {
         const toDataURL = vi.fn(() => 'data:image/jpeg;base64,q');
         const { canvas } = makeCanvas({ toDataURL });

@@ -4,7 +4,7 @@
  * @module core/ImageCompressor
  * @license MIT
  * @author ivanvit
- * @version 1.0.9
+ * @version 1.1.0
  */
 
 'use strict';
@@ -21,21 +21,23 @@
          * При ошибке загрузки исходного изображения возвращает его без изменений.
          * @param {string} base64 - Исходное содержимое изображения в base64 (без префикса data:).
          * @param {string} contentType - MIME-тип исходного изображения.
-         * @param {{quality?: number, format?: string}} [options] - Качество сжатия (0-1)
-         * и целевой MIME-тип canvas.toDataURL.
+         * @param {{quality?: number, format?: string, maxWidth?: number, maxHeight?: number}} [options]
+         * Качество сжатия (0-1), целевой MIME-тип canvas.toDataURL и необязательные
+         * габариты, в которые изображение пропорционально уменьшается (не увеличивается).
          * @returns {Promise<{base64: string, contentType: string}>} Сжатое (или исходное
          * при ошибке) содержимое изображения и его MIME-тип.
          */
         static compress(base64, contentType, options = {}) {
-            const { quality = 0.92, format = 'image/jpeg' } = options;
+            const { quality = 0.92, format = 'image/jpeg', maxWidth = Infinity, maxHeight = Infinity } = options;
 
             return new Promise((resolve) => {
                 const img = new Image();
 
                 img.onload = () => {
+                    const scale = Math.min(1, maxWidth / img.naturalWidth, maxHeight / img.naturalHeight);
                     const canvas = document.createElement('canvas');
-                    canvas.width = img.naturalWidth;
-                    canvas.height = img.naturalHeight;
+                    canvas.width = Math.max(1, Math.round(img.naturalWidth * scale));
+                    canvas.height = Math.max(1, Math.round(img.naturalHeight * scale));
                     const ctx = canvas.getContext('2d');
 
                     if (format === 'image/jpeg') {
@@ -43,7 +45,8 @@
                         ctx.fillRect(0, 0, canvas.width, canvas.height);
                     }
 
-                    ctx.drawImage(img, 0, 0);
+                    ctx.imageSmoothingQuality = 'high';
+                    ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
 
                     const dataUrl = canvas.toDataURL(format, quality);
                     const [, compressed] = dataUrl.split(',');

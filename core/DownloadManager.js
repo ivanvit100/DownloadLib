@@ -4,7 +4,7 @@
  * @module core/DownloadManager
  * @license MIT
  * @author ivanvit
- * @version 1.0.10
+ * @version 1.1.0
  */
 
 'use strict';
@@ -13,6 +13,13 @@
     console.log('[DownloadManager] Loading...');
 
     let activeGate = null;
+
+    /**
+     * Габариты, в которые вписываются изображения FB2 при включённой настройке.
+     * Okular вёрстает FB2 на страницы 600×800 с полями 20px и режет картинки,
+     * не помещающиеся по высоте; запас по высоте — на отступы абзаца и строки.
+     */
+    const FB2_IMAGE_FIT = { maxWidth: 560, maxHeight: 740 };
 
     /**
      * Функция, прерывающая загрузку при паузе или завершении загрузки.
@@ -103,7 +110,7 @@
          */
         _createDownloadState(options, service) {
             const { url, format = 'fb2', slug, serviceKey, controller,
-                loadedFile, maxSizeMB = 200, splitPages = true } = options;
+                loadedFile, maxSizeMB = 200, splitPages = true, fitFb2Images = false } = options;
             const downloadId = this.generateId();
             return {
                 id: downloadId,
@@ -113,6 +120,7 @@
                 format,
                 maxSizeMB,
                 splitPages,
+                imageFit: fitFb2Images && format === 'fb2' ? FB2_IMAGE_FIT : null,
                 status: 'initializing',
                 progress: 0,
                 controller: controller || this.createController(),
@@ -217,7 +225,8 @@
          * на файлы по лимиту размера.
          * @param {{url?: string, format?: string, chapterRange?: {from: number, to: number},
          * branchId?: number, maxSizeMB?: number, authToken?: string, loadedFile?: File,
-         * serviceKey?: string, slug?: string, controller?: object, splitPages?: boolean}} options
+         * serviceKey?: string, slug?: string, controller?: object, splitPages?: boolean,
+         * fitFb2Images?: boolean}} options
          * Параметры загрузки.
          * @returns {Promise<{success: boolean, downloadId: string}>} Результат загрузки.
          * @throws {Error} При ошибке на любом из этапов загрузки (после эмиссии download:failed).
@@ -254,7 +263,8 @@
                 downloadState.mangaId = patched.id || null;
 
                 this.updateStatus(downloadId, 'Загружаем обложку...', 7);
-                downloadState.coverBase64 = await this._fetchCoverBase64(service, patched.cover);
+                downloadState.coverBase64 =
+                    await this._fetchCoverBase64(service, patched.cover, downloadState.imageFit);
 
                 this.updateStatus(downloadId, 'Загрузка списка глав...', 10);
                 const chapters = await this._fetchAndFilterChapters(service, downloadState, branchId, chapterRange);
@@ -283,14 +293,21 @@
          * Загружает обложку тайтла и кодирует её в data-URL с base64-содержимым.
          * @param {object} service - Экземпляр сервиса (используется для rate limiting по имени).
          * @param {?string} cover - URL обложки.
+         * @param {?{maxWidth: number, maxHeight: number}} [imageFit] - Габариты, в которые
+         * вписывается обложка; без них обложка сохраняется как есть.
          * @returns {Promise<string>} data-URL с обложкой, либо пустая строка при
          * отсутствии URL или ошибке загрузки.
          */
-        async _fetchCoverBase64(service, cover) {
+        async _fetchCoverBase64(service, cover, imageFit = null) {
             if (!cover || typeof cover !== 'string') return '';
             try {
                 const result = await global.fetchViaTab(cover, service.name);
-                if (result?.ok) return `data:${result.contentType};base64,${result.base64}`;
+                if (result?.ok) {
+                    const { base64, contentType } = imageFit && global.ImageCompressor
+                        ? await global.ImageCompressor.compress(result.base64, result.contentType, imageFit)
+                        : result;
+                    return `data:${contentType};base64,${base64}`;
+                }
                 console.warn('[DownloadManager] fetchViaTab returned no result for cover');
                 return '';
             } catch (e) {
@@ -451,7 +468,8 @@
                             chapterObj: chapter,
                             mangaSlug: downloadState.slug,
                             mangaId: downloadState.mangaId,
-                            splitLongImages: downloadState.splitPages && downloadState.format !== 'simple'
+                            splitLongImages: downloadState.splitPages && downloadState.format !== 'simple',
+                            imageFit: downloadState.imageFit
                         }
                       )
                     : extractedContent;
@@ -760,7 +778,8 @@
                                 chapterObj: chapter,
                                 mangaSlug: downloadState.slug,
                                 mangaId: downloadState.mangaId,
-                                splitLongImages: downloadState.splitPages && downloadState.format !== 'simple'
+                                splitLongImages: downloadState.splitPages && downloadState.format !== 'simple',
+                                imageFit: downloadState.imageFit
                             }
                           )
                         : extractedContent;

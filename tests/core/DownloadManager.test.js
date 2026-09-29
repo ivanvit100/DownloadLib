@@ -1182,6 +1182,31 @@ describe('DownloadManager', () => {
         warnSpy.mockRestore();
     });
 
+    it('_createDownloadState sets imageFit only for FB2 with fitFb2Images enabled', () => {
+        const dm = new DownloadManager();
+        const service = { name: 'ranobelib' };
+        const fit = dm._createDownloadState({ slug: 's', format: 'fb2', fitFb2Images: true }, service);
+        expect(fit.imageFit).toEqual({ maxWidth: 560, maxHeight: 740 });
+        expect(dm._createDownloadState({ slug: 's', format: 'epub', fitFb2Images: true }, service).imageFit).toBeNull();
+        expect(dm._createDownloadState({ slug: 's', format: 'fb2' }, service).imageFit).toBeNull();
+    });
+
+    it('_fetchCoverBase64 fits cover into imageFit via ImageCompressor', async () => {
+        const dm = new DownloadManager();
+        globalThis.fetchViaTab = vi.fn(async () => ({ ok: true, contentType: 'image/png', base64: 'orig' }));
+        const compress = vi.fn(async () => ({ base64: 'small', contentType: 'image/jpeg' }));
+        const prevCompressor = globalThis.ImageCompressor;
+        globalThis.ImageCompressor = { compress };
+        try {
+            const fit = { maxWidth: 560, maxHeight: 740 };
+            const result = await dm._fetchCoverBase64({ name: 'ranobelib' }, 'https://cover.url', fit);
+            expect(compress).toHaveBeenCalledWith('orig', 'image/png', fit);
+            expect(result).toBe('data:image/jpeg;base64,small');
+        } finally {
+            globalThis.ImageCompressor = prevCompressor;
+        }
+    });
+
     it('startDownload delegates to updateExistingFile when loadedFile is provided', async () => {
         const dm = new DownloadManager();
         const updateSpy = vi.spyOn(dm, 'updateExistingFile').mockResolvedValue({ success: true, downloadId: 'id', updated: false });

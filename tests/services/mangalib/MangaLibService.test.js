@@ -826,6 +826,47 @@ describe('MangaLibService', () => {
         delete global.ImageCompressor;
     });
 
+    it('_processImage fits every split part into imageFit via ImageCompressor.compress', async () => {
+        const svc = new MangaLibService();
+        global.browser = { runtime: { sendMessage: vi.fn() } };
+        global.fetchPageImage = vi.fn().mockResolvedValue({ ok: true, base64: 'raw', contentType: 'image/jpeg' });
+        svc.splitLongImage = vi.fn().mockResolvedValue([
+            { base64: 'p1', contentType: 'image/jpeg' },
+            { base64: 'p2', contentType: 'image/jpeg' }
+        ]);
+        const compress = vi.fn(async base64 => ({ base64: `${base64}-fit`, contentType: 'image/jpeg' }));
+        global.ImageCompressor = { compress };
+        const imageFit = { maxWidth: 560, maxHeight: 740 };
+        const result = await svc.loadPageAsBase64('img.jpg', { splitLongImages: true, imageFit });
+        expect(compress).toHaveBeenCalledTimes(2);
+        expect(compress).toHaveBeenCalledWith('p1', 'image/jpeg', expect.objectContaining(imageFit));
+        expect(result).toEqual([
+            { base64: 'p1-fit', contentType: 'image/jpeg' },
+            { base64: 'p2-fit', contentType: 'image/jpeg' }
+        ]);
+        delete global.browser;
+        delete global.fetchPageImage;
+        delete global.ImageCompressor;
+    });
+
+    it('_processImage returns split parts as is when imageFit is set but ImageCompressor is absent', async () => {
+        const svc = new MangaLibService();
+        global.browser = { runtime: { sendMessage: vi.fn() } };
+        global.fetchPageImage = vi.fn().mockResolvedValue({ ok: true, base64: 'raw', contentType: 'image/jpeg' });
+        const parts = [
+            { base64: 'p1', contentType: 'image/jpeg' },
+            { base64: 'p2', contentType: 'image/jpeg' }
+        ];
+        svc.splitLongImage = vi.fn().mockResolvedValue(parts);
+        delete global.ImageCompressor;
+        const result = await svc.loadPageAsBase64('img.jpg', {
+            splitLongImages: true, imageFit: { maxWidth: 560, maxHeight: 740 }
+        });
+        expect(result).toEqual(parts);
+        delete global.browser;
+        delete global.fetchPageImage;
+    });
+
     it('_processImage calls ImageCompressor.compress when splitLongImages is false', async () => {
         const svc = new MangaLibService();
         global.browser = { runtime: { sendMessage: vi.fn() } };

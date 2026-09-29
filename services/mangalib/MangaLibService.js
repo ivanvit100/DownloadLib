@@ -4,7 +4,7 @@
  * @module services/mangalib/MangaLibService
  * @license MIT
  * @author ivanvit
- * @version 1.0.9
+ * @version 1.1.0
  */
 
 'use strict';
@@ -149,7 +149,11 @@
         async _processImage(base64Data, contentType, compressOpts, splitLongImages) {
             if (splitLongImages) {
                 const parts = await this.splitLongImage(base64Data, contentType, compressOpts);
-                if (parts.length > 1) return parts;
+                if (parts.length > 1) {
+                    if (!compressOpts.maxWidth || !global.ImageCompressor) return parts;
+                    return Promise.all(parts.map(part =>
+                        global.ImageCompressor.compress(part.base64, part.contentType, compressOpts)));
+                }
                 const [raw] = parts;
                 return global.ImageCompressor
                     ? global.ImageCompressor.compress(raw.base64, raw.contentType, compressOpts)
@@ -189,7 +193,8 @@
 
                 const compressOpts = {
                     format: opts.compressionFormat || 'image/jpeg',
-                    quality: opts.compressionQuality || 0.92
+                    quality: opts.compressionQuality || 0.92,
+                    ...opts.imageFit
                 };
                 const result = await this._processImage(
                     response.base64,
@@ -222,7 +227,8 @@
             const loadOpts = {
                 splitLongImages: opts.splitLongImages !== false,
                 compressionFormat: opts.compressionFormat || 'image/jpeg',
-                compressionQuality: opts.compressionQuality || 0.92
+                compressionQuality: opts.compressionQuality || 0.92,
+                imageFit: opts.imageFit
             };
 
             const result = [];

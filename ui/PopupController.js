@@ -4,7 +4,7 @@
  * @module ui/PopupController
  * @license MIT
  * @author ivanvit
- * @version 1.0.10
+ * @version 1.1.0
  */
 
 'use strict';
@@ -936,6 +936,7 @@
 
                 const splitPagesEl = $el('splitPagesCheckbox');
                 const splitPages = splitPagesEl ? splitPagesEl.checked : false;
+                const fitFb2Images = localStorage.getItem('manga_parser_fit_fb2_images') === 'true';
 
                 const result = await this.downloadManager.startDownload({
                     slug: this.currentSlug,
@@ -946,6 +947,7 @@
                     branchId,
                     maxSizeMB,
                     splitPages,
+                    fitFb2Images,
                     authToken: this.authToken,
                     controller: {
                         isPaused: () => this.isPaused,

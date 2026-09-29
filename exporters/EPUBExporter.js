@@ -4,7 +4,7 @@
  * @module exporters/EPUBExporter
  * @license MIT
  * @author ivanvit
- * @version 1.0.6
+ * @version 1.1.0
  */
 
 'use strict';
@@ -99,7 +99,7 @@
 
             if (includeCover) {
                 if (isImageOnlyChapter)
-                    body += '<img class="page-image" src="images/cover.jpg" alt="Cover"/>\n';
+                    body += '<div class="page"><img class="page-image" src="images/cover.jpg" alt="Cover"/></div>\n';
                 else {
                     body += '<div style="text-align: center; margin: 20px 0;">\n';
                     body += '<img src="images/cover.jpg" alt="Cover" style="max-width: 100%; height: auto;"/>\n';
@@ -127,7 +127,7 @@
                         }
                     } else if (block.type === 'image' && block._epubImagePath) {
                         if (isImageOnlyChapter)
-                            body += `<img class="page-image" src="${block._epubImagePath}" alt="Image"/>\n`;
+                            body += `<div class="page"><img class="page-image" src="${block._epubImagePath}" alt="Image"/></div>\n`;
                         else {
                             body += '<div style="text-align: center; margin: 10px 0;">\n';
                             body += `<img src="${block._epubImagePath}" alt="Image" style="max-width: 100%; height: auto;"/>\n`;
@@ -143,7 +143,7 @@
 <head>
     <meta charset="utf-8"/>
     <title>${title}</title>
-    ${isImageOnlyChapter ? '<style type="text/css">html,body{margin:0;padding:0;} body{line-height:0;font-size:0;} img.page-image{display:block;width:100%;height:auto;margin:0;padding:0;border:0;}</style>' : ''}
+    ${isImageOnlyChapter ? '<style type="text/css">html,body{margin:0;padding:0;} div.page{margin:0;padding:0;} img.page-image{display:block;width:100%;height:auto;margin:0;padding:0;border:0;}</style>' : ''}
 </head>
 <body>
     ${isImageOnlyChapter ? '' : `<h2>${title}</h2>`}
