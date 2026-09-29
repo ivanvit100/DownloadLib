@@ -3,7 +3,7 @@
  * Controls the settings view
  * @module ui/SettingsController
  * @author ivanvit
- * @version 1.0.10
+ * @version 1.1.0
  */
 
 'use strict';
@@ -14,6 +14,7 @@
     const RATE_LIMIT_KEY = 'downloadlib_default_rate_limit';
     const MAX_SIZE_KEY = 'manga_parser_max_size_mb';
     const RANGE_MODE_KEY = 'manga_parser_range_mode';
+    const FIT_FB2_IMAGES_KEY = 'manga_parser_fit_fb2_images';
 
     /**
      * Синглтон-контроллер экрана настроек расширения.
@@ -27,6 +28,7 @@
         init() {
             this._renderRateLimit();
             this._renderMaxSize();
+            this._renderFitFb2Images();
             this._renderRangeMode();
             this._renderPlugins();
             this._bindEvents();
@@ -50,6 +52,16 @@
             const input = document.getElementById('settingsMaxSize');
             if (!input) return;
             input.value = localStorage.getItem(MAX_SIZE_KEY) || '200';
+        },
+
+        /**
+         * Отмечает чекбокс вписывания изображений FB2 в страницу согласно сохранённому значению.
+         * @returns {void}
+         */
+        _renderFitFb2Images() {
+            const checkbox = document.getElementById('settingsFitFb2Images');
+            if (!checkbox) return;
+            checkbox.checked = localStorage.getItem(FIT_FB2_IMAGES_KEY) === 'true';
         },
 
         /**
@@ -202,6 +214,12 @@
                         saveMaxSizeBtn.disabled = false;
                     }, 1500);
                 });
+            }
+
+            const fitFb2ImagesCheckbox = document.getElementById('settingsFitFb2Images');
+            if (fitFb2ImagesCheckbox) {
+                fitFb2ImagesCheckbox.addEventListener('change', () =>
+                    localStorage.setItem(FIT_FB2_IMAGES_KEY, String(fitFb2ImagesCheckbox.checked)));
             }
 
             const rangeModeChapters = document.getElementById('rangeModeChapters');

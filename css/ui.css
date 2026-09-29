@@ -617,6 +617,9 @@ input[type="number"] {
     cursor: pointer;
     transition: all 0.3s ease;
 }
+.settings-toggle-group + .settings-btn-outline {
+    margin-top: 12px;
+}
 .settings-toggle-btn + .settings-toggle-btn {
     border-left: 1px solid #444;
 }
@@ -689,7 +692,7 @@ input[type="number"] {
     flex-shrink: 0;
     margin-left: 8px;
 }
-.plugin-toggle {
+.plugin-toggle, .settings-checkbox {
     appearance: none;
     -webkit-appearance: none;
     -moz-appearance: none;
@@ -704,20 +707,20 @@ input[type="number"] {
     display: inline-block;
     flex-shrink: 0;
 }
-.plugin-toggle:hover {
+.plugin-toggle:hover, .settings-checkbox:hover {
     border-color: var(--primary-color);
     box-shadow: 0 0 5px var(--primary-color);
 }
-.plugin-toggle:focus {
+.plugin-toggle:focus, .settings-checkbox:focus {
     outline: none;
     border-color: var(--primary-color);
     box-shadow: 0 0 5px var(--primary-color);
 }
-.plugin-toggle:checked {
+.plugin-toggle:checked, .settings-checkbox:checked {
     background: var(--primary-color);
     border-color: var(--primary-color);
 }
-.plugin-toggle:checked::after {
+.plugin-toggle:checked::after, .settings-checkbox:checked::after {
     content: '✓';
     position: absolute;
     color: white;

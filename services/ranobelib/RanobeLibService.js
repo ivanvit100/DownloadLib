@@ -4,7 +4,7 @@
  * @module services/ranobelib/RanobeLibService
  * @license MIT
  * @author ivanvit
- * @version 1.0.10
+ * @version 1.1.0
  */
 
 'use strict';
@@ -278,7 +278,8 @@
             const attachmentMap = this._buildAttachmentMap(chapterMeta.attachments);
             const compressOpts = {
                 format: opts.compressionFormat || 'image/jpeg',
-                quality: opts.compressionQuality || 0.92
+                quality: opts.compressionQuality || 0.92,
+                ...opts.imageFit
             };
 
             const result = [];
