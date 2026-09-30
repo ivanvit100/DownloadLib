@@ -12,12 +12,26 @@
 (function(global) {
     console.log('[RanobeLibService] Loading...');
 
+    /**
+     * Сервис-парсер сайта RanobeLib: содержимое главы приходит как ProseMirror-подобное
+     * дерево rich-text JSON (или, в некоторых ответах, как готовый HTML-текст),
+     * которое приводится к унифицированному формату текстовых/изображений-блоков
+     * с сохранением базового инлайнового форматирования (жирный, курсив и т.д.).
+     */
     class RanobeLibService extends global.BaseService {
+        /**
+         * Создаёт сервис с конфигурацией RanobeLib.
+         */
         constructor() {
             super(global.ranolibConfig);
             console.log('[RanobeLibService] Instance created');
         }
 
+        /**
+         * Проверяет, относится ли URL к хосту RanobeLib.
+         * @param {string} url - Проверяемый URL.
+         * @returns {boolean} true, если хост URL — ranobelib.me.
+         */
         static matches(url) {
             try {
                 const { hostname } = new URL(url);
@@ -27,6 +41,13 @@
             }
         }
 
+        /**
+         * Удаляет HTML-разметку из строки, превращая её в чистый текст: заменяет
+         * &lt;br&gt;/&lt;/p&gt; переносами строк, вырезает остальные теги и декодирует
+         * основные HTML-сущности.
+         * @param {?string} str - Исходная HTML-строка.
+         * @returns {string} Очищенный текст, либо пустая строка для falsy-значений.
+         */
         stripHtml(str) {
             if (!str) return '';
             return str
@@ -43,6 +64,13 @@
                 .trim();
         }
 
+        /**
+         * Сопоставляет тип узла/marks ProseMirror-дерева с соответствующим
+         * HTML-тегом инлайнового форматирования.
+         * @param {string} type - Тип узла или marks (strong, em, underline, strike, code и т.д.).
+         * @returns {?string} HTML-тег ('strong', 'em', 'u', 's', 'code'), либо null,
+         * если тип не поддерживается.
+         */
         _inlineTagFor(type) {
             const map = {
                 strong: 'strong', bold: 'strong', b: 'strong',
@@ -54,6 +82,13 @@
             return map[type] || null;
         }
 
+        /**
+         * Рекурсивно преобразует узел ProseMirror-дерева (включая текстовые узлы
+         * с marks и переносы строк) в эквивалентную HTML-разметку с базовыми
+         * инлайновыми тегами форматирования.
+         * @param {*} node - Узел содержимого (объект, строка, либо falsy).
+         * @returns {string} HTML-представление узла.
+         */
         _nodeToHtml(node) {
             if (!node) return '';
             if (typeof node === 'string')
@@ -79,6 +114,12 @@
             return '';
         }
 
+        /**
+         * Проверяет, содержит ли узел (рекурсивно) хоть какое-то инлайновое
+         * форматирование, которое нужно сохранить в HTML-представлении блока.
+         * @param {*} node - Проверяемый узел содержимого.
+         * @returns {boolean} true, если найдено форматирование.
+         */
         _hasFormatting(node) {
             if (!node) return false;
             if (Array.isArray(node.marks) && node.marks.length > 0) return true;
@@ -88,6 +129,13 @@
             return false;
         }
 
+        /**
+         * Очищает произвольный HTML до безопасного ограниченного набора инлайновых
+         * тегов (strong/em/s/u/code и br), вырезая script/style, атрибуты и
+         * схлопывая избыточные переносы строк.
+         * @param {?string} html - Исходный HTML-фрагмент.
+         * @returns {string} Очищенный HTML, либо пустая строка для falsy-значений.
+         */
         _sanitizeInlineHtml(html) {
             if (!html) return '';
             const br = '\x00br\x00';
@@ -110,6 +158,13 @@
             return result;
         }
 
+        /**
+         * Разбирает содержимое главы, присланное как готовая HTML-строка (запасной
+         * формат, когда данные главы — не JSON-дерево): разделяет текст и изображения
+         * &lt;img&gt;, сохраняя инлайновое форматирование, если оно присутствует.
+         * @param {string} str - Исходная HTML-строка содержимого главы.
+         * @returns {object[]} Список блоков содержимого (текст/изображения).
+         */
         _parseHtmlString(str) {
             const result = [];
             const parts = str.split(/(<img\s[^>]*>)/i);
@@ -129,6 +184,12 @@
             return result;
         }
 
+        /**
+         * Рекурсивно извлекает и объединяет чистый текст (без HTML) из узла
+         * ProseMirror-дерева, преобразуя hardBreak в перенос строки.
+         * @param {*} node - Узел содержимого (объект, строка, либо falsy).
+         * @returns {string} Извлечённый текст.
+         */
         _extractFromNode(node) {
             if (!node) return '';
             if (typeof node === 'string') return this.stripHtml(node);
@@ -139,6 +200,12 @@
             return '';
         }
 
+        /**
+         * Извлекает блоки изображений из атрибутов узла типа 'image' ProseMirror-дерева.
+         * @param {?{images?: Array<{image?: string}>}} attrs - Атрибуты узла изображения.
+         * @returns {{type: 'image', src: string}[]} Список блоков изображений
+         * (пропускает элементы без поля image).
+         */
         _extractImages(attrs) {
             if (!attrs || !Array.isArray(attrs.images)) return [];
             return attrs.images.flatMap(img => {
@@ -148,6 +215,14 @@
             });
         }
 
+        /**
+         * Извлекает содержимое узла-параграфа: изображения, если параграф состоит
+         * из них, иначе текстовый блок с сохранением выравнивания (если не левое)
+         * и HTML-представления (если есть инлайновое форматирование).
+         * @param {object} item - Узел-параграф ProseMirror-дерева.
+         * @returns {object[]} Список из 0 или 1 блока содержимого (либо нескольких
+         * блоков изображений).
+         */
         _extractFromParagraph(item) {
             const align = item.attrs?.textAlign;
             if (Array.isArray(item.content)) {
@@ -176,6 +251,13 @@
             return text.trim() ? [{ type: 'text', text }] : [];
         }
 
+        /**
+         * Извлекает содержимое одного узла верхнего уровня дерева главы, выбирая
+         * обработку по типу узла (параграф, изображение, разделитель, заголовок/
+         * список/цитата — как обычный текст).
+         * @param {{type: string}} item - Узел содержимого верхнего уровня.
+         * @returns {object[]} Список блоков содержимого, извлечённых из узла.
+         */
         _extractFromItem(item) {
             if (item.type === 'paragraph') return this._extractFromParagraph(item);
             if (item.type === 'image' && item.attrs && Array.isArray(item.attrs.images))
@@ -189,6 +271,13 @@
             return [];
         }
 
+        /**
+         * Извлекает список текстовых/изображений-блоков главы: парсит content как
+         * JSON ProseMirror-дерево (с распаковкой корневого узла 'doc' при наличии),
+         * откатываясь на разбор как готового HTML, если content — не валидный JSON.
+         * @param {*} content - Сырое содержимое главы от API (JSON-строка, объект дерева, либо HTML-строка).
+         * @returns {object[]} Список блоков содержимого главы.
+         */
         extractText(content) {
             let data = content;
 
@@ -210,6 +299,13 @@
                 .flatMap(item => this._extractFromItem(item));
         }
 
+        /**
+         * Строит карту "имя вложения → расширение файла" из метаданных главы,
+         * используемую для определения расширения изображений, ссылки на которые
+         * заданы просто по UUID без расширения.
+         * @param {?Array<{name?: string, extension?: string}>} attachments - Список вложений главы.
+         * @returns {object} Карта имя → расширение.
+         */
         _buildAttachmentMap(attachments) {
             if (!Array.isArray(attachments)) return {};
             const map = {};
@@ -220,6 +316,15 @@
             return map;
         }
 
+        /**
+         * Строит базовый URL изображения (без расширения) из ссылки: полного URL,
+         * абсолютного пути на ranobelib.me, либо UUID, разрешаемого в путь uploads
+         * конкретного тайтла/главы.
+         * @param {string} src - Ссылка на изображение из содержимого главы.
+         * @param {*} mangaId - id тайтла (для построения пути uploads).
+         * @param {*} chapterId - id главы (для построения пути uploads).
+         * @returns {string} Базовый URL изображения без расширения файла.
+         */
         _resolveBaseUrl(src, mangaId, chapterId) {
             const srcWithoutExt = src.replace(/\.(jpg|jpeg|png|webp|gif)$/i, '');
             if (/^https?:\/\//i.test(src)) return srcWithoutExt;
@@ -227,6 +332,13 @@
             return `https://ranobelib.me/uploads/ranobe/${mangaId}/chapters/${chapterId}/${srcWithoutExt}`;
         }
 
+        /**
+         * Пытается загрузить изображение по базовому URL с указанным расширением.
+         * @param {string} baseUrl - Базовый URL изображения без расширения.
+         * @param {string} ext - Расширение файла для попытки (jpg, png и т.д.).
+         * @returns {Promise<?{base64: string, contentType: string}>} Загруженное
+         * изображение, либо null, если запрос не удался.
+         */
         async _fetchImageWithExt(baseUrl, ext) {
             const url = `${baseUrl}.${ext}`;
             if (!this.extensionApi?.runtime?.sendMessage) {
@@ -241,6 +353,18 @@
             return { base64: response.base64, contentType: response.contentType || 'image/png' };
         }
 
+        /**
+         * Загружает и сжимает изображение одного блока: определяет вероятное
+         * расширение файла (по самой ссылке или карте вложений) и перебирает
+         * известные расширения по порядку, пока загрузка не удастся.
+         * @param {{src: string}} block - Блок изображения из содержимого главы.
+         * @param {object} attachmentMap - Карта имя вложения → расширение (из _buildAttachmentMap).
+         * @param {*} mangaId - id тайтла.
+         * @param {*} chapterId - id главы.
+         * @param {object} [compressOpts] - Опции сжатия изображения.
+         * @returns {Promise<?{type: 'image', data: {base64: string, contentType: string}}>}
+         * Готовый блок изображения, либо null, если ни одно расширение не подошло.
+         */
         async _processImageBlock(block, attachmentMap, mangaId, chapterId, compressOpts = {}) {
             const isFullUrl = /^https?:\/\//i.test(block.src);
             const isAbsolutePath = /^(?:\/\/|\/)/.test(block.src);
@@ -271,6 +395,16 @@
             return null;
         }
 
+        /**
+         * Дополняет извлечённые блоки главы фактическими данными изображений:
+         * текстовые блоки пропускаются как есть (пустые отбрасываются), блоки
+         * изображений догружаются и сжимаются через _processImageBlock.
+         * @param {object[]} extracted - Блоки содержимого главы, извлечённые extractText.
+         * @param {*} _status - Не используется (сохранён для единообразия сигнатуры с другими сервисами).
+         * @param {object} [opts] - Опции обработки (chapterMeta, mangaId, compressionFormat,
+         * compressionQuality, imageFit).
+         * @returns {Promise<object[]>} Готовые блоки содержимого главы.
+         */
         async processChapterContent(extracted, _status, opts = {}) {
             const chapterMeta = opts.chapterMeta || {};
             const mangaId = opts.mangaId || chapterMeta.manga_id;

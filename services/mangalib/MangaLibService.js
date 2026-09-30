@@ -12,13 +12,26 @@
 (function(global) {
     console.log('[MangaLibService] Loading...');
 
+    /**
+     * Сервис-парсер сайта MangaLib: изображения страниц отдаются одним "сжатым"
+     * сервером, но могут быть аномально длинными — при необходимости
+     * разбиваются на части по соотношению сторон A4 перед сжатием.
+     */
     class MangaLibService extends global.BaseService {
+        /**
+         * Создаёт сервис с конфигурацией MangaLib и пустым кэшем загруженных изображений.
+         */
         constructor() {
             super(global.mangalibConfig);
             this._imageCache = new Map();
             console.log('[MangaLibService] Instance created');
         }
 
+        /**
+         * Проверяет, относится ли URL к хостам MangaLib.
+         * @param {string} url - Проверяемый URL.
+         * @returns {boolean} true, если хост URL принадлежит MangaLib.
+         */
         static matches(url) {
             try {
                 const { hostname } = new URL(url);
@@ -30,6 +43,11 @@
             }
         }
 
+        /**
+         * Извлекает список страниц главы в унифицированном текстовом формате.
+         * @param {object} content - Сырое содержимое главы от API.
+         * @returns {{type: 'image', src: string}[]} Список страниц как изображений.
+         */
         extractText(content) {
             const pages = this.extractPages(content);
             if (pages.length > 0) {
@@ -48,14 +66,32 @@
             return [];
         }
 
+        /**
+         * Возвращает конфигурацию сервера изображений.
+         * @returns {{domain: string, compress: boolean, apiParam: string}} Конфигурация сервера.
+         */
         _getActiveServer() {
             return { domain: this.config.imagesDomain, compress: true, apiParam: 'compress' };
         }
 
+        /**
+         * Загружает данные главы, всегда запрашивая изображения со "сжатого" сервера.
+         * @param {string} slug - Slug тайтла.
+         * @param {*} number - Номер главы.
+         * @param {*} [volume='1'] - Номер тома.
+         * @param {?number} [branchId] - id ветки перевода.
+         * @returns {Promise<?object>} Данные главы от API.
+         */
         fetchChapter(slug, number, volume = '1', branchId = null) {
             return super.fetchChapter(slug, number, volume, branchId, { server: 'compress' });
         }
 
+        /**
+         * Строит абсолютный URL страницы главы из ссылки (строка, либо объект
+         * с полем filename/url/src) на домене активного сервера изображений.
+         * @param {*} filename - Ссылка на страницу.
+         * @returns {?string} Абсолютный URL страницы, либо null, если filename пуст.
+         */
         resolvePageUrl(filename) {
             if (!filename) return null;
 
@@ -77,6 +113,18 @@
             return `${domain}/${filenameStr}`;
         }
 
+        /**
+         * Разбивает аномально длинное изображение на несколько
+         * частей по соотношению сторон, близкому к A4, чтобы каждая часть нормально
+         * помещалась на страницу файла; изображения с обычным соотношением сторон
+         * возвращаются без изменений.
+         * @param {string} base64Data - Исходное изображение в base64.
+         * @param {string} contentType - MIME-тип исходного изображения.
+         * @param {{format?: string, quality?: number}} [compressOpts] - Формат и качество
+         * для перекодирования частей через canvas.
+         * @returns {Promise<{base64: string, contentType: string}[]>} Список частей
+         * изображения (один элемент, если разбиение не потребовалось).
+         */
         splitLongImage(base64Data, contentType, compressOpts = {}) {
             return new Promise((resolve) => {
                 const img = new Image();
@@ -132,6 +180,11 @@
             });
         }
 
+        /**
+         * Извлекает и разрешает абсолютный URL страницы из ссылки произвольной формы.
+         * @param {*} ref - Ссылка на страницу.
+         * @returns {?string} Абсолютный URL страницы, либо null, если формат не распознан.
+         */
         _resolveRefUrl(ref) {
             if (typeof ref === 'string') return this.resolvePageUrl(ref);
             if (ref.filename) return this.resolvePageUrl(ref.filename);
@@ -146,6 +199,15 @@
             return null;
         }
 
+        /**
+         * Обрабатывает изображение страницы.
+         * @param {string} base64Data - Исходное изображение в base64.
+         * @param {string} contentType - MIME-тип исходного изображения.
+         * @param {object} compressOpts - Опции сжатия.
+         * @param {boolean} splitLongImages - Нужно ли разбивать длинные изображения на части.
+         * @returns {Promise<{base64: string, contentType: string}|{base64: string, contentType: string}[]>}
+         * Обработанное изображение, либо массив частей, если было выполнено разбиение.
+         */
         async _processImage(base64Data, contentType, compressOpts, splitLongImages) {
             if (splitLongImages) {
                 const parts = await this.splitLongImage(base64Data, contentType, compressOpts);
@@ -164,6 +226,11 @@
                 : { base64: base64Data, contentType };
         }
 
+        /**
+         * Загружает изображение страницы через общий fetchPageImage (background/вкладка).
+         * @param {string} url - URL изображения.
+         * @returns {Promise<?object>} Результат загрузки, либо null при ошибке.
+         */
         async _fetchWithCompressionFallback(url) {
             const response = await global.fetchPageImage(url, 'mangalib');
             if (response?.ok) return response;
@@ -171,6 +238,17 @@
             return null;
         }
 
+        /**
+         * Загружает и обрабатывает (при необходимости разбивает/сжимает) одну
+         * страницу главы, кэшируя результат по разрешённому URL, чтобы не
+         * загружать одно и то же изображение повторно.
+         * @param {*} ref - Ссылка на страницу.
+         * @param {{compressionFormat?: string, compressionQuality?: number,
+         * splitLongImages?: boolean, imageFit?: object}} [opts] - Параметры обработки изображения.
+         * @returns {Promise<?({base64: string, contentType: string}|
+         * {base64: string, contentType: string}[])>} Обработанное изображение
+         * (или массив частей), либо null при ошибке.
+         */
         async loadPageAsBase64(ref, opts = {}) {
             try {
                 if (!ref) return null;
@@ -211,6 +289,16 @@
             }
         }
 
+        /**
+         * Загружает все страницы главы пакетами (по 5 одновременно), обновляя
+         * статус прогресса, и приводит результат к унифицированному формату
+         * содержимого главы.
+         * @param {Array} extracted - Список страниц, извлечённых extractText.
+         * @param {?{textContent: string}} status - Элемент статуса для отображения прогресса.
+         * @param {object} [opts] - Опции обработки (chapterMeta, chapterObj, splitLongImages,
+         * compressionFormat, compressionQuality, imageFit).
+         * @returns {Promise<object[]>} Список элементов содержимого главы.
+         */
         async processChapterContent(extracted, status, opts = {}) {
             const chapterMeta = opts.chapterMeta || {};
             const chapterObj = opts.chapterObj || {};

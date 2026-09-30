@@ -44,6 +44,11 @@
 
     console.log('[App] All dependencies loaded');
 
+    /**
+     * Создаёт главный контроллер попапа и показывает ошибку в UI, если его
+     * конструктор выбросил исключение.
+     * @returns {void}
+     */
     function initUI() {
         console.log('[App] Initializing UI...');
 
@@ -56,6 +61,11 @@
         }
     }
 
+    /**
+     * Точка входа приложения: догружает пользовательские плагины (если доступен
+     * PluginManager), затем инициализирует UI попапа.
+     * @returns {Promise<void>}
+     */
     async function initApp() {
         if (window.PluginManager)
             await window.PluginManager.loadAll();

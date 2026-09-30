@@ -5,6 +5,12 @@ const checks = require('./health-check.config.js');
 
 // ─── Утилиты ────────────────────────────────────────────────────────────────
 
+/**
+ * Читает значение по пути вида "a.b[0].c" из вложенного объекта/массива.
+ * @param {*} obj - Исходный объект.
+ * @param {string} path - Путь к значению, сегменты через точку или [index].
+ * @returns {*} Найденное значение, либо undefined, если путь не существует.
+ */
 function getByPath(obj, path) {
   return path.split(/[.[\]]+/).filter(Boolean).reduce((acc, key) => {
     if (acc === null || typeof acc === 'undefined') return void 0;
@@ -12,10 +18,22 @@ function getByPath(obj, path) {
   }, obj);
 }
 
+/**
+ * Проверяет, является ли значение "пустым" (пустая строка, null или пустой массив).
+ * @param {*} val - Проверяемое значение.
+ * @returns {boolean} true, если значение считается пустым.
+ */
 function isEmpty(val) {
   return val === '' || val === null || (Array.isArray(val) && val.length === 0);
 }
 
+/**
+ * Проверяет одно поле тела ответа против одного правила из expectFields.
+ * @param {object} body - Разобранное тело JSON-ответа.
+ * @param {{path: string, value?: *, type?: string, min?: number, max?: number,
+ * match?: string, notEmpty?: boolean}} rule - Правило проверки.
+ * @returns {?string} Текст ошибки на русском, либо null, если правило выполнено.
+ */
 function checkRule(body, rule) {
   const { path, value, type, min, max, match, notEmpty } = rule;
   const val = getByPath(body, path);
@@ -57,6 +75,14 @@ function checkRule(body, rule) {
 
 // ─── HTTP-запрос ────────────────────────────────────────────────────────────
 
+/**
+ * Выполняет один HTTP-запрос из конфигурации и проверяет статус, Content-Type
+ * и (для JSON-ответов) поля тела ответа против expectFields.
+ * @param {{id: string, url: string, method?: string, headers?: object, body?: object,
+ * expectFields?: object[], expectContentType?: string}} check - Конфигурация одной проверки.
+ * @returns {Promise<{id: string, url: string, errors: string[]}>} Результат проверки:
+ * пустой errors означает успех.
+ */
 async function runCheck(check) {
   const { id, url, method = 'GET', headers = {}, body, expectFields = [], expectContentType } = check;
   const errors = [];
@@ -109,6 +135,14 @@ async function runCheck(check) {
 
 // ─── Telegram ────────────────────────────────────────────────────────────────
 
+/**
+ * Отправляет текстовое сообщение (HTML-разметка) в чат Telegram через Bot API.
+ * @param {string} token - Токен Telegram-бота.
+ * @param {string} chatId - id чата/пользователя-получателя.
+ * @param {string} text - Текст сообщения (поддерживает HTML-разметку Telegram).
+ * @returns {Promise<void>}
+ * @throws {Error} Если Telegram API вернул ошибку.
+ */
 async function sendTelegram(token, chatId, text) {
   const url = `https://api.telegram.org/bot${token}/sendMessage`;
   const res = await fetch(url, {
@@ -130,6 +164,12 @@ async function sendTelegram(token, chatId, text) {
 
 // ─── Точка входа ─────────────────────────────────────────────────────────────
 
+/**
+ * Точка входа: запускает все проверки параллельно, печатает результат в лог
+ * и, если есть провалившиеся проверки, отправляет отчёт в Telegram и завершает
+ * процесс с ненулевым кодом (провал шага CI).
+ * @returns {Promise<void>}
+ */
 async function main() {
   const tgBotToken = process.env.TG_BOT_TOKEN;
   const tgUserId = process.env.TG_USER_ID;
