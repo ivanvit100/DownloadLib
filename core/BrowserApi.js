@@ -105,8 +105,6 @@
         const hasChrome = typeof global.chrome !== 'undefined' && !!global.chrome;
         const hasBrowser = typeof global.browser !== 'undefined' && !!global.browser;
         const supportsDnr = !!(hasChrome && global.chrome.declarativeNetRequest);
-        // `browser` alone doesn't mean Firefox anymore — Chrome now ships a native
-        // `browser` namespace too. `chrome.declarativeNetRequest` is the reliable signal.
         const isFirefox = hasBrowser && !supportsDnr;
         const isChromium = hasChrome && !isFirefox;
 
@@ -145,6 +143,14 @@
     global.browserEnv = resolveEnv(resolved.nativeName);
     global.getExtensionApi = getExtensionApi;
     global.getBrowserEnv = getBrowserEnv;
+
+    /**
+     * Бросается, когда для сервиса не найдено открытой вкладки, через которую можно
+     * выполнить запрос в её контексте. В отличие от обычной ошибки одного запроса,
+     * означает, что весь пакет запросов (например, все страницы главы) заведомо
+     * провалится — вызывающий код должен прервать операцию, а не деградировать постранично.
+     */
+    class NoServiceTabError extends Error {}
 
     let _serviceTabId = null;
     let _serviceTabExpiry = 0;
@@ -193,6 +199,32 @@
     }
 
     /**
+     * Находит id вкладки сервиса для выполнения запроса в её контексте, кэшируя
+     * результат на час между вызовами. Общий хелпер для fetchViaTab и requestViaTab.
+     * @param {object} api - Promise-based API расширения.
+     * @param {string} [serviceKey] - Ключ сервиса, вкладку которого нужно найти.
+     * @returns {Promise<?number>} id найденной вкладки, либо null, если не найдена.
+     */
+    async function _resolveServiceTabId(api, serviceKey) {
+        if (_serviceTabId && Date.now() <= _serviceTabExpiry) return _serviceTabId;
+
+        const patterns = await _getTabPatterns(api, serviceKey);
+        if (!patterns.length) return null;
+        try {
+            const tabs = await api.tabs.query({ url: patterns });
+            const tabId = tabs?.[0]?.id ?? null;
+            if (tabId) {
+                _serviceTabId = tabId;
+                _serviceTabExpiry = Date.now() + 3600000;
+            }
+            return tabId;
+        } catch (e) {
+            console.warn('[BrowserApi] tabs.query failed:', e.message);
+            return null;
+        }
+    }
+
+    /**
      * Загружает ресурс по URL в контексте вкладки сервиса (в обход CORS и ограничений
      * фонового контекста), кэшируя найденную вкладку сервиса на час между вызовами.
      * @param {string} url - URL ресурса для загрузки.
@@ -204,23 +236,7 @@
         const api = getExtensionApi();
         if (!api?.scripting?.executeScript) return null;
 
-        let tabId = _serviceTabId;
-        if (!tabId || Date.now() > _serviceTabExpiry) {
-            const patterns = await _getTabPatterns(api, serviceKey);
-            if (!patterns.length) return null;
-            try {
-                const tabs = await api.tabs.query({ url: patterns });
-                tabId = tabs?.[0]?.id ?? null;
-                if (tabId) {
-                    _serviceTabId = tabId;
-                    _serviceTabExpiry = Date.now() + 3600000;
-                }
-            } catch (e) {
-                console.warn('[BrowserApi] tabs.query failed:', e.message);
-                return null;
-            }
-        }
-
+        const tabId = await _resolveServiceTabId(api, serviceKey);
         if (!tabId) return null;
 
         try {
@@ -259,8 +275,71 @@
         }
     }
 
+    /**
+     * Проверяет, есть ли открытая вкладка сервиса, через которую можно выполнить запрос.
+     * @param {string} [serviceKey] - Ключ сервиса.
+     * @returns {Promise<boolean>} true, если подходящая вкладка найдена.
+     */
+    async function hasServiceTab(serviceKey) {
+        const api = getExtensionApi();
+        if (!api?.scripting?.executeScript) return false;
+        return !!(await _resolveServiceTabId(api, serviceKey));
+    }
+
+    /**
+     * Выполняет произвольный fetch в контексте вкладки сервиса и возвращает текстовый
+     * результат — в отличие от fetchViaTab (бинарные ресурсы как base64), предназначен
+     * для JSON/текстовых API-запросов. Запрос реально уходит со страницы сервиса, поэтому
+     * браузер сам ставит корректные Referer/Origin — подделывать их не нужно.
+     * @param {string} url - URL запроса.
+     * @param {object} [options] - Опции fetch (method, headers, body, credentials, mode, cache).
+     * @param {string} [serviceKey] - Ключ сервиса, вкладку которого нужно использовать.
+     * @returns {Promise<{ok: boolean, status?: number, text?: string, retryAfter?: ?string,
+     * noTab?: boolean, error?: string}>} Результат запроса; noTab=true означает, что
+     * подходящая вкладка не найдена (и запрос не выполнялся).
+     */
+    async function requestViaTab(url, options, serviceKey) {
+        const api = getExtensionApi();
+        if (!api?.scripting?.executeScript) return { ok: false, noTab: true };
+
+        const tabId = await _resolveServiceTabId(api, serviceKey);
+        if (!tabId) return { ok: false, noTab: true };
+
+        try {
+            const results = await api.scripting.executeScript({
+                target: { tabId },
+                /**
+                 * Инжектируется в контекст вкладки: выполняет fetch и возвращает текстовое
+                 * тело ответа вместе со статусом и заголовком Retry-After.
+                 * @param {string} u - URL запроса.
+                 * @param {object} opts - Опции fetch.
+                 * @returns {Promise<{ok: boolean, status: number, text: string, retryAfter: ?string}>}
+                 * Результат запроса.
+                 */
+                func: async (u, opts) => {
+                    try {
+                        const r = await fetch(u, opts);
+                        const text = await r.text();
+                        return { ok: r.ok, status: r.status, text, retryAfter: r.headers.get('Retry-After') };
+                    } catch (e) {
+                        return { ok: false, status: 0, text: '', error: String(e) };
+                    }
+                },
+                args: [url, options || {}]
+            });
+            const result = results?.[0]?.result;
+            return result ? { ...result, noTab: false } : { ok: false, noTab: false, error: 'No result from tab' };
+        } catch (e) {
+            console.warn('[BrowserApi] requestViaTab failed:', e.message);
+            return { ok: false, noTab: false, error: String(e) };
+        }
+    }
+
     global.setServiceTab = setServiceTab;
     global.fetchViaTab = fetchViaTab;
+    global.hasServiceTab = hasServiceTab;
+    global.requestViaTab = requestViaTab;
+    global.NoServiceTabError = NoServiceTabError;
 
     console.log('[BrowserApi] Loaded:', global.browserEnv.nativeName);
 })(typeof window !== 'undefined' ? window : self);

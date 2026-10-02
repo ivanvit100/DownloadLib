@@ -32,6 +32,7 @@ afterEach(() => {
     delete global.browser;
     delete global.chrome;
     delete global.fetch;
+    delete global.requestViaTab;
 });
 
 describe('MangaLibService', () => {
@@ -58,154 +59,116 @@ describe('MangaLibService', () => {
     it('Fetch manga metadata returns parsed result', async () => {
         const svc = new MangaLibService();
         const fakeJson = { id: 123, title: 'Test' };
-        const fakeResponse = {
-            ok: true,
-            text: vi.fn().mockResolvedValue(JSON.stringify(fakeJson))
-        };
-        global.fetch = vi.fn().mockResolvedValue(fakeResponse);
+        global.requestViaTab = vi.fn().mockResolvedValue({ ok: true, text: JSON.stringify(fakeJson) });
         const result = await svc.fetchMangaMetadata('slug');
         expect(result).toEqual(fakeJson);
-        delete global.fetch;
+        delete global.requestViaTab;
     });
 
     it('Fetch manga metadata throws on error response', async () => {
         const svc = new MangaLibService();
-        const fakeResponse = {
-            ok: false,
-            text: vi.fn().mockResolvedValue('fail')
-        };
-        global.fetch = vi.fn().mockResolvedValue(fakeResponse);
+        global.requestViaTab = vi.fn().mockResolvedValue({ ok: false, text: 'fail' });
         const errorSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
         await expect(svc.fetchMangaMetadata('slug')).rejects.toThrow('Failed to fetch manga:');
         expect(errorSpy).toHaveBeenCalledWith('[MangaLib] Error response:', 'fail');
         errorSpy.mockRestore();
-        delete global.fetch;
+        delete global.requestViaTab;
     });
 
     it('Fetch manga metadata retries fallback url on 403', async () => {
         const svc = new MangaLibService();
         const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
 
-        global.fetch = vi.fn()
-            .mockResolvedValueOnce({
-                ok: false,
-                status: 403,
-                text: vi.fn().mockResolvedValue('forbidden')
-            })
-            .mockResolvedValueOnce({
-                ok: true,
-                text: vi.fn().mockResolvedValue(JSON.stringify({ data: { id: 10 } }))
-            });
+        global.requestViaTab = vi.fn()
+            .mockResolvedValueOnce({ ok: false, status: 403, text: 'forbidden' })
+            .mockResolvedValueOnce({ ok: true, text: JSON.stringify({ data: { id: 10 } }) });
 
         const result = await svc.fetchMangaMetadata('slug');
 
         expect(result).toEqual({ data: { id: 10 } });
-        expect(global.fetch).toHaveBeenCalledTimes(2);
-        expect(global.fetch.mock.calls[0][0]).toContain('fields[]=id');
-        expect(global.fetch.mock.calls[1][0]).toBe('https://mangalib.me/api/manga/slug');
+        expect(global.requestViaTab).toHaveBeenCalledTimes(2);
+        expect(global.requestViaTab.mock.calls[0][0]).toContain('fields[]=id');
+        expect(global.requestViaTab.mock.calls[1][0]).toBe('https://mangalib.me/api/manga/slug');
         expect(warnSpy).toHaveBeenCalledWith('[MangaLib] Metadata endpoint rejected (403), retrying with fallback URL');
 
         warnSpy.mockRestore();
-        delete global.fetch;
+        delete global.requestViaTab;
     });
 
     it('Fetch manga metadata retries numeric id on 404 for slug with digits prefix', async () => {
         const svc = new MangaLibService();
         const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
 
-        global.fetch = vi.fn()
-            .mockResolvedValueOnce({ ok: false, status: 404, text: vi.fn().mockResolvedValue('not found') })
-            .mockResolvedValueOnce({ ok: false, status: 404, text: vi.fn().mockResolvedValue('not found') })
-            .mockResolvedValueOnce({ ok: true, text: vi.fn().mockResolvedValue(JSON.stringify({ data: { id: 127506 } })) });
+        global.requestViaTab = vi.fn()
+            .mockResolvedValueOnce({ ok: false, status: 404, text: 'not found' })
+            .mockResolvedValueOnce({ ok: false, status: 404, text: 'not found' })
+            .mockResolvedValueOnce({ ok: true, text: JSON.stringify({ data: { id: 127506 } }) });
 
         const result = await svc.fetchMangaMetadata('127506--kiss-de-fusaide-barenaide');
 
         expect(result).toEqual({ data: { id: 127506 } });
-        expect(global.fetch).toHaveBeenCalledTimes(3);
-        expect(global.fetch.mock.calls[2][0]).toBe('https://mangalib.me/api/manga/127506');
+        expect(global.requestViaTab).toHaveBeenCalledTimes(3);
+        expect(global.requestViaTab.mock.calls[2][0]).toBe('https://mangalib.me/api/manga/127506');
 
         warnSpy.mockRestore();
-        delete global.fetch;
+        delete global.requestViaTab;
     });
 
     it('Fetch manga metadata uses base url without fields when fields are empty', async () => {
         global.mangalibConfig.fields = [];
         const svc = new MangaLibService();
-        const fakeResponse = {
-            ok: true,
-            text: vi.fn().mockResolvedValue(JSON.stringify({ id: 123 }))
-        };
-
-        global.fetch = vi.fn().mockResolvedValue(fakeResponse);
+        global.requestViaTab = vi.fn().mockResolvedValue({ ok: true, text: JSON.stringify({ id: 123 }) });
         const result = await svc.fetchMangaMetadata('slug');
 
         expect(result).toEqual({ id: 123 });
-        expect(global.fetch).toHaveBeenCalledTimes(1);
-        expect(global.fetch.mock.calls[0][0]).toBe('https://mangalib.me/api/manga/slug');
+        expect(global.requestViaTab).toHaveBeenCalledTimes(1);
+        expect(global.requestViaTab.mock.calls[0][0]).toBe('https://mangalib.me/api/manga/slug');
 
-        delete global.fetch;
+        delete global.requestViaTab;
     });
 
     it('Throws when all metadata endpoints are forbidden', async () => {
         const svc = new MangaLibService();
         const errorSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
-        global.fetch = vi.fn()
-            .mockResolvedValueOnce({
-                ok: false,
-                status: 403,
-                text: vi.fn().mockResolvedValue('forbidden-1')
-            })
-            .mockResolvedValueOnce({
-                ok: false,
-                status: 403,
-                text: vi.fn().mockResolvedValue('forbidden-2')
-            });
+        global.requestViaTab = vi.fn()
+            .mockResolvedValueOnce({ ok: false, status: 403, text: 'forbidden-1' })
+            .mockResolvedValueOnce({ ok: false, status: 403, text: 'forbidden-2' });
         await expect(svc.fetchMangaMetadata('slug')).rejects.toThrow('Failed to fetch manga: 403');
-        expect(global.fetch).toHaveBeenCalledTimes(2);
+        expect(global.requestViaTab).toHaveBeenCalledTimes(2);
         errorSpy.mockRestore();
-        delete global.fetch;
+        delete global.requestViaTab;
     });
 
     it('Fetch chapters list returns parsed result', async () => {
         const svc = new MangaLibService();
         const fakeJson = [{ id: 1 }];
-        const fakeResponse = {
-            ok: true,
-            text: vi.fn().mockResolvedValue(JSON.stringify(fakeJson))
-        };
-        global.fetch = vi.fn().mockResolvedValue(fakeResponse);
+        global.requestViaTab = vi.fn().mockResolvedValue({ ok: true, text: JSON.stringify(fakeJson) });
         const result = await svc.fetchChaptersList('slug');
         expect(result).toEqual(fakeJson);
-        delete global.fetch;
+        delete global.requestViaTab;
     });
 
     it('Fetch chapters list throws on error response', async () => {
         const svc = new MangaLibService();
-        const fakeResponse = { ok: false, text: vi.fn().mockResolvedValue('fail') };
-        global.fetch = vi.fn().mockResolvedValue(fakeResponse);
+        global.requestViaTab = vi.fn().mockResolvedValue({ ok: false, text: 'fail' });
         await expect(svc.fetchChaptersList('slug')).rejects.toThrow('Failed to fetch chapters:');
-        delete global.fetch;
+        delete global.requestViaTab;
     });
 
     it('Fetch chapter returns parsed result', async () => {
         const svc = new MangaLibService();
         const fakeJson = { id: 1, pages: [] };
-        const fakeResponse = {
-            ok: true,
-            text: vi.fn().mockResolvedValue(JSON.stringify(fakeJson))
-        };
-        global.fetch = vi.fn().mockResolvedValue(fakeResponse);
+        global.requestViaTab = vi.fn().mockResolvedValue({ ok: true, text: JSON.stringify(fakeJson) });
         const result = await svc.fetchChapter('slug', 2, 3);
         expect(result).toEqual(fakeJson);
-        delete global.fetch;
+        delete global.requestViaTab;
     });
 
     it('Fetch chapter throws on error response', async () => {
         const svc = new MangaLibService();
-        const fakeResponse = { ok: false, text: vi.fn().mockResolvedValue('fail') };
-        global.fetch = vi.fn().mockResolvedValue(fakeResponse);
+        global.requestViaTab = vi.fn().mockResolvedValue({ ok: false, text: 'fail' });
         await expect(svc.fetchChapter('slug', 1, 1)).rejects.toThrow('Failed to fetch chapter:');
-        delete global.fetch;
+        delete global.requestViaTab;
     });
 
     it('Extract pages returns correct array for known keys', () => {
@@ -433,6 +396,18 @@ describe('MangaLibService', () => {
         delete global.fetchPageImage;
     });
 
+    it('Load page as base64 re-throws NoServiceTabError instead of swallowing it', async () => {
+        const svc = new MangaLibService();
+        global.browser = { runtime: { sendMessage: vi.fn() } };
+        class NoServiceTabError extends Error {}
+        global.NoServiceTabError = NoServiceTabError;
+        global.fetchPageImage = vi.fn().mockRejectedValue(new NoServiceTabError('no tab'));
+        await expect(svc.loadPageAsBase64('img.jpg')).rejects.toBeInstanceOf(NoServiceTabError);
+        delete global.NoServiceTabError;
+        delete global.browser;
+        delete global.fetchPageImage;
+    });
+
     it('Process chapter content returns image blocks for loaded pages', async () => {
         const svc = new MangaLibService();
         svc.extractPages = vi.fn().mockReturnValue(['img1.jpg', 'img2.jpg']);
@@ -452,6 +427,17 @@ describe('MangaLibService', () => {
         const result = await svc.processChapterContent([], null, { chapterMeta: { pages: ['img1.jpg'] } });
         expect(result[0].type).toBe('text');
         expect(result[0].text).toMatch(/Ошибка загрузки изображения/);
+    });
+
+    it('Process chapter content aborts the whole batch when a page throws NoServiceTabError', async () => {
+        const svc = new MangaLibService();
+        svc.extractPages = vi.fn().mockReturnValue(['img1.jpg']);
+        class NoServiceTabError extends Error {}
+        global.NoServiceTabError = NoServiceTabError;
+        svc.loadPageAsBase64 = vi.fn().mockRejectedValue(new NoServiceTabError('no tab'));
+        await expect(svc.processChapterContent([], null, { chapterMeta: { pages: ['img1.jpg'] } }))
+            .rejects.toBeInstanceOf(NoServiceTabError);
+        delete global.NoServiceTabError;
     });
 
     it('Process chapter content returns split images as blocks', async () => {
@@ -495,99 +481,28 @@ describe('MangaLibService', () => {
         expect(result.length).toBe(0);
     });
 
-    it('Fetch manga metadata catch error', async () => {
-        const svc = new MangaLibService();
-        const fakeResponse = {
-            ok: true,
-            text: vi.fn().mockRejectedValue(new Error('text fail'))
-        };
-        global.fetch = vi.fn().mockResolvedValue(fakeResponse);
-
-        const result = await svc.fetchMangaMetadata('slug');
-        expect(result).toBeNull();
-        expect(fakeResponse.text).toHaveBeenCalled();
-
-        delete global.fetch;
-    });
-
-    it('Fetch manga metadata catch when response text throws', async () => {
-        const svc = new MangaLibService();
-        const fakeResponse = {
-            ok: false,
-            status: 500,
-            text: vi.fn().mockRejectedValue(new Error('text fail'))
-        };
-        global.fetch = vi.fn().mockResolvedValue(fakeResponse);
-
-        const errorSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
-        await expect(svc.fetchMangaMetadata('slug')).rejects.toThrow('Failed to fetch manga: 500');
-        expect(fakeResponse.text).toHaveBeenCalled();
-        expect(errorSpy).toHaveBeenCalledWith('[MangaLib] Error response:', '');
-
-        errorSpy.mockRestore();
-        delete global.fetch;
-    });
-
-    it('Fetch chapters list catch throws', async () => {
-        const svc = new MangaLibService();
-        const fakeResponse = {
-            ok: true,
-            text: vi.fn().mockRejectedValue(new Error('text fail'))
-        };
-        global.fetch = vi.fn().mockResolvedValue(fakeResponse);
-
-        const result = await svc.fetchChaptersList('slug');
-        expect(result).toBeNull();
-        expect(fakeResponse.text).toHaveBeenCalled();
-
-        delete global.fetch;
-    });
-
-    it('Fetch chapter catch throws', async () => {
-        const svc = new MangaLibService();
-        const fakeResponse = {
-            ok: true,
-            text: vi.fn().mockRejectedValue(new Error('text fail'))
-        };
-        global.fetch = vi.fn().mockResolvedValue(fakeResponse);
-
-        const result = await svc.fetchChapter('slug', 1, 1);
-        expect(result).toBeNull();
-        expect(fakeResponse.text).toHaveBeenCalled();
-
-        delete global.fetch;
-    });
-
     it('Fetch chapter uses default volume when not provided', async () => {
         const svc = new MangaLibService();
-        const fakeResponse = {
-            ok: true,
-            text: vi.fn().mockResolvedValue(JSON.stringify({ id: 1, pages: [] }))
-        };
-        global.fetch = vi.fn().mockResolvedValue(fakeResponse);
+        global.requestViaTab = vi.fn().mockResolvedValue({ ok: true, text: JSON.stringify({ id: 1, pages: [] }) });
 
         await svc.fetchChapter('slug', 5);
 
-        const calledUrl = global.fetch.mock.calls[0][0];
+        const calledUrl = global.requestViaTab.mock.calls[0][0];
         expect(calledUrl).toMatch(/volume=1/);
 
-        delete global.fetch;
+        delete global.requestViaTab;
     });
 
     it('Fetch chapter triggers params set defaults', async () => {
         const svc = new MangaLibService();
-        const fakeResponse = {
-            ok: true,
-            text: vi.fn().mockResolvedValue(JSON.stringify({ id: 1, pages: [] }))
-        };
-        global.fetch = vi.fn().mockResolvedValue(fakeResponse);
+        global.requestViaTab = vi.fn().mockResolvedValue({ ok: true, text: JSON.stringify({ id: 1, pages: [] }) });
 
         await svc.fetchChapter('slug');
 
-        const calledUrl = global.fetch.mock.calls[0][0];
+        const calledUrl = global.requestViaTab.mock.calls[0][0];
         expect(calledUrl).toMatch(/number=1/);
 
-        delete global.fetch;
+        delete global.requestViaTab;
     });
 
     it('Extract text returns object for unknown page object', () => {
@@ -883,11 +798,10 @@ describe('MangaLibService', () => {
 
     it('fetchChapter always passes server=compress', async () => {
         const svc = new MangaLibService();
-        const fakeResponse = { ok: true, text: vi.fn().mockResolvedValue(JSON.stringify({ pages: [] })) };
-        global.fetch = vi.fn().mockResolvedValue(fakeResponse);
+        global.requestViaTab = vi.fn().mockResolvedValue({ ok: true, text: JSON.stringify({ pages: [] }) });
         await svc.fetchChapter('slug', 1, '1');
-        expect(global.fetch.mock.calls[0][0]).toContain('server=compress');
-        delete global.fetch;
+        expect(global.requestViaTab.mock.calls[0][0]).toContain('server=compress');
+        delete global.requestViaTab;
     });
 
     it('_resolveRefUrl handles //-prefixed url', async () => {

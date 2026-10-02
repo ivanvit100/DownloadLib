@@ -73,7 +73,7 @@
                     cache: 'no-store'
                 });
                 if (!response.ok) {
-                    const text = await response.text().catch(() => '');
+                    const text = await response.text();
                     if ((response.status === 403 || response.status === 404) && i < urls.length - 1) {
                         console.warn(`[${this.name}] Metadata endpoint rejected (${response.status}), retrying with fallback URL`);
                         continue;
@@ -81,7 +81,7 @@
                     console.error(`[${this.name}] Error response:`, text);
                     throw new Error(`Failed to fetch manga: ${response.status}`);
                 }
-                const text = await response.text().catch(() => '');
+                const text = await response.text();
                 return text ? JSON.parse(text) : null;
             }
             return null;
@@ -105,7 +105,7 @@
             });
             if (!response.ok)
                 throw new Error(`Failed to fetch chapters: ${response.status}`);
-            const text = await response.text().catch(() => '');
+            const text = await response.text();
             return text ? JSON.parse(text) : null;
         }
 
@@ -136,7 +136,7 @@
             });
             if (!response.ok)
                 throw new Error(`Failed to fetch chapter: ${response.status}`);
-            const text = await response.text().catch(() => '');
+            const text = await response.text();
             return text ? JSON.parse(text) : null;
         }
 
@@ -197,6 +197,33 @@
         }
 
         /**
+         * Выполняет запрос в контексте вкладки сервиса (через global.requestViaTab) —
+         * единая точка сетевых запросов для fetchWithRetry/fetchWithRateLimitRetry.
+         * Вместо тихого отката на fetch() из контекста расширения с подделанными
+         * заголовками, бросает понятную ошибку, если подходящей вкладки сервиса не найдено.
+         * @param {string} url - URL запроса.
+         * @param {object} opts - Опции fetch (method, headers, body, credentials, mode, cache).
+         * @returns {Promise<{ok: boolean, status: number, headers: {get: function(string): ?string},
+         * text: function(): Promise<string>}>} Response-подобный объект.
+         * @throws {Error} Если подходящей вкладки сервиса не найдено.
+         */
+        async _doFetch(url, opts) {
+            if (typeof global.requestViaTab !== 'function')
+                throw new Error(`Откройте страницу тайтла на ${this.config.siteUrl}, чтобы продолжить загрузку`);
+
+            const result = await global.requestViaTab(url, opts, this.name);
+            if (result.noTab)
+                throw new Error(`Откройте страницу тайтла на ${this.config.siteUrl}, чтобы продолжить загрузку`);
+
+            return {
+                ok: result.ok,
+                status: result.status,
+                headers: { get: (name) => name.toLowerCase() === 'retry-after' ? (result.retryAfter || null) : null },
+                text: () => result.text || ''
+            };
+        }
+
+        /**
          * Выполняет fetch с повторными попытками при сетевой ошибке (не HTTP-статусе),
          * с линейно растущей задержкой между попытками.
          * @param {string} url - URL запроса.
@@ -209,7 +236,7 @@
             for (let i = 0; i < retries; i++) {
                 await this.checkpoint();
                 try {
-                    return await fetch(url, opts);
+                    return await this._doFetch(url, opts);
                 } catch (e) {
                     if (i === retries - 1) throw e;
                     await this.interruptibleDelay(1000 * (i + 1));
@@ -230,7 +257,7 @@
         async fetchWithRateLimitRetry(url, opts, maxRetries = 5) {
             for (let attempt = 0; attempt < maxRetries; attempt++) {
                 await this.checkpoint();
-                const response = await fetch(url, opts);
+                const response = await this._doFetch(url, opts);
                 if (response.status === 429) {
                     const retryAfter = parseInt(response.headers.get('Retry-After'), 10);
                     const waitMs = (retryAfter && retryAfter > 0) ? retryAfter * 1000 : 30000;

@@ -388,6 +388,7 @@
                         return { type: 'image', data };
                     }
                 } catch (e) {
+                    if (global.NoServiceTabError && e instanceof global.NoServiceTabError) throw e;
                     console.warn('[RanobeLibService] Failed ext:', ext, e);
                 }
             }

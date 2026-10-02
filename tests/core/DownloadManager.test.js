@@ -366,6 +366,7 @@ describe('DownloadManager', () => {
 
     it('Lets image fetch pass an active gate and keeps newer gates on cleanup', async () => {
         const dm = new DownloadManager();
+        globalThis.fetchViaTab = vi.fn(async () => ({ ok: true, base64: 'x', contentType: 'image/jpeg' }));
         const nestedService = {
             ...serviceMock,
             name: 'ranobelib',
@@ -1640,56 +1641,20 @@ describe('DownloadManager', () => {
             delete globalThis.extensionApi;
         });
 
-        it('falls back to runtime.sendMessage when fetchViaTab fails', async () => {
+        it('throws when fetchViaTab fails and no service tab is open', async () => {
             globalThis.fetchViaTab = vi.fn().mockResolvedValue(null);
-            const sendMessage = vi.fn().mockResolvedValue({ ok: true, base64: 'b64', contentType: 'image/jpeg' });
-            globalThis.extensionApi = { runtime: { sendMessage } };
+            globalThis.hasServiceTab = vi.fn().mockResolvedValue(false);
+            await expect(fetchPageImage('https://img.example.com/a.jpg', 'mangalib'))
+                .rejects.toThrow(/откройте/i);
+            delete globalThis.hasServiceTab;
+        });
+
+        it('returns ok:false when fetchViaTab fails but a service tab is open', async () => {
+            globalThis.fetchViaTab = vi.fn().mockResolvedValue(null);
+            globalThis.hasServiceTab = vi.fn().mockResolvedValue(true);
             const result = await fetchPageImage('https://img.example.com/a.jpg', 'mangalib');
-            expect(result).toEqual({ ok: true, base64: 'b64', contentType: 'image/jpeg' });
-            expect(sendMessage).toHaveBeenCalledWith({ action: 'fetchImage', url: 'https://img.example.com/a.jpg', serviceKey: 'mangalib' });
-            delete globalThis.extensionApi;
-        });
-
-        it('retries sendMessage once when the background page was asleep', async () => {
-            vi.useFakeTimers();
-            globalThis.fetchViaTab = vi.fn().mockResolvedValue(null);
-            const sendMessage = vi.fn()
-                .mockRejectedValueOnce(new Error('Could not establish connection. Receiving end does not exist.'))
-                .mockResolvedValueOnce({ ok: true, base64: 'b64', contentType: 'image/jpeg' });
-            globalThis.extensionApi = { runtime: { sendMessage } };
-            const promise = fetchPageImage('https://img.example.com/a.jpg', 'mangalib');
-            await vi.advanceTimersByTimeAsync(300);
-            const result = await promise;
-            expect(result).toEqual({ ok: true, base64: 'b64', contentType: 'image/jpeg' });
-            expect(sendMessage).toHaveBeenCalledTimes(2);
-            delete globalThis.extensionApi;
-            vi.useRealTimers();
-        });
-
-        it('gives up after exhausting all retries and returns ok:false', async () => {
-            vi.useFakeTimers();
-            globalThis.fetchViaTab = vi.fn().mockResolvedValue(null);
-            const sendMessage = vi.fn().mockRejectedValue(new Error('Could not establish connection. Receiving end does not exist.'));
-            globalThis.extensionApi = { runtime: { sendMessage } };
-            const promise = fetchPageImage('https://img.example.com/a.jpg', 'mangalib');
-            await vi.advanceTimersByTimeAsync(300);
-            await vi.advanceTimersByTimeAsync(800);
-            await vi.advanceTimersByTimeAsync(2000);
-            const result = await promise;
-            expect(result.ok).toBe(false);
-            expect(sendMessage).toHaveBeenCalledTimes(4);
-            delete globalThis.extensionApi;
-            vi.useRealTimers();
-        });
-
-        it('does not retry on unrelated sendMessage errors', async () => {
-            globalThis.fetchViaTab = vi.fn().mockResolvedValue(null);
-            const sendMessage = vi.fn().mockRejectedValue(new Error('Network error'));
-            globalThis.extensionApi = { runtime: { sendMessage } };
-            const result = await fetchPageImage('https://img.example.com/a.jpg', 'mangalib');
-            expect(result).toEqual({ ok: false, error: 'Error: Network error' });
-            expect(sendMessage).toHaveBeenCalledTimes(1);
-            delete globalThis.extensionApi;
+            expect(result).toEqual({ ok: false, error: 'Image fetch failed' });
+            delete globalThis.hasServiceTab;
         });
 
         it('tracks the request through globalRateLimiter when available', async () => {
@@ -1701,11 +1666,10 @@ describe('DownloadManager', () => {
             delete globalThis.globalRateLimiter;
         });
 
-        it('returns ok:false when no extension api is available at all', async () => {
+        it('throws when fetchViaTab fails and hasServiceTab is not available either', async () => {
             globalThis.fetchViaTab = vi.fn().mockResolvedValue(null);
-            delete globalThis.extensionApi;
-            const result = await fetchPageImage('https://img.example.com/a.jpg', 'mangalib');
-            expect(result).toEqual({ ok: false, error: 'runtime.sendMessage not available' });
+            delete globalThis.hasServiceTab;
+            await expect(fetchPageImage('https://img.example.com/a.jpg', 'mangalib')).rejects.toThrow();
         });
 
         it('defaults the rate limiter source to "image" when no serviceKey is given', async () => {
@@ -1717,34 +1681,11 @@ describe('DownloadManager', () => {
             delete globalThis.globalRateLimiter;
         });
 
-        it('skips fetchViaTab entirely when it is not defined and goes straight to sendMessage', async () => {
+        it('throws when fetchViaTab is not defined and no service tab is open', async () => {
             delete globalThis.fetchViaTab;
-            const sendMessage = vi.fn().mockResolvedValue({ ok: true, base64: 'b64', contentType: 'image/jpeg' });
-            globalThis.extensionApi = { runtime: { sendMessage } };
-            const result = await fetchPageImage('https://img.example.com/a.jpg', 'mangalib');
-            expect(result).toEqual({ ok: true, base64: 'b64', contentType: 'image/jpeg' });
-            expect(sendMessage).toHaveBeenCalledTimes(1);
-            delete globalThis.extensionApi;
-        });
-
-        it('resolves the extension api through global.getExtensionApi when it is defined', async () => {
-            globalThis.fetchViaTab = vi.fn().mockResolvedValue(null);
-            const sendMessage = vi.fn().mockResolvedValue({ ok: true, base64: 'b64', contentType: 'image/jpeg' });
-            globalThis.getExtensionApi = vi.fn(() => ({ runtime: { sendMessage } }));
-            const result = await fetchPageImage('https://img.example.com/a.jpg', 'mangalib');
-            expect(result).toEqual({ ok: true, base64: 'b64', contentType: 'image/jpeg' });
-            expect(globalThis.getExtensionApi).toHaveBeenCalled();
-            delete globalThis.getExtensionApi;
-        });
-
-        it('does not retry when the rejection has no message property (falls back to empty string)', async () => {
-            globalThis.fetchViaTab = vi.fn().mockResolvedValue(null);
-            const sendMessage = vi.fn().mockRejectedValue({});
-            globalThis.extensionApi = { runtime: { sendMessage } };
-            const result = await fetchPageImage('https://img.example.com/a.jpg', 'mangalib');
-            expect(result).toEqual({ ok: false, error: '[object Object]' });
-            expect(sendMessage).toHaveBeenCalledTimes(1);
-            delete globalThis.extensionApi;
+            globalThis.hasServiceTab = vi.fn().mockResolvedValue(false);
+            await expect(fetchPageImage('https://img.example.com/a.jpg', 'mangalib')).rejects.toThrow();
+            delete globalThis.hasServiceTab;
         });
     });
 });

@@ -545,23 +545,6 @@
             const serviceName = plugin.service;
 
             /**
-             * Строит query-параметры запроса главы для API кастомного сервиса.
-             * @param {*} number - Номер главы.
-             * @param {*} volume - Номер тома.
-             * @param {?number} branchId - id ветки перевода.
-             * @param {object} extraParams - Дополнительные параметры запроса, специфичные для сервиса.
-             * @returns {URLSearchParams} Собранные query-параметры.
-             */
-            function _buildChapterParams(number, volume, branchId, extraParams) {
-                const p = new URLSearchParams();
-                p.set('number', number != null ? String(number) : '1');
-                p.set('volume', String(volume));
-                if (branchId != null) p.set('branch_id', String(branchId));
-                for (const [k, v] of Object.entries(extraParams)) p.set(k, String(v));
-                return p;
-            }
-
-            /**
              * Прокси-реализация BaseService для кастомного сервиса, описанного плагином:
              * определяет принадлежность URL по списку хостов плагина и переопределяет
              * загрузку страниц главы конфигурацией плагина (сервер изображений, сжатие).
@@ -610,57 +593,6 @@
                         || config.defaultImageServer
                         || 'compression';
                     return config.imageServers[key] || config.imageServers.compression || null;
-                }
-
-                /**
-                 * Загружает данные главы: сначала пытается выполнить запрос в контексте
-                 * открытой вкладки сервиса (в обход CORS/куки-ограничений фонового
-                 * контекста), а при неудаче откатывается на базовую реализацию BaseService.
-                 * @param {string} slug - Slug тайтла.
-                 * @param {*} number - Номер главы.
-                 * @param {*} [volume='1'] - Номер тома.
-                 * @param {?number} [branchId] - id ветки перевода.
-                 * @param {object} [extraParams] - Дополнительные параметры запроса, специфичные для сервиса.
-                 * @returns {Promise<object>} Данные главы от API сервиса.
-                 */
-                async fetchChapter(slug, number, volume = '1', branchId = null, extraParams = {}) {
-                    const api = this.extensionApi;
-                    if (api?.scripting?.executeScript && api?.tabs?.query) {
-                        try {
-                            const hostPatterns = (plugin.hosts || []).map(h => `*://${h}/*`);
-                            const tabs = hostPatterns.length
-                                ? await api.tabs.query({ url: hostPatterns })
-                                : [];
-                            const tabId = tabs?.[0]?.id;
-                            if (tabId != null) {
-                                const p = _buildChapterParams(number, volume, branchId, extraParams);
-                                const url = `${this.baseUrl}/api/manga/${slug}/chapter?${p}`;
-                                const hdrs = this.config.headers || {};
-                                const [injRes] = await api.scripting.executeScript({
-                                    target: { tabId },
-                                    /**
-                                     * Инжектируется в контекст вкладки: выполняет GET-запрос
-                                     * с переданными заголовками и куки вкладки.
-                                     * @param {string} u - URL запроса.
-                                     * @param {object} h - Заголовки запроса.
-                                     * @returns {Promise<{ok: boolean, body: ?string}>} Результат запроса.
-                                     */
-                                    func: async (u, h) => {
-                                        try {
-                                            const r = await fetch(u, {
-                                                method: 'GET', headers: h,
-                                                mode: 'cors', credentials: 'include', cache: 'no-store'
-                                            });
-                                            return { ok: r.ok, body: r.ok ? await r.text() : null };
-                                        } catch { return { ok: false, body: null }; }
-                                    },
-                                    args: [url, hdrs]
-                                });
-                                if (injRes?.result?.ok) return JSON.parse(injRes.result.body);
-                            }
-                        } catch (_) {}
-                    }
-                    return await super.fetchChapter(slug, number, volume, branchId, extraParams);
                 }
 
                 /**
@@ -734,7 +666,10 @@
                             batch.map((page, batchIdx) =>
                                 this.loadPageAsBase64(page, loadOpts)
                                     .then(img => ({ img, index: i + batchIdx }))
-                                    .catch(() => ({ img: null, index: i + batchIdx }))
+                                    .catch(e => {
+                                        if (global.NoServiceTabError && e instanceof global.NoServiceTabError) throw e;
+                                        return { img: null, index: i + batchIdx };
+                                    })
                             )
                         );
                         for (const { img, index } of batchResults) {

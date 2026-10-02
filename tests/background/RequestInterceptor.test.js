@@ -176,50 +176,6 @@ describe('RequestInterceptor', () => {
             expect(mockTrackRequest).toHaveBeenCalledWith('ranobelib');
         });
 
-        it('Adds configured headers for mangalib service', async () => {
-            const result = await capturedBeforeSendHeadersCb({
-                tabId: -1,
-                frameId: 0,
-                url: 'https://api.mangalib.me/data',
-                requestHeaders: [
-                    { name: 'X-Extension-Request', value: 'true' },
-                    { name: 'Referer', value: 'https://mangalib.me/' },
-                ],
-            });
-            const custom = result.requestHeaders.find(h => h.name === 'X-Custom');
-            expect(custom.value).toBe('mangalib');
-        });
-
-        it('Adds image headers for mangalib image requests', async () => {
-            const result = await capturedBeforeSendHeadersCb({
-                tabId: -1,
-                frameId: 0,
-                url: 'https://img.mixlib.me/some-image.jpg',
-                requestHeaders: [
-                    { name: 'X-Extension-Request', value: 'true' },
-                    { name: 'Referer', value: 'https://mangalib.me/' },
-                ],
-            });
-            const accept = result.requestHeaders.find(h => h.name === 'Accept');
-            expect(accept.value).toBe('image/webp');
-        });
-
-        it('Updates existing header instead of adding duplicate', async () => {
-            const result = await capturedBeforeSendHeadersCb({
-                tabId: -1,
-                frameId: 0,
-                url: 'https://api.mangalib.me/data',
-                requestHeaders: [
-                    { name: 'X-Extension-Request', value: 'true' },
-                    { name: 'Referer', value: 'https://mangalib.me/' },
-                    { name: 'Accept', value: 'old-value' },
-                ],
-            });
-            const accepts = result.requestHeaders.filter(h => h.name === 'Accept');
-            expect(accepts).toHaveLength(1);
-            expect(accepts[0].value).toBe('text/html');
-        });
-
         it('Does not track rate limit when service is not detected', async () => {
             await capturedBeforeSendHeadersCb({
                 tabId: -1,
@@ -319,23 +275,6 @@ describe('RequestInterceptor', () => {
                 requestHeaders: [],
             });
             expect(mockTrackRequest).not.toHaveBeenCalled();
-        });
-
-        it('Warns when no headers found for service config without targetHeaders', async () => {
-            const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
-            globalThis.mangalibConfig = { headers: null, imageHeaders: null };
-            await loadModule();
-            await capturedBeforeSendHeadersCb({
-                tabId: -1,
-                frameId: 0,
-                url: 'https://api.mangalib.me/data',
-                requestHeaders: [
-                    { name: 'X-Extension-Request', value: 'true' },
-                    { name: 'Referer', value: 'https://mangalib.me/' }
-                ],
-            });
-            expect(warnSpy).toHaveBeenCalledWith(expect.stringContaining('No headers found for service mangalib'));
-            warnSpy.mockRestore();
         });
 
         it('Detects service by X-DL-Service header', async () => {
@@ -782,52 +721,6 @@ describe('RequestInterceptor', () => {
         beforeEach(async () => {
             setupGlobals('firefox');
             await loadModule();
-        });
-
-        it('Detects ranobelib image url', async () => {
-            const result = await capturedBeforeSendHeadersCb({
-                originUrl: 'moz-extension://test-id/background.js',
-                url: 'https://ranobelib.me/uploads/image.jpg',
-                requestHeaders: [],
-            });
-            const custom = result.requestHeaders.find(h => h.name === 'X-Custom');
-            expect(custom.value).toBe('ranobelib');
-        });
-
-        it('Detects image request with covers path', async () => {
-            const result = await capturedBeforeSendHeadersCb({
-                originUrl: 'moz-extension://test-id/background.js',
-                url: 'https://cdn.example.com/covers/thumb.jpg',
-                requestHeaders: [
-                    { name: 'Referer', value: 'https://mangalib.me/' },
-                ],
-            });
-            const accept = result.requestHeaders.find(h => h.name === 'Accept');
-            expect(accept.value).toBe('image/webp');
-        });
-
-        it('Detects image request with uploads path', async () => {
-            const result = await capturedBeforeSendHeadersCb({
-                originUrl: 'moz-extension://test-id/background.js',
-                url: 'https://cdn.example.com/uploads/image.jpg',
-                requestHeaders: [
-                    { name: 'Referer', value: 'https://mangalib.me/' },
-                ],
-            });
-            const accept = result.requestHeaders.find(h => h.name === 'Accept');
-            expect(accept.value).toBe('image/webp');
-        });
-
-        it('Applies ranobelib headers without imageHeaders fallback', async () => {
-            const result = await capturedBeforeSendHeadersCb({
-                originUrl: 'moz-extension://test-id/background.js',
-                url: 'https://ranobelib.me/api/data',
-                requestHeaders: [
-                    { name: 'Referer', value: 'https://ranobelib.me/' },
-                ],
-            });
-            const custom = result.requestHeaders.find(h => h.name === 'X-Custom');
-            expect(custom.value).toBe('ranobelib');
         });
 
         it('Exposes detectServiceByUrl globally', () => {

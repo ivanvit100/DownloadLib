@@ -34,12 +34,6 @@
     console.log('[RequestInterceptor] Detected browser:', isFirefox ? 'Firefox' : 'Chrome');
 
     const rateLimiter = globalRateLimiter || new RateLimiter({ maxRequestsPerMinute: 80 });
-    const ServiceConfigs = {};
-
-    if (typeof mangalibConfig !== 'undefined')
-        ServiceConfigs.mangalib = mangalibConfig;
-    if (typeof ranolibConfig !== 'undefined')
-        ServiceConfigs.ranobelib = ranolibConfig;
 
     if (!globalThis.authTokenStore) globalThis.authTokenStore = {};
     const authTokens = globalThis.authTokenStore;
@@ -202,8 +196,9 @@
 
         /**
          * Обработчик onBeforeSendHeaders: запоминает Origin для запросов изображений,
-         * захватывает токен из чужих запросов и подставляет заголовки сервиса/токен
-         * авторизации для запросов, исходящих от самого расширения.
+         * захватывает токен из чужих запросов и подставляет токен авторизации для
+         * запросов, исходящих от самого расширения (Referer/Origin больше не подделываются —
+         * такие запросы теперь выполняются в контексте настоящей вкладки сервиса).
          * @param {object} details - Данные запроса из webRequest, включая requestHeaders.
          * @returns {Promise<{requestHeaders?: Array<{name: string, value: string}>}>} Изменённые заголовки
          * (для запросов от расширения) или пустой объект, если заголовки не меняются.
@@ -228,33 +223,7 @@
                 if (serviceName)
                     await rateLimiter.trackRequest(serviceName);
 
-                let headers = details.requestHeaders || [];
-
-                if (serviceName && ServiceConfigs[serviceName]) {
-                    const config = ServiceConfigs[serviceName];
-                    const isImage = isImageRequest(details.url);
-
-                    const targetHeaders = isImage && config.imageHeaders ? config.imageHeaders : config.headers;
-
-                    if (targetHeaders) {
-                        const targetKeys = Object.keys(targetHeaders).map(k => k.toLowerCase());
-
-                        const otherHeaders = isImage ? config.headers : config.imageHeaders;
-                        if (otherHeaders) {
-                            const otherKeys = Object.keys(otherHeaders).map(k => k.toLowerCase());
-                            const toRemove = otherKeys.filter(k => !targetKeys.includes(k));
-                            headers = headers.filter(h => !toRemove.includes(h.name.toLowerCase()));
-                        }
-
-                        for (const [name, value] of Object.entries(targetHeaders)) {
-                            const lowerName = name.toLowerCase();
-                            const existing = headers.find(h => h.name.toLowerCase() === lowerName);
-                            if (existing) existing.value = value;
-                            else headers.push({ name, value });
-                        }
-                    } else console.warn(`[RequestInterceptor] No headers found for service ${serviceName} (isImage: ${isImage})`);
-                }
-
+                const headers = details.requestHeaders || [];
                 injectAuthToken(headers, serviceName, details.url);
 
                 return { requestHeaders: headers };

@@ -9,6 +9,7 @@ function setupDOM() {
         <button id="saveRateLimitBtn">Сохранить</button>
         <input id="settingsMaxSize" type="number" />
         <button id="saveMaxSizeBtn">Сохранить</button>
+        <input id="settingsFitFb2Images" type="checkbox" />
         <button id="rangeModeChapters" class="settings-toggle-btn" data-mode="chapters"></button>
         <button id="rangeModeVolumes" class="settings-toggle-btn" data-mode="volumes"></button>
         <div id="pluginList"></div>
@@ -80,6 +81,24 @@ describe('_renderMaxSize()', () => {
         localStorage.setItem('manga_parser_max_size_mb', '512');
         SettingsController._renderMaxSize();
         expect(document.getElementById('settingsMaxSize').value).toBe('512');
+    });
+});
+
+describe('_renderFitFb2Images()', () => {
+    it('returns early when element absent', () => {
+        document.getElementById('settingsFitFb2Images').remove();
+        expect(() => SettingsController._renderFitFb2Images()).not.toThrow();
+    });
+
+    it('unchecks by default when localStorage empty', () => {
+        SettingsController._renderFitFb2Images();
+        expect(document.getElementById('settingsFitFb2Images').checked).toBe(false);
+    });
+
+    it('checks when stored value is "true"', () => {
+        localStorage.setItem('manga_parser_fit_fb2_images', 'true');
+        SettingsController._renderFitFb2Images();
+        expect(document.getElementById('settingsFitFb2Images').checked).toBe(true);
     });
 });
 
@@ -379,6 +398,21 @@ describe('_bindEvents() saveMaxSizeBtn', () => {
         vi.advanceTimersByTime(1500);
         expect(btn.textContent).toBe(original);
         expect(btn.disabled).toBe(false);
+    });
+});
+
+describe('_bindEvents() fitFb2Images checkbox', () => {
+    it('no error when checkbox absent', () => {
+        document.getElementById('settingsFitFb2Images').remove();
+        expect(() => SettingsController._bindEvents()).not.toThrow();
+    });
+
+    it('saves checked state to localStorage on change', () => {
+        SettingsController._bindEvents();
+        const checkbox = document.getElementById('settingsFitFb2Images');
+        checkbox.checked = true;
+        checkbox.dispatchEvent(new Event('change'));
+        expect(localStorage.getItem('manga_parser_fit_fb2_images')).toBe('true');
     });
 });
 

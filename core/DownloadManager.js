@@ -1104,13 +1104,16 @@
 
     /**
      * Загружает изображение страницы без проверки контрольных точек прерывания:
-     * учитывает запрос в общем rate limiter'е, пробует загрузить напрямую через
-     * вкладку сервиса (fetchViaTab), а при неудаче — просит background-скрипт
-     * выполнить fetch, с повторными попытками при временной "заснувшей" background-странице.
+     * учитывает запрос в общем rate limiter'е и загружает его через вкладку сервиса
+     * (fetchViaTab), чтобы браузер сам поставил настоящие Referer/Origin. Если открытой
+     * вкладки сервиса нет вообще — бросает NoServiceTabError (а не тихо откатывается на
+     * fetch из контекста расширения с подделанными заголовками); если вкладка есть,
+     * но сама загрузка не удалась — возвращает ok:false для мягкой постраничной деградации.
      * @param {string} url - URL изображения.
      * @param {string} serviceKey - Ключ сервиса (для rate limiting и выбора вкладки).
      * @returns {Promise<{ok: boolean, base64?: string, contentType?: string, error?: string}>}
      * Результат загрузки изображения.
+     * @throws {Error} NoServiceTabError, если не найдено открытой вкладки сервиса.
      */
     async function fetchPageImageUngated(url, serviceKey) {
         if (global.globalRateLimiter) await global.globalRateLimiter.trackRequest(serviceKey || 'image');
@@ -1121,26 +1124,13 @@
             if (viaTab?.ok) return viaTab;
         }
 
-        const api = typeof global.getExtensionApi === 'function' ? global.getExtensionApi() : global.extensionApi;
-        if (!api?.runtime?.sendMessage) return { ok: false, error: 'runtime.sendMessage not available' };
-
-        const send = () => api.runtime.sendMessage({ action: 'fetchImage', url, serviceKey });
-        const RETRY_DELAYS = [300, 800, 2000];
-        let lastError;
-        for (let attempt = 0; attempt <= RETRY_DELAYS.length; attempt++) {
-            try {
-                return await send();
-            } catch (e) {
-                lastError = e;
-                if (!/Receiving end does not exist/i.test(e?.message || ''))
-                    return { ok: false, error: String(e) };
-                if (attempt < RETRY_DELAYS.length) {
-                    console.warn('[DownloadManager] Background page was asleep, retrying fetchImage for', url);
-                    await new Promise(resolve => setTimeout(resolve, RETRY_DELAYS[attempt]));
-                }
-            }
+        const hasTab = typeof global.hasServiceTab === 'function' && await global.hasServiceTab(serviceKey);
+        if (!hasTab) {
+            const NoServiceTabError = global.NoServiceTabError || Error;
+            throw new NoServiceTabError('Откройте страницу сервиса в отдельной вкладке, чтобы продолжить загрузку');
         }
-        return { ok: false, error: String(lastError) };
+
+        return { ok: false, error: 'Image fetch failed' };
     }
 
     global.DownloadManager = DownloadManager;

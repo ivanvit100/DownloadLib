@@ -284,6 +284,7 @@
                 this._imageCache.set(url, result);
                 return result;
             } catch (e) {
+                if (global.NoServiceTabError && e instanceof global.NoServiceTabError) throw e;
                 console.error('[MangaLibService] loadPageAsBase64 error', e);
                 return null;
             }
@@ -329,6 +330,7 @@
                     this.loadPageAsBase64(page, loadOpts)
                         .then(img => ({ img, index: i + batchIdx }))
                         .catch(err => {
+                            if (global.NoServiceTabError && err instanceof global.NoServiceTabError) throw err;
                             console.warn(`[MangaLibService] Failed to load page ${i + batchIdx}:`, err);
                             return { img: null, index: i + batchIdx };
                         })

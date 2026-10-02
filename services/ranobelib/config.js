@@ -17,31 +17,17 @@
         ],
 
         headers: {
-            'User-Agent': 'Mozilla/5.0 (X11; Linux x86_64; rv:147.0) Gecko/20100101 Firefox/147.0',
             'Accept': '*/*',
             'Accept-Language': 'ru,en-US;q=0.9,en;q=0.8',
             'Site-Id': '3',
             'X-DL-Service': 'ranobelib',
             'Content-Type': 'application/json',
-            'Client-Time-Zone': 'Europe/Moscow',
-            'Referer': 'https://ranobelib.me/',
-            'Origin': 'https://ranobelib.me',
-            'Sec-GPC': '1',
-            'Sec-Fetch-Dest': 'empty',
-            'Sec-Fetch-Mode': 'cors',
-            'Sec-Fetch-Site': 'cross-site',
-            'Connection': 'keep-alive'
+            'Client-Time-Zone': 'Europe/Moscow'
         },
 
         imageHeaders: {
-            'User-Agent': 'Mozilla/5.0 (X11; Linux x86_64; rv:150.0) Gecko/20100101 Firefox/150.0',
             'Accept': 'image/avif,image/webp,image/png,image/svg+xml,image/*;q=0.8,*/*;q=0.5',
-            'Accept-Language': 'ru,en-US;q=0.9,en;q=0.8',
-            'Referer': 'https://ranobelib.me/',
-            'Sec-Fetch-Dest': 'image',
-            'Sec-Fetch-Mode': 'no-cors',
-            'Sec-Fetch-Site': 'same-origin',
-            'Connection': 'keep-alive'
+            'Accept-Language': 'ru,en-US;q=0.9,en;q=0.8'
         },
 
         label: 'RanobeLib',

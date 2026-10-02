@@ -575,4 +575,153 @@ describe('BrowserApi', () => {
             });
         });
     });
+
+    describe('requestViaTab / hasServiceTab', () => {
+        async function setupWithBrowser(browserApi) {
+            clearBrowserApiGlobals();
+            global.browser = browserApi;
+            if (typeof window !== 'undefined') window.browser = browserApi;
+            await loadBrowserApi();
+        }
+
+        it('hasServiceTab returns false when scripting API is absent', async () => {
+            await setupWithBrowser({ runtime: {}, tabs: { query: async () => [] } });
+            const host = getHost();
+            expect(await host.hasServiceTab('mangalib')).toBe(false);
+        });
+
+        it('hasServiceTab returns false when no tab found', async () => {
+            await setupWithBrowser({
+                runtime: {},
+                tabs: { query: async () => [] },
+                scripting: { executeScript: vi.fn() }
+            });
+            const host = getHost();
+            expect(await host.hasServiceTab('mangalib')).toBe(false);
+        });
+
+        it('hasServiceTab returns true when a tab is found', async () => {
+            await setupWithBrowser({
+                runtime: {},
+                tabs: { query: async () => [{ id: 3 }] },
+                scripting: { executeScript: vi.fn() }
+            });
+            const host = getHost();
+            expect(await host.hasServiceTab('mangalib')).toBe(true);
+        });
+
+        it('requestViaTab returns noTab:true when scripting API is absent', async () => {
+            await setupWithBrowser({ runtime: {}, tabs: { query: async () => [] } });
+            const host = getHost();
+            expect(await host.requestViaTab('https://api.example.com/x', {}, 'mangalib'))
+                .toEqual({ ok: false, noTab: true });
+        });
+
+        it('requestViaTab returns noTab:true when no tab found', async () => {
+            await setupWithBrowser({
+                runtime: {},
+                tabs: { query: async () => [] },
+                scripting: { executeScript: vi.fn() }
+            });
+            const host = getHost();
+            expect(await host.requestViaTab('https://api.example.com/x', {}, 'mangalib'))
+                .toEqual({ ok: false, noTab: true });
+        });
+
+        it('requestViaTab returns the tab result with noTab:false on success', async () => {
+            const executeScript = vi.fn(async () => [{
+                result: { ok: true, status: 200, text: '{"a":1}', retryAfter: null }
+            }]);
+            await setupWithBrowser({
+                runtime: {},
+                tabs: { query: async () => [{ id: 4 }] },
+                scripting: { executeScript }
+            });
+            const host = getHost();
+            const result = await host.requestViaTab('https://api.example.com/x', { method: 'GET' }, 'mangalib');
+            expect(executeScript).toHaveBeenCalledWith(expect.objectContaining({
+                target: { tabId: 4 },
+                args: ['https://api.example.com/x', { method: 'GET' }]
+            }));
+            expect(result).toEqual({ ok: true, status: 200, text: '{"a":1}', retryAfter: null, noTab: false });
+        });
+
+        it('requestViaTab defaults options to {} when not provided', async () => {
+            const executeScript = vi.fn(async () => [{ result: { ok: true, status: 200, text: '' } }]);
+            await setupWithBrowser({
+                runtime: {},
+                tabs: { query: async () => [{ id: 4 }] },
+                scripting: { executeScript }
+            });
+            const host = getHost();
+            await host.requestViaTab('https://api.example.com/x', undefined, 'mangalib');
+            expect(executeScript).toHaveBeenCalledWith(expect.objectContaining({
+                args: ['https://api.example.com/x', {}]
+            }));
+        });
+
+        it('requestViaTab returns an error result when executeScript yields no result', async () => {
+            await setupWithBrowser({
+                runtime: {},
+                tabs: { query: async () => [{ id: 5 }] },
+                scripting: { executeScript: async () => [{ result: null }] }
+            });
+            const host = getHost();
+            const result = await host.requestViaTab('https://api.example.com/x', {}, 'mangalib');
+            expect(result).toEqual({ ok: false, noTab: false, error: 'No result from tab' });
+        });
+
+        it('requestViaTab returns an error and warns when executeScript throws', async () => {
+            await setupWithBrowser({
+                runtime: {},
+                tabs: { query: async () => [{ id: 6 }] },
+                scripting: { executeScript: async () => { throw new Error('script boom'); } }
+            });
+            const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
+            const host = getHost();
+            const result = await host.requestViaTab('https://api.example.com/x', {}, 'mangalib');
+            expect(result).toEqual({ ok: false, noTab: false, error: 'Error: script boom' });
+            expect(warnSpy).toHaveBeenCalledWith('[BrowserApi] requestViaTab failed:', 'script boom');
+            warnSpy.mockRestore();
+        });
+
+        describe('requestViaTab inner func (fetch-to-text)', () => {
+            let capturedFunc;
+
+            beforeEach(async () => {
+                await setupWithBrowser({
+                    runtime: {},
+                    tabs: { query: async () => [{ id: 1 }] },
+                    scripting: {
+                        executeScript: async ({ func }) => {
+                            capturedFunc = func;
+                            return [{ result: { ok: true, status: 200, text: '' } }];
+                        }
+                    }
+                });
+                await getHost().requestViaTab('https://api.example.com/x', {}, 'mangalib');
+            });
+
+            afterEach(() => {
+                vi.unstubAllGlobals();
+            });
+
+            it('returns ok/status/text/retryAfter on success', async () => {
+                vi.stubGlobal('fetch', vi.fn(async () => ({
+                    ok: true,
+                    status: 200,
+                    text: async () => '{"a":1}',
+                    headers: { get: () => '7' }
+                })));
+                const result = await capturedFunc('https://api.example.com/x', {});
+                expect(result).toEqual({ ok: true, status: 200, text: '{"a":1}', retryAfter: '7' });
+            });
+
+            it('returns ok:false with error when fetch throws', async () => {
+                vi.stubGlobal('fetch', vi.fn(async () => { throw new Error('network fail'); }));
+                const result = await capturedFunc('https://api.example.com/x', {});
+                expect(result).toEqual({ ok: false, status: 0, text: '', error: 'Error: network fail' });
+            });
+        });
+    });
 });
