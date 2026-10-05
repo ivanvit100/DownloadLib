@@ -291,9 +291,37 @@
         }
 
         /**
+         * Приводит загруженное изображение страницы (или его части после разбиения)
+         * к блокам содержимого главы.
+         * @param {{base64: string, contentType: string}|{base64: string, contentType: string}[]} img
+         * Обработанное изображение, либо массив частей.
+         * @param {number} index - Индекс страницы в главе.
+         * @returns {object[]} Блоки изображения.
+         */
+        _toImageBlocks(img, index) {
+            if (!Array.isArray(img)) {
+                return [{
+                    type: 'image',
+                    id: `manga_img_${Date.now()}_${index}`,
+                    data: img,
+                    originalIndex: index
+                }];
+            }
+            return img.map((part, partIndex) => ({
+                type: 'image',
+                id: `manga_img_${Date.now()}_${index}_part${partIndex}`,
+                data: part,
+                originalIndex: index,
+                partIndex: partIndex,
+                totalParts: img.length
+            }));
+        }
+
+        /**
          * Загружает все страницы главы пакетами (по 5 одновременно), обновляя
          * статус прогресса, и приводит результат к унифицированному формату
-         * содержимого главы.
+         * содержимого главы. Страница, не успевшая загрузиться за отведённый срок,
+         * заменяется меткой и догружается в фоне (см. loadImageOrDefer).
          * @param {Array} extracted - Список страниц, извлечённых extractText.
          * @param {?{textContent: string}} status - Элемент статуса для отображения прогресса.
          * @param {object} [opts] - Опции обработки (chapterMeta, chapterObj, splitLongImages,
@@ -326,40 +354,28 @@
 
             for (let i = 0; i < pages.length; i += concurrency) {
                 const batch = pages.slice(i, Math.min(i + concurrency, pages.length));
-                const batchPromises = batch.map((page, batchIdx) =>
-                    this.loadPageAsBase64(page, loadOpts)
-                        .then(img => ({ img, index: i + batchIdx }))
+                const batchPromises = batch.map((page, batchIdx) => {
+                    const index = i + batchIdx;
+                    const load = async () => {
+                        const img = await this.loadPageAsBase64(page, loadOpts);
+                        return img ? this._toImageBlocks(img, index) : null;
+                    };
+                    return (global.loadImageOrDefer ? global.loadImageOrDefer(index + 1, load) : load())
+                        .then(blocks => ({ blocks, index }))
                         .catch(err => {
                             if (global.NoServiceTabError && err instanceof global.NoServiceTabError) throw err;
-                            console.warn(`[MangaLibService] Failed to load page ${i + batchIdx}:`, err);
-                            return { img: null, index: i + batchIdx };
-                        })
-                );
+                            console.warn(`[MangaLibService] Failed to load page ${index}:`, err);
+                            return { blocks: null, index };
+                        });
+                });
 
                 const batchResults = await Promise.all(batchPromises);
 
-                for (const { img, index } of batchResults) {
-                    if (!img)
+                for (const { blocks, index } of batchResults) {
+                    if (!blocks)
                         result.push({ type: 'text', text: `[Ошибка загрузки изображения ${index + 1}]` });
-                    else if (Array.isArray(img)) {
-                        img.forEach((part, partIndex) => {
-                            result.push({
-                                type: 'image',
-                                id: `manga_img_${Date.now()}_${index}_part${partIndex}`,
-                                data: part,
-                                originalIndex: index,
-                                partIndex: partIndex,
-                                totalParts: img.length
-                            });
-                        });
-                    } else {
-                        result.push({
-                            type: 'image',
-                            id: `manga_img_${Date.now()}_${index}`,
-                            data: img,
-                            originalIndex: index
-                        });
-                    }
+                    else
+                        result.push(...blocks);
 
                     completed += 1;
                     if (status) status.textContent = `Загружено страниц: ${completed}/${pages.length}`;

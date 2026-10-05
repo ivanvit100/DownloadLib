@@ -440,6 +440,35 @@ describe('MangaLibService', () => {
         delete global.NoServiceTabError;
     });
 
+    it('Process chapter content loads pages through loadImageOrDefer', async () => {
+        const svc = new MangaLibService();
+        svc.extractPages = vi.fn().mockReturnValue(['img1.jpg', 'img2.jpg', 'img3.jpg']);
+        const placeholder = { type: 'text', text: 'pending 2' };
+        let deferredLoad;
+        global.loadImageOrDefer = vi.fn(async (label, load) => {
+            if (label !== 2) return load();
+            deferredLoad = load;
+            return [placeholder];
+        });
+        svc.loadPageAsBase64 = vi.fn()
+            .mockResolvedValueOnce({ base64: 'abc', contentType: 'image/jpeg' })
+            .mockResolvedValueOnce(null)
+            .mockResolvedValueOnce([
+                { base64: 'p1', contentType: 'image/jpeg' },
+                { base64: 'p2', contentType: 'image/jpeg' }
+            ]);
+        const result = await svc.processChapterContent([], null, { chapterMeta: { pages: ['img1.jpg', 'img2.jpg', 'img3.jpg'] } });
+        expect(result[0].type).toBe('image');
+        expect(result[1]).toBe(placeholder);
+        expect(result[2].text).toBe('[Ошибка загрузки изображения 3]');
+
+        const loaded = await deferredLoad();
+        expect(svc.loadPageAsBase64).toHaveBeenLastCalledWith('img2.jpg', expect.any(Object));
+        expect(loaded.map(b => b.data.base64)).toEqual(['p1', 'p2']);
+        expect(loaded[0]).toMatchObject({ originalIndex: 1, partIndex: 0, totalParts: 2 });
+        delete global.loadImageOrDefer;
+    });
+
     it('Process chapter content returns split images as blocks', async () => {
         const svc = new MangaLibService();
         svc.extractPages = vi.fn().mockReturnValue(['img1.jpg']);

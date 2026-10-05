@@ -160,13 +160,14 @@
         /**
          * Возвращает текущую статистику ограничителя.
          * @returns {{requestsInLastMinute: number, maxRequestsPerMinute: number,
-         * queueSize: number, timestamps: number[]}} Снимок текущего состояния лимита.
+         * queueSize: number, throttled: boolean, timestamps: number[]}} Снимок текущего состояния лимита.
          */
         getStats() {
             return {
                 requestsInLastMinute: this._requestsInLastMinute,
                 maxRequestsPerMinute: this._maxRequestsPerMinute,
                 queueSize: this._pendingQueue.length,
+                throttled: this._throttled,
                 timestamps: this._requestTimestamps.slice()
             };
         }

@@ -201,6 +201,73 @@ describe('RanobeLibService', () => {
         delete global.fetchPageImage;
     });
 
+    it('Process chapter content loads images in parallel and keeps their order', async () => {
+        const svc = new RanobeLibService();
+        const extracted = [
+            { type: 'image', src: 'a.jpg' }, { type: 'text', text: 'mid' },
+            { type: 'image', src: 'b.jpg' }, { type: 'image', src: 'c.jpg' }
+        ];
+        global.browser = { runtime: { sendMessage: vi.fn() } };
+        const pending = {};
+        global.fetchPageImage = vi.fn(url => new Promise(resolve => { pending[url.split('/').pop()] = resolve; }));
+
+        const processing = svc.processChapterContent(extracted, {}, { chapterMeta: { id: 2, manga_id: 1 } });
+        await vi.waitFor(() => expect(global.fetchPageImage).toHaveBeenCalledTimes(3));
+        pending['c.jpg']({ ok: true, base64: 'C', contentType: 'image/png' });
+        pending['b.jpg']({ ok: true, base64: 'B', contentType: 'image/png' });
+        pending['a.jpg']({ ok: true, base64: 'A', contentType: 'image/png' });
+
+        const result = await processing;
+        expect(result.map(b => b.text || b.data.base64)).toEqual(['A', 'mid', 'B', 'C']);
+        delete global.browser;
+        delete global.fetchPageImage;
+    });
+
+    it('Process chapter content loads images through loadImageOrDefer', async () => {
+        const svc = new RanobeLibService();
+        const extracted = [{ type: 'text', text: 'abc' }, { type: 'image', src: 'a.jpg' }, { type: 'image', src: 'b.jpg' }];
+        global.browser = { runtime: { sendMessage: vi.fn() } };
+        global.fetchPageImage = vi.fn().mockResolvedValue({ ok: true, base64: 'data', contentType: 'image/png' });
+        const placeholder = { type: 'text', text: 'pending 2' };
+        let deferredLoad;
+        global.loadImageOrDefer = vi.fn(async (label, load) => {
+            if (label !== 2) return load();
+            deferredLoad = load;
+            return [placeholder];
+        });
+
+        const result = await svc.processChapterContent(extracted, {}, { chapterMeta: { id: 2, manga_id: 1 } });
+        expect(result).toEqual([
+            { type: 'text', text: 'abc' },
+            { type: 'image', data: { base64: 'data', contentType: 'image/png' } },
+            placeholder
+        ]);
+        expect(await deferredLoad()).toEqual([{ type: 'image', data: { base64: 'data', contentType: 'image/png' } }]);
+
+        global.fetchPageImage.mockResolvedValue({ ok: false });
+        const errorSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
+        const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
+        expect(await deferredLoad()).toBeNull();
+        errorSpy.mockRestore();
+        warnSpy.mockRestore();
+        delete global.loadImageOrDefer;
+        delete global.browser;
+        delete global.fetchPageImage;
+    });
+
+    it('Process chapter content rethrows NoServiceTabError from image loading', async () => {
+        const svc = new RanobeLibService();
+        class NoServiceTabError extends Error {}
+        global.NoServiceTabError = NoServiceTabError;
+        global.browser = { runtime: { sendMessage: vi.fn() } };
+        global.fetchPageImage = vi.fn().mockRejectedValue(new NoServiceTabError('no tab'));
+        await expect(svc.processChapterContent([{ type: 'image', src: 'img.jpg' }], {}, { chapterMeta: { id: 2, manga_id: 1 } }))
+            .rejects.toBeInstanceOf(NoServiceTabError);
+        delete global.NoServiceTabError;
+        delete global.browser;
+        delete global.fetchPageImage;
+    });
+
     it('Process chapter content logs error', async () => {
         const svc = new RanobeLibService();
         const extracted = [{ type: 'image', src: 'img123.jpg' }];

@@ -645,7 +645,9 @@
                 /**
                  * Загружает все страницы главы пакетами (по 5 одновременно), обновляя
                  * статус прогресса, и приводит результат к унифицированному формату
-                 * контента главы (изображения либо текст-заглушка при ошибке загрузки).
+                 * контента главы (изображения либо текст-заглушка при ошибке загрузки;
+                 * страницы, не успевшие загрузиться за отведённый срок, заменяются
+                 * метками и догружаются в фоне — см. loadImageOrDefer).
                  * @param {Array} extracted - Список страниц, извлечённых extractText/extractPages.
                  * @param {?{textContent: string}} status - Элемент статуса для отображения прогресса.
                  * @param {{compressionFormat?: string, compressionQuality?: number}} [opts] - Параметры сжатия.
@@ -663,26 +665,27 @@
                     for (let i = 0; i < pages.length; i += concurrency) {
                         const batch = pages.slice(i, Math.min(i + concurrency, pages.length));
                         const batchResults = await Promise.all(
-                            batch.map((page, batchIdx) =>
-                                this.loadPageAsBase64(page, loadOpts)
-                                    .then(img => ({ img, index: i + batchIdx }))
+                            batch.map((page, batchIdx) => {
+                                const index = i + batchIdx;
+                                const load = async () => {
+                                    const img = await this.loadPageAsBase64(page, loadOpts);
+                                    return img
+                                        ? [{ type: 'image', id: `img_${Date.now()}_${index}`, data: img, originalIndex: index }]
+                                        : null;
+                                };
+                                return (global.loadImageOrDefer ? global.loadImageOrDefer(index + 1, load) : load())
+                                    .then(blocks => ({ blocks, index }))
                                     .catch(e => {
                                         if (global.NoServiceTabError && e instanceof global.NoServiceTabError) throw e;
-                                        return { img: null, index: i + batchIdx };
-                                    })
-                            )
+                                        return { blocks: null, index };
+                                    });
+                            })
                         );
-                        for (const { img, index } of batchResults) {
-                            if (!img)
+                        for (const { blocks, index } of batchResults) {
+                            if (!blocks)
                                 result.push({ type: 'text', text: `[Ошибка загрузки изображения ${index + 1}]` });
-                            else {
-                                result.push({
-                                    type: 'image',
-                                    id: `img_${Date.now()}_${index}`,
-                                    data: img,
-                                    originalIndex: index
-                                });
-                            }
+                            else
+                                result.push(...blocks);
                             completed += 1;
                             if (status) status.textContent = `Загружено страниц: ${completed}/${pages.length}`;
                         }

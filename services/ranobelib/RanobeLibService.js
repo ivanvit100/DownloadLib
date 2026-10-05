@@ -12,6 +12,9 @@
 (function(global) {
     console.log('[RanobeLibService] Loading...');
 
+    /** Сколько изображений главы загружается одновременно. */
+    const IMAGE_CONCURRENCY = 5;
+
     /**
      * Сервис-парсер сайта RanobeLib: содержимое главы приходит как ProseMirror-подобное
      * дерево rich-text JSON (или, в некоторых ответах, как готовый HTML-текст),
@@ -399,7 +402,9 @@
         /**
          * Дополняет извлечённые блоки главы фактическими данными изображений:
          * текстовые блоки пропускаются как есть (пустые отбрасываются), блоки
-         * изображений догружаются и сжимаются через _processImageBlock.
+         * изображений догружаются и сжимаются через _processImageBlock — параллельно,
+         * по IMAGE_CONCURRENCY одновременно. Изображение, не успевшее загрузиться за
+         * отведённый срок, заменяется меткой и догружается в фоне (см. loadImageOrDefer).
          * @param {object[]} extracted - Блоки содержимого главы, извлечённые extractText.
          * @param {*} _status - Не используется (сохранён для единообразия сигнатуры с другими сервисами).
          * @param {object} [opts] - Опции обработки (chapterMeta, mangaId, compressionFormat,
@@ -417,19 +422,38 @@
                 ...opts.imageFit
             };
 
-            const result = [];
+            const slots = [];
+            const images = [];
             for (const block of extracted) {
                 if (block.type === 'text') {
                     if (block.text && block.text.trim())
-                        result.push(block);
+                        slots.push([block]);
                     else console.warn('[RanobeLibService] Skipping empty text block');
                 } else if (block.type === 'image' && block.src) {
-                    const imageResult = await this._processImageBlock(
-                        block, attachmentMap, mangaId, chapterId, compressOpts);
-                    if (imageResult) result.push(imageResult);
+                    const slot = [];
+                    slots.push(slot);
+                    images.push({ block, slot, number: images.length + 1 });
                 } else console.warn('[RanobeLibService] Unknown block type:', block);
             }
-            return result;
+
+            let next = 0;
+            const worker = async () => {
+                while (next < images.length) {
+                    const { block, slot, number } = images[next];
+                    next += 1;
+                    const load = async () => {
+                        const imageResult = await this._processImageBlock(
+                            block, attachmentMap, mangaId, chapterId, compressOpts);
+                        return imageResult ? [imageResult] : null;
+                    };
+                    const blocks = global.loadImageOrDefer
+                        ? await global.loadImageOrDefer(number, load)
+                        : await load();
+                    if (blocks) slot.push(...blocks);
+                }
+            };
+            await Promise.all(Array.from({ length: Math.min(IMAGE_CONCURRENCY, images.length) }, worker));
+            return slots.flat();
         }
     }
 

@@ -718,6 +718,28 @@ describe('_loadServiceProxy()', () => {
         delete globalThis.NoServiceTabError;
     });
 
+    it('PluginServiceProxy.processChapterContent: loads pages through loadImageOrDefer', async () => {
+        const getClass = setupBaseService();
+        PluginManager._loadServiceProxy({ service: 'svc', hosts: [] });
+        const inst = new (getClass())();
+        delete globalThis.ImageCompressor;
+        const placeholder = { type: 'text', text: 'pending 2' };
+        globalThis.loadImageOrDefer = vi.fn(async (label, load) => (label === 2 ? [placeholder] : load()));
+        globalThis.fetchPageImage = vi.fn()
+            .mockResolvedValueOnce({ ok: true, base64: 'b64', contentType: 'image/jpeg' })
+            .mockResolvedValueOnce({ ok: false });
+        const pages = [{ src: 'https://cdn.ex.com/1.jpg' }, { src: 'https://cdn.ex.com/2.jpg' }, { src: 'https://cdn.ex.com/3.jpg' }];
+        const result = await inst.processChapterContent(pages, null);
+        expect(result[0]).toEqual(expect.objectContaining({
+            type: 'image', data: { base64: 'b64', contentType: 'image/jpeg' }, originalIndex: 0
+        }));
+        expect(result[1]).toBe(placeholder);
+        expect(result[2].text).toContain('Ошибка загрузки изображения 3');
+        expect(globalThis.loadImageOrDefer.mock.calls.map(c => c[0])).toEqual([1, 2, 3]);
+        delete globalThis.fetchPageImage;
+        delete globalThis.loadImageOrDefer;
+    });
+
     it('PluginServiceProxy.processChapterContent: updates status.textContent', async () => {
         const getClass = setupBaseService();
         PluginManager._loadServiceProxy({ service: 'svc', hosts: [] });
