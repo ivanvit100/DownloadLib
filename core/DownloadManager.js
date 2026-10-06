@@ -507,10 +507,9 @@
     }
 
     /**
-     * Оркестрирует полный жизненный цикл загрузки тайтла с сервиса или обновления
-     * существующего файла: получение метаданных и глав, скачивание содержимого
-     * с учётом паузы/остановки, разбиение результата на файлы по лимиту размера
-     * и сохранение готовых файлов.
+     * Оркестрирует полный жизненный цикл загрузки тайтла с сервиса: получение
+     * метаданных и глав, скачивание содержимого с учётом паузы/остановки,
+     * разбиение результата на файлы по лимиту размера и сохранение готовых файлов.
      */
     class DownloadManager {
         /**
@@ -571,7 +570,7 @@
          */
         _createDownloadState(options, service) {
             const { url, format = 'fb2', slug, serviceKey, controller,
-                loadedFile, maxSizeMB = 200, splitPages = true, fitFb2Images = false } = options;
+                maxSizeMB = 200, splitPages = true, fitFb2Images = false } = options;
             const downloadId = this.generateId();
             return {
                 id: downloadId,
@@ -585,7 +584,6 @@
                 status: 'initializing',
                 progress: 0,
                 controller: controller || this.createController(),
-                loadedFile,
                 manga: null,
                 mangaId: null,
                 coverBase64: null,
@@ -733,12 +731,11 @@
 
         /**
          * Запускает полный цикл новой загрузки тайтла: разрешает сервис, создаёт
-         * состояние загрузки и keep-alive порт, затем либо обновляет ранее
-         * загруженный файл (если передан loadedFile), либо последовательно
-         * загружает метаданные, обложку, список глав и содержимое глав с разбиением
+         * состояние загрузки и keep-alive порт, затем последовательно загружает
+         * метаданные, обложку, список глав и содержимое глав с разбиением
          * на файлы по лимиту размера.
          * @param {{url?: string, format?: string, chapterRange?: {from: number, to: number},
-         * branchId?: number, maxSizeMB?: number, authToken?: string, loadedFile?: File,
+         * branchId?: number, maxSizeMB?: number, authToken?: string,
          * serviceKey?: string, slug?: string, controller?: object, splitPages?: boolean,
          * fitFb2Images?: boolean}} options
          * Параметры загрузки.
@@ -748,7 +745,7 @@
         async startDownload(options) {
             console.log('[DownloadManager] Starting download with options:', options);
             const { url, format = 'fb2', chapterRange, branchId = null, maxSizeMB = 200,
-                authToken = null, loadedFile, serviceKey } = options;
+                authToken = null, serviceKey } = options;
 
             const service = this._resolveService(serviceKey, url, authToken);
             console.log('[DownloadManager] Using service:', service.name);
@@ -766,8 +763,6 @@
             activeGate = gate;
 
             try {
-                if (loadedFile) return await this.updateExistingFile(downloadState, service, loadedFile);
-
                 this.updateStatus(downloadId, 'Загрузка метаданных...', 5);
                 const metadata = await service.fetchMangaMetadata(downloadState.slug);
                 console.log('[DownloadManager] Metadata:', metadata);
@@ -1125,336 +1120,6 @@
         }
 
         /**
-         * Обновляет ранее загруженный файл: сверяет главы на сервере с главами
-         * в файле, докачивает недостающие/пустые главы, объединяет результат
-         * с существующим содержимым и пересохраняет файл(ы) с учётом лимита размера.
-         * @param {object} downloadState - Текущее состояние загрузки.
-         * @param {object} service - Экземпляр сервиса.
-         * @param {File} loadedFile - Ранее загруженный файл для обновления.
-         * @returns {Promise<{success: boolean, downloadId: string, updated: boolean,
-         * addedChapters?: number}>} Результат обновления: updated=false, если файл уже
-         * содержит все главы.
-         * @throws {Error} При ошибке разбора файла или загрузки недостающих глав.
-         */
-        async updateExistingFile(downloadState, service, loadedFile) {
-            const { id: downloadId, slug, format } = downloadState;
-
-            try {
-                this.updateStatus(downloadId, 'Загрузка списка глав с сервера...', 5);
-                const chaptersData = await service.fetchChaptersList(slug);
-                const serverChapters = this.sortChapters(chaptersData.data || []);
-
-                this.updateStatus(downloadId, 'Анализ существующего файла...', 10);
-                const exporter = await this._createExporter(format);
-
-                const existingData = exporter.parse ?
-                    await exporter.parse(loadedFile) :
-                    await this.parseFile(loadedFile, format);
-
-                console.log('[DownloadManager] Existing chapters:', existingData.chapters.length);
-
-                const chaptersToDownload = this.findMissingChapters(
-                    serverChapters,
-                    existingData.chapters
-                );
-
-                console.log('[DownloadManager] Chapters to download:', chaptersToDownload.length);
-
-                if (chaptersToDownload.length === 0) {
-                    this.updateStatus(downloadId, 'Файл уже актуален!', 100);
-                    this.eventBus.emit('download:completed', downloadState);
-                    return { success: true, downloadId, updated: false };
-                }
-
-                downloadState.chapters = serverChapters;
-                downloadState.manga = existingData.metadata;
-                downloadState.coverBase64 = existingData.cover;
-
-                const newChapterContents = await this.downloadSpecificChapters(
-                    service,
-                    downloadState,
-                    chaptersToDownload,
-                    serverChapters.length
-                );
-
-                this.updateStatus(downloadId, 'Объединение глав...', 90);
-                const mergedChapters = this.mergeChapters(
-                    existingData.chapters,
-                    newChapterContents,
-                    serverChapters
-                );
-
-                const patch = global.MangaPatcher.patch(existingData.metadata);
-                const maxSizeBytes = (downloadState.maxSizeMB || 200) * 1024 * 1024;
-                let currentBatch = [];
-                let currentSize = 0;
-                let currentVolume = null;
-                let volumePartIndex = 0;
-
-                /**
-                 * Экспортирует накопленный пакет объединённых глав текущего тома
-                 * в обновлённый файл и сохраняет его, сбрасывая накопленный пакет и размер.
-                 * @param {number} progress - Процент прогресса для отображения статуса.
-                 * @returns {Promise<void>}
-                 */
-                const flushMergedBatch = async (progress) => {
-                    if (currentBatch.length === 0) return;
-                    volumePartIndex += 1;
-                    const suffix = this._buildVolumeSuffix(currentVolume, volumePartIndex);
-                    this.updateStatus(downloadId, `Создание обновлённого ${format.toUpperCase()} - том ${currentVolume}${volumePartIndex > 1 ? `, часть ${volumePartIndex}` : ''}...`, progress);
-                    const file = await exporter.export(
-                        { ...patch, name: patch.name + suffix }, currentBatch, existingData.cover
-                    );
-                    await this.saveFile(file.blob, file.filename);
-                    currentBatch = [];
-                    currentSize = 0;
-                };
-
-                for (const chapter of mergedChapters) {
-                    const chapterSize = this.estimateChapterSize(chapter);
-                    const chapterVolume = this._chapterVolume(chapter);
-                    const volumeChanged = currentBatch.length > 0 && chapterVolume !== currentVolume;
-                    const sizeExceeded = currentBatch.length > 0 && currentSize + chapterSize > maxSizeBytes;
-
-                    if (volumeChanged || sizeExceeded) {
-                        await flushMergedBatch(93);
-                        if (volumeChanged) volumePartIndex = 0;
-                    }
-
-                    if (currentBatch.length === 0) currentVolume = chapterVolume;
-                    currentBatch.push(chapter);
-                    currentSize += chapterSize;
-                }
-
-                await flushMergedBatch(95);
-
-                this.updateStatus(downloadId, 'Файл обновлён!', 100);
-                this.eventBus.emit('download:completed', downloadState);
-
-                return {
-                    success: true,
-                    downloadId,
-                    updated: true,
-                    addedChapters: chaptersToDownload.length
-                };
-            } catch (error) {
-                console.error('[DownloadManager] Update error:', error);
-                this.updateStatus(downloadId, `Ошибка обновления: ${error.message}`, -1);
-                this.eventBus.emit('download:failed', { downloadState, error });
-                throw error;
-            }
-        }
-
-        /**
-         * Разбирает ранее скачанный файл в унифицированную структуру (метаданные,
-         * обложка, главы), используя парсер соответствующего формата.
-         * @param {File} file - Файл для разбора.
-         * @param {string} format - Формат файла ('fb2', 'epub', 'mobi', 'simple').
-         * @returns {Promise<{metadata: object, cover: string, chapters: object[]}>}
-         * Разобранное содержимое файла.
-         * @throws {Error} Если формат не поддерживается для парсинга (в т.ч. 'pdf').
-         */
-        async parseFile(file, format) {
-            if (format === 'fb2') {
-                const text = await this.readFileAsText(file);
-                const exporter = global.ExporterRegistry.create('fb2');
-                return exporter.parseFB2(text, file.name);
-            } else if (format === 'epub') {
-                const exporter = global.ExporterRegistry.create('epub');
-                return await exporter.parseEPUB(file);
-            } else if (format === 'mobi') {
-                const exporter = global.ExporterRegistry.create('mobi');
-                return await exporter.parse(file);
-            } else if (format === 'simple') {
-                const exporter = global.ExporterRegistry.create('simple');
-                return await exporter.parse(file);
-            } else if (format === 'pdf')
-                throw new Error('PDF парсинг пока не реализован');
-
-            throw new Error(`Unsupported format: ${format}`);
-        }
-
-        /**
-         * Читает содержимое файла как текст в кодировке UTF-8.
-         * @param {File} file - Читаемый файл.
-         * @returns {Promise<string>} Текстовое содержимое файла.
-         */
-        readFileAsText(file) {
-            return new Promise((resolve, reject) => {
-                const reader = new FileReader();
-                reader.onload = (e) => resolve(e.target.result);
-                reader.onerror = reject;
-                reader.readAsText(file, 'utf-8');
-            });
-        }
-
-        /**
-         * Находит главы, отсутствующие в ранее загруженном файле (или пустые из-за
-         * прошлой ошибки загрузки), начиная с первой главы, совпадающей с содержимым
-         * файла (главы до этой точки, добавленные позже на сервере задним числом,
-         * не считаются пропущенными).
-         * @param {object[]} serverChapters - Актуальный список глав с сервера.
-         * @param {object[]} existingChapters - Главы, уже присутствующие в файле.
-         * @returns {object[]} Список глав с сервера, которые нужно докачать.
-         */
-        findMissingChapters(serverChapters, existingChapters) {
-            if (existingChapters.length === 0) return [];
-
-            const existingKeys = new Set();
-            for (const ch of existingChapters)
-                existingKeys.add(this.getChapterKey(ch));
-
-            let startIndex = -1;
-            for (let i = 0; i < serverChapters.length; i++) {
-                if (existingKeys.has(this.getChapterKey(serverChapters[i]))) {
-                    startIndex = i;
-                    break;
-                }
-            }
-
-            if (startIndex === -1) return [];
-
-            const missing = [];
-            for (let i = startIndex; i < serverChapters.length; i++) {
-                const serverCh = serverChapters[i];
-                const key = this.getChapterKey(serverCh);
-
-                if (!existingKeys.has(key))
-                    missing.push(serverCh);
-                else {
-                    const existingCh = existingChapters.find(ch => this.getChapterKey(ch) === key);
-                    if (existingCh && this.isChapterEmpty(existingCh)) missing.push(serverCh);
-                }
-            }
-
-            return missing;
-        }
-
-        /**
-         * Строит уникальный ключ главы по номеру тома и главы, используемый для
-         * сопоставления глав с сервера и глав в загруженном файле.
-         * @param {{volume?: *, number?: *}} chapter - Глава.
-         * @returns {string} Ключ вида "v{том}_ch{номер}".
-         */
-        getChapterKey(chapter) {
-            const vol = chapter.volume || '1';
-            const num = chapter.number || '0';
-            return `v${vol}_ch${num}`;
-        }
-
-        /**
-         * Проверяет, пуста ли глава (нет содержимого, либо всё содержимое —
-         * прошлая ошибка загрузки).
-         * @param {{content?: Array}} chapter - Глава из существующего файла.
-         * @returns {boolean} true, если глава не содержит полезного контента.
-         */
-        isChapterEmpty(chapter) {
-            if (!chapter.content || !Array.isArray(chapter.content)) return true;
-
-            const hasContent = chapter.content.some(block => {
-                if (block.type === 'text') {
-                    const text = block.text || '';
-                    return text.trim() && !text.includes('[Ошибка загрузки главы');
-                } else if (block.type === 'image')
-                    return block.data && (block.data.base64 || block.data.src);
-                return false;
-            });
-
-            return !hasContent;
-        }
-
-        /**
-         * Докачивает заданный список конкретных глав (используется при обновлении
-         * существующего файла), обрабатывая ошибки отдельных глав без прерывания
-         * общего процесса.
-         * @param {object} service - Экземпляр сервиса.
-         * @param {object} downloadState - Текущее состояние загрузки.
-         * @param {object[]} chaptersToDownload - Список глав, которые нужно докачать.
-         * @returns {Promise<object[]>} Список загруженных (или с текстом ошибки) глав,
-         * в том же порядке, что и chaptersToDownload.
-         */
-        async downloadSpecificChapters(service, downloadState, chaptersToDownload) {
-            const results = [];
-            const total = chaptersToDownload.length;
-
-            for (let i = 0; i < total; i++) {
-                await downloadState.controller.waitIfPaused();
-                if (downloadState.controller.shouldStop()) break;
-
-                const chapter = chaptersToDownload[i];
-                const progress = Math.floor(((i / total) * 80) + 10);
-
-                this.updateStatus(
-                    downloadState.id,
-                    this._withPendingInfo(downloadState,
-                        `Загрузка главы ${i + 1}/${total}: ${chapter.name || chapter.number}`),
-                    progress
-                );
-
-                try {
-                    const chapterResult = await this._loadChapterOrDefer(service, downloadState, chapter);
-                    if (downloadState.gate?.interrupted) break;
-                    this._trackDeferred(downloadState, chapterResult);
-                    results.push(chapterResult);
-                } catch (error) {
-                    if (error?.aborted || downloadState.gate?.interrupted) break;
-                    console.error(`[DownloadManager] Failed to download chapter ${chapter.number}:`, error);
-                    results.push(this._errorChapter(chapter, error));
-                }
-            }
-
-            await this._waitForDeferred(downloadState, results, { report: true, progress: 90 });
-            return results;
-        }
-
-        /**
-         * Объединяет главы из существующего файла с вновь докачанными главами
-         * в порядке актуального списка глав на сервере, подставляя заглушку
-         * для глав, которых нет ни там, ни там.
-         * @param {object[]} existingChapters - Главы из ранее загруженного файла.
-         * @param {object[]} newChapters - Вновь докачанные главы.
-         * @param {object[]} serverChapters - Актуальный список глав с сервера (задаёт порядок).
-         * @returns {object[]} Итоговый список глав для пересборки файла.
-         */
-        mergeChapters(existingChapters, newChapters, serverChapters) {
-            const newChaptersMap = new Map();
-            for (const ch of newChapters) {
-                const key = this.getChapterKey(ch);
-                newChaptersMap.set(key, ch);
-            }
-
-            const existingMap = new Map();
-            for (const ch of existingChapters) {
-                const key = this.getChapterKey(ch);
-                existingMap.set(key, ch);
-            }
-
-            const result = [];
-
-            for (const serverCh of serverChapters) {
-                const key = this.getChapterKey(serverCh);
-
-                if (newChaptersMap.has(key))
-                    result.push(newChaptersMap.get(key));
-                else if (existingMap.has(key))
-                    result.push(existingMap.get(key));
-                else {
-                    result.push({
-                        title: serverCh.name || `Том ${serverCh.volume}, Глава ${serverCh.number}`,
-                        content: [{
-                            type: 'text',
-                            text: '[Глава не загружена]'
-                        }],
-                        volume: serverCh.volume,
-                        number: serverCh.number
-                    });
-                }
-            }
-
-            return result;
-        }
-
-        /**
          * Возвращает публичный снимок состояния активной загрузки (без служебных
          * полей вроде controller и gate).
          * @param {string} downloadId - id загрузки.
@@ -1474,8 +1139,7 @@
                 chapters: state.chapters,
                 currentChapterIndex: state.currentChapterIndex,
                 currentStatus: state.status,
-                currentProgress: state.progress,
-                loadedFile: state.loadedFile
+                currentProgress: state.progress
             };
         }
 

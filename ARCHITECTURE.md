@@ -160,7 +160,7 @@ PopupController.startDownload()
 
 Оркестрирует полный жизненный цикл загрузки.
 
-**`startDownload(options)`** — принимает `{ url?, serviceKey?, slug, format, controller, loadedFile, chapterRange, branchId, maxSizeMB }`. Если передан `loadedFile` — делегирует в `updateExistingFile()`, иначе запускает стандартный flow:
+**`startDownload(options)`** — принимает `{ url?, serviceKey?, slug, format, controller, chapterRange, branchId, maxSizeMB }` и запускает flow:
 
 1. Применяет auth-токен через `AuthManager.apply()`.
 2. Загружает метаданные → `MangaPatcher.patch()`.
@@ -169,8 +169,6 @@ PopupController.startDownload()
 5. `downloadWithSizeLimit()` — итерирует главы, разбивая на части при превышении `maxSizeMB`.
 
 **`downloadSingleChapter()`** — вызывает `service.fetchChapter()` → `service.extractText()` → `service.processChapterContent()`.
-
-**`updateExistingFile()`** — режим обновления: парсит загруженный файл через `exporter.parse()`, находит отсутствующие главы и дописывает их.
 
 **`createController()`** — фабрика объекта `{ pause(), resume(), stop(), isPaused(), shouldStop(), waitIfPaused() }`. `waitIfPaused()` — асинхронный spin-lock, вызывается перед каждой главой.
 
@@ -234,14 +232,10 @@ PopupController.startDownload()
 
 Обязательный метод для переопределения: `async export(manga, chapters, coverBase64)` — должен вернуть `{ blob, filename, mimeType }`.
 
-Опциональный метод: `parse(file)` — разобрать файл в `{ metadata, cover, chapters }` для режима обновления.
-
 **Контракт аргументов `export()`:**
 - `manga` — нормализованный объект из `MangaPatcher`: `{ name, authors[], summary, cover, genres[], tags[], releaseDate, ageRating, rating }`.
 - `chapters` — `[{ title, content: Block[], volume, number }]`, где `Block` — `{ type: 'text', text: string }` или `{ type: 'image', id: string, data: { base64: string, contentType: string } }`.
 - `coverBase64` — data-URL строка или пустая строка.
-
-**Контракт `parse()`:** `{ metadata: { name, authors[], summary, genres[], tags[], releaseDate, rating }, cover: string, chapters: [{ title, content: Block[], volume, number }] }`.
 
 ---
 
@@ -328,9 +322,9 @@ Content script. Слушает сообщение `{ action: 'fetchImageFromTab'
 3. Загружает шаблон `title`, привязывает события формы (`_bindTitleEvents`), настраивает слушатели.
 4. Вызывает `loadMetadata()` и `checkApiHealth()`.
 
-**`loadMetadata()`** — определяет активную вкладку, парсит slug из URL, применяет auth-токен, загружает метаданные тайтла, заполняет UI обложкой/описанием, передаёт управление главами в `ChapterController`. Читает URL-параметры (`download=true`, `fileUpload=true`) для автозапуска.
+**`loadMetadata()`** — определяет активную вкладку, парсит slug из URL, применяет auth-токен, загружает метаданные тайтла, заполняет UI обложкой/описанием, передаёт управление главами в `ChapterController`. Читает URL-параметр `download=true` для автозапуска.
 
-**`openInNewContext(url)`** — открывает popup.html в новом окне/вкладке через `openWindowWithUrl` сообщение в background. Используется кнопкой «Скачать» (открывает новое окно с `download=true`) и кнопкой загрузки файла (открывает с `fileUpload=true`).
+**`openInNewContext(url)`** — открывает popup.html в новом окне/вкладке через `openWindowWithUrl` сообщение в background. Используется кнопкой «Скачать» (открывает новое окно с `download=true`).
 
 **Шаблонные состояния:** `_showWrongServiceState` (не та страница), `_showNoTitleState` (нет тайтла), `_setReadyState` (готов к загрузке), `_setDownloadingUIState` / `resetUI` (во время/после загрузки).
 
@@ -351,15 +345,6 @@ Content script. Слушает сообщение `{ action: 'fetchImageFromTab'
             // chapters[i].content[j] — { type: 'text', text } или { type: 'image', data: { base64, contentType } }
             const blob = new Blob([...], { type: 'application/xyz' });
             return { blob, filename: `${manga.name}.xyz`, mimeType: 'application/xyz' };
-        }
-
-        // Опционально — для поддержки режима обновления файла
-        async parse(file) {
-            return {
-                metadata: { name: '', authors: [], summary: '', genres: [], tags: [], releaseDate: '', rating: '' },
-                cover: '',
-                chapters: [] // [{ title, content: Block[], volume, number }]
-            };
         }
     }
 

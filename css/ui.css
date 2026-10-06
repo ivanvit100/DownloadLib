@@ -177,20 +177,6 @@ input[type="number"] {
     margin-bottom: 8px;
     display: none;
 }
-#fileInputContainer {
-    text-align: center;
-    margin-top: 10px;
-    margin-bottom: 10px;
-}
-#fileInput {
-    display: none;
-}
-#customFileBtn {
-    padding: 8px 16px;
-    cursor: pointer;
-    font-size: 14px;
-    transition: all 0.3s ease;
-}
 #downloadControls {
     display: none;
     text-align: center;
@@ -202,11 +188,11 @@ input[type="number"] {
     width: 100%;
     transition: all 0.3s ease;
 }
-#pauseBtn, #customFileBtn {
+#pauseBtn {
     border: 2px solid var(--primary-color) !important;
     background: #252527 !important;
 }
-#pauseBtn:hover, #customFileBtn:hover {
+#pauseBtn:hover {
     border: 2px solid var(--secondary-color) !important;
     background: #252527 !important;
 }

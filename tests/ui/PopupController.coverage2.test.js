@@ -25,10 +25,6 @@ function setupDOM() {
             <div id="formatContainer">
                 <select id="formatSelector"></select>
             </div>
-            <div id="fileInputContainer">
-                <input type="file" id="fileInput">
-                <button id="customFileBtn">Загрузить</button>
-            </div>
             <div id="downloadInfoPanel" style="display:none;"></div>
             <button id="downloadBtn"></button>
             <div id="status"></div>

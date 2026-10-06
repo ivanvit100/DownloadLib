@@ -39,10 +39,6 @@ function setupDOM() {
             <div id="formatContainer">
                 <select id="formatSelector"></select>
             </div>
-            <div id="fileInputContainer">
-                <input type="file" id="fileInput">
-                <button id="customFileBtn">Загрузить файл для обновления</button>
-            </div>
             <div id="downloadInfoPanel" style="display:none;"></div>
             <button id="downloadBtn"></button>
             <div id="status"></div>
@@ -80,7 +76,7 @@ beforeEach(async () => {
     };
     global.DownloadManager = class {
         constructor() { this.eventBus = { on: vi.fn() }; }
-        startDownload = vi.fn(async () => ({ updated: true, addedChapters: 1 }));
+        startDownload = vi.fn(async () => ({ success: true, downloadId: 'id' }));
         stop = vi.fn();
         getDownloadState = vi.fn(() => ({ id: 1, status: 'active', progress: 50, slug: 'slug' }));
     };
@@ -179,7 +175,6 @@ describe('PopupController', () => {
         expect(document.getElementById('formatSelector')).toBeDefined();
         expect(document.getElementById('rateLimitInput')).toBeDefined();
         expect(document.getElementById('activeDownloadsInfo')).toBeDefined();
-        expect(document.getElementById('fileInputContainer')).toBeDefined();
         expect(document.getElementById('downloadControls')).toBeDefined();
     });
 
@@ -206,12 +201,10 @@ describe('PopupController', () => {
         controller.isDownloading = true;
         controller.isPaused = true;
         controller.shouldStop = true;
-        controller.loadedFile = {};
         controller.resetUI();
         expect(controller.isDownloading).toBe(false);
         expect(controller.isPaused).toBe(false);
         expect(controller.shouldStop).toBe(false);
-        expect(controller.loadedFile).toBe(null);
     });
 
     it('resetUI does not change splitModeContainer display', () => {
@@ -1290,135 +1283,14 @@ it('Sets formatSelector value from localStorage', async () => {
         consoleWarnSpy.mockRestore();
     });
 
-    it('Calls isInSeparateWindow when clicking file button', async () => {
-        const controller = new PopupController();
-        const isInSeparateWindowSpy = vi.spyOn(controller, 'isInSeparateWindow').mockResolvedValue(true);
-        const customFileBtn = document.getElementById('customFileBtn');
-        await controller.loadMetadata();
-        await customFileBtn.onclick();
-        expect(isInSeparateWindowSpy).toHaveBeenCalled();
-        isInSeparateWindowSpy.mockRestore();
-    });
-
-    it('Sets format from formatSelector value', async () => {
-        const controller = new PopupController();
-        const customFileBtn = document.getElementById('customFileBtn');
-        const formatSelector = document.createElement('select');
-        formatSelector.id = 'formatSelector';
-        const opt = document.createElement('option');
-        opt.value = 'epub';
-        formatSelector.appendChild(opt);
-        document.body.appendChild(formatSelector);
-
-        formatSelector.value = 'epub';
-        const isInSeparateWindowSpy = vi.spyOn(controller, 'isInSeparateWindow').mockResolvedValue(false);
-        const formatValues = [];
-        const origAlert = global.alert;
-        global.alert = (msg) => formatValues.push(msg);
-
-        await controller.loadMetadata();
-        await customFileBtn.onclick();
-        expect(formatSelector.value).toBe('epub');
-
-        formatSelector.parentNode.removeChild(formatSelector);
-        await customFileBtn.onclick();
-        global.alert = origAlert;
-        isInSeparateWindowSpy.mockRestore();
-    });
-
-    it('Defaults format to fb2 if formatSelector is missing', async () => {
-        const controller = new PopupController();
-        const customFileBtn = document.getElementById('customFileBtn');
-        const formatSelector = document.getElementById('formatSelector');
-        if (formatSelector && formatSelector.parentNode) formatSelector.parentNode.removeChild(formatSelector);
-        const isInSeparateWindowSpy = vi.spyOn(controller, 'isInSeparateWindow').mockResolvedValue(false);
-        const windowsCreateSpy = vi.spyOn(global.browser.windows, 'create');
-        await controller.loadMetadata();
-        await customFileBtn.onclick();
-        const urlArg = windowsCreateSpy.mock.calls[0][0].url;
-        expect(urlArg).toContain('format=fb2');
-        isInSeparateWindowSpy.mockRestore();
-        windowsCreateSpy.mockRestore();
-    });
-
-    it('File upload URL does not include rateLimit since it is read from settings', async () => {
-        const controller = new PopupController();
-        const customFileBtn = document.getElementById('customFileBtn');
-        const isInSeparateWindowSpy = vi.spyOn(controller, 'isInSeparateWindow').mockResolvedValue(false);
-        const windowsCreateSpy = vi.spyOn(global.browser.windows, 'create');
-        await controller.loadMetadata();
-        await customFileBtn.onclick();
-        const urlArg = windowsCreateSpy.mock.calls[0][0].url;
-        expect(urlArg).not.toContain('rateLimit');
-        isInSeparateWindowSpy.mockRestore();
-        windowsCreateSpy.mockRestore();
-    });
-
     it('Warns if window created but no ID found', async () => {
         const controller = new PopupController();
-        const customFileBtn = document.getElementById('customFileBtn');
-        const isInSeparateWindowSpy = vi.spyOn(controller, 'isInSeparateWindow').mockResolvedValue(false);
         const windowsCreateSpy = vi.spyOn(global.browser.windows, 'create').mockResolvedValue({});
         const consoleWarnSpy = vi.spyOn(console, 'warn');
-        await controller.loadMetadata();
-        await customFileBtn.onclick();
+        await controller.openInNewContext('popup.html?download=true');
         expect(consoleWarnSpy).toHaveBeenCalledWith('Window created but no ID found:', {});
         consoleWarnSpy.mockRestore();
-        isInSeparateWindowSpy.mockRestore();
         windowsCreateSpy.mockRestore();
-    });
-
-    it('Handles error when window creation fails', async () => {
-        const controller = new PopupController();
-        const customFileBtn = document.getElementById('customFileBtn');
-        const isInSeparateWindowSpy = vi.spyOn(controller, 'isInSeparateWindow').mockResolvedValue(false);
-        const windowsCreateSpy = vi.spyOn(global.browser.windows, 'create').mockRejectedValue(new Error('fail create'));
-        const status = document.getElementById('status');
-        const hiddenFileInput = document.getElementById('fileInput');
-        const clickSpy = vi.spyOn(hiddenFileInput, 'click');
-        const consoleErrorSpy = vi.spyOn(console, 'error');
-        await controller.loadMetadata();
-        await customFileBtn.onclick();
-        expect(consoleErrorSpy).toHaveBeenCalledWith('Failed to create window:', expect.any(Error));
-        expect(status.textContent).toBe('Не удалось открыть окно, используем текущее');
-        expect(clickSpy).toHaveBeenCalled();
-        consoleErrorSpy.mockRestore();
-        isInSeparateWindowSpy.mockRestore();
-        windowsCreateSpy.mockRestore();
-        clickSpy.mockRestore();
-    });
-
-    it('Clicks hidden file input if fileUploadMode is true and hiddenFileInput exists', async () => {
-        const controller = new PopupController();
-        const hiddenFileInput = document.getElementById('fileInput');
-        const clickSpy = vi.spyOn(hiddenFileInput, 'click');
-        Object.defineProperty(window, 'location', {
-            value: { search: '?fileUpload=true&slug=testslug&service=ranobelib' },
-            writable: true
-        });
-        await controller.loadMetadata();
-        await new Promise(resolve => setTimeout(resolve, 350));
-        expect(clickSpy).toHaveBeenCalled();
-        clickSpy.mockRestore();
-    });
-
-    it('Warns if status element not found when prompting for file selection in file upload mode', async () => {
-        const controller = new PopupController();
-        const status = document.getElementById('status');
-        if (status && status.parentNode) status.parentNode.removeChild(status);
-        const hiddenFileInput = document.getElementById('fileInput');
-        const clickSpy = vi.spyOn(hiddenFileInput, 'click');
-        Object.defineProperty(window, 'location', {
-            value: { search: '?fileUpload=true&slug=testslug&service=ranobelib' },
-            writable: true
-        });
-        const consoleWarnSpy = vi.spyOn(console, 'warn');
-        await controller.loadMetadata();
-        await new Promise(resolve => setTimeout(resolve, 350));
-        expect(consoleWarnSpy).toHaveBeenCalledWith('Status element not found when prompting for file selection in file upload mode');
-        expect(clickSpy).toHaveBeenCalled();
-        consoleWarnSpy.mockRestore();
-        clickSpy.mockRestore();
     });
 
     it('Returns input as is if text is falsy in truncateText', () => {

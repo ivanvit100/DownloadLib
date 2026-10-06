@@ -40,10 +40,6 @@ function setupDOM() {
             <div id="formatContainer">
                 <select id="formatSelector"></select>
             </div>
-            <div id="fileInputContainer">
-                <input type="file" id="fileInput">
-                <button id="customFileBtn">Загрузить файл для обновления</button>
-            </div>
             <div id="downloadInfoPanel" style="display:none;"></div>
             <button id="downloadBtn"></button>
             <div id="status"></div>
@@ -84,7 +80,7 @@ beforeEach(async () => {
     };
     global.DownloadManager = class {
         constructor() { this.eventBus = { on: vi.fn() }; }
-        startDownload = vi.fn(async () => ({ updated: true, addedChapters: 1 }));
+        startDownload = vi.fn(async () => ({ success: true, downloadId: 'id' }));
         stop = vi.fn();
         getDownloadState = vi.fn(() => ({ id: 1, status: 'active', progress: 50, slug: 'slug' }));
     };
@@ -214,7 +210,7 @@ describe('PopupController second test file', () => {
 
         global.DownloadManager = class {
             constructor() { this.eventBus = { on: vi.fn() }; }
-            startDownload = vi.fn(async () => ({ updated: true, addedChapters: 1 }));
+            startDownload = vi.fn(async () => ({ success: true, downloadId: 'id' }));
             stop = vi.fn();
             getDownloadState = vi.fn(() => null);
         };
@@ -238,7 +234,7 @@ describe('PopupController second test file', () => {
         );
     });
 
-    it('Sets update status text when loaded file is present', async () => {
+    it('Sets download start status text', async () => {
         const controller = new PopupController();
         controller.currentSlug = 'slug';
         controller.currentServiceKey = 'ranobelib';
@@ -246,7 +242,6 @@ describe('PopupController second test file', () => {
         await new Promise(resolve => setTimeout(resolve, 100));
 
         controller.downloadManager.startDownload = vi.fn(async () => ({}));
-        controller.loadedFile = { name: 'test.fb2' };
 
         const setTextSpy = vi.fn();
         const status = document.getElementById('status');
@@ -258,7 +253,7 @@ describe('PopupController second test file', () => {
 
         await controller.startDownload();
 
-        expect(setTextSpy).toHaveBeenCalledWith('Запуск обновления...');
+        expect(setTextSpy).toHaveBeenCalledWith('Запуск скачивания...');
     });
 
     it('Completes without error when status element is missing during download start', async () => {
@@ -317,28 +312,6 @@ describe('PopupController second test file', () => {
         expect(controller.isPaused).toBe(false);
     });
 
-    it('Sets status text to file is already up to date', async () => {
-        const controller = new PopupController();
-        controller.currentSlug = 'slug';
-        controller.currentServiceKey = 'ranobelib';
-
-        await new Promise(resolve => setTimeout(resolve, 100));
-
-        controller.downloadManager.startDownload = vi.fn(async () => ({
-            updated: false,
-            addedChapters: 0
-        }));
-
-        const status = document.getElementById('status');
-        status.textContent = '';
-
-        controller.loadedFile = { name: 'test.fb2' };
-
-        await controller.startDownload();
-
-        expect(status.textContent).toBe('Файл уже актуален!');
-    });
-
     it('Handles error in download and calls error display and UI reset', async () => {
         const controller = new PopupController();
         controller.currentSlug = 'slug';
@@ -359,28 +332,6 @@ describe('PopupController second test file', () => {
         expect(errorSpy).toHaveBeenCalledWith('[PopupController] Download failed:', expect.any(Error));
         expect(showErrorSpy).toHaveBeenCalledWith('Download failed test');
         expect(resetUISpy).toHaveBeenCalled();
-    });
-
-    it('Warns when status element is missing for download result message', async () => {
-        const controller = new PopupController();
-        controller.currentSlug = 'slug';
-        controller.currentServiceKey = 'ranobelib';
-
-        await new Promise(resolve => setTimeout(resolve, 100));
-
-        controller.downloadManager.startDownload = vi.fn(async () => ({
-            updated: true,
-            addedChapters: 5
-        }));
-
-        const status = document.getElementById('status');
-        if (status) status.parentNode.removeChild(status);
-
-        const warnSpy = vi.spyOn(console, 'warn');
-
-        await controller.startDownload();
-
-        expect(warnSpy).toHaveBeenCalledWith('Status element not found when showing download result message');
     });
 
     it('Warns when status element is missing on download stop', async () => {
@@ -443,30 +394,6 @@ describe('PopupController second test file', () => {
         expect(() => controller.resetUI()).not.toThrow();
     });
 
-    it('Warns when hidden file input is missing during UI reset', async () => {
-        const controller = new PopupController();
-
-        const el = document.getElementById('fileInput');
-        if (el) el.parentNode.removeChild(el);
-
-        const warnSpy = vi.spyOn(console, 'warn');
-        controller.resetUI();
-
-        expect(warnSpy).toHaveBeenCalledWith('Hidden file input not found when resetting UI');
-    });
-
-    it('Warns when custom file button is missing during UI reset', async () => {
-        const controller = new PopupController();
-
-        const el = document.getElementById('customFileBtn');
-        if (el) el.parentNode.removeChild(el);
-
-        const warnSpy = vi.spyOn(console, 'warn');
-        controller.resetUI();
-
-        expect(warnSpy).toHaveBeenCalledWith('Custom file button not found when resetting UI');
-    });
-
     it('Warns when progress element is missing during UI reset', async () => {
         const controller = new PopupController();
 
@@ -503,15 +430,6 @@ describe('PopupController second test file', () => {
         expect(warnSpy).toHaveBeenCalledWith('Chapter range container not found when resetting UI');
     });
 
-    it('Completes without error when fileInputContainer is missing during UI reset', async () => {
-        const controller = new PopupController();
-
-        const el = document.getElementById('fileInputContainer');
-        if (el) el.parentNode.removeChild(el);
-
-        expect(() => controller.resetUI()).not.toThrow();
-    });
-
     it('Warns when error element is missing during error display', async () => {
         const controller = new PopupController();
 
@@ -543,7 +461,6 @@ describe('PopupController second test file', () => {
         controller.currentSlug = 'slug';
         controller.currentServiceKey = 'ranobelib';
         controller.isInSeparateWindow = vi.fn(async () => false);
-        controller.loadedFile = null;
 
         await new Promise(resolve => setTimeout(resolve, 100));
 
@@ -816,7 +733,6 @@ describe('PopupController second test file', () => {
     it('Appends branchId to URL params when translatorContainer is visible during download button click', async () => {
         const controller = new PopupController();
         controller.isInSeparateWindow = vi.fn().mockResolvedValue(false);
-        controller.loadedFile = null;
 
         await new Promise(resolve => setTimeout(resolve, 100));
 

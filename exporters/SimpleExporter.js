@@ -4,7 +4,7 @@
  * @module exporters/SimpleExporter
  * @license MIT
  * @author ivanvit
- * @version 1.0.6
+ * @version 1.1.0
  */
 
 'use strict';
@@ -98,7 +98,7 @@
 
         /**
          * Собирает страницы всех глав в ZIP-архив с именами файлов, кодирующими
-         * том, главу и номер страницы (используется затем parseZip для восстановления структуры).
+         * том, главу и номер страницы.
          * @param {string} name - Санитизированное имя файла (без расширения).
          * @param {object[]} chapters - Содержимое глав.
          * @returns {Promise<{blob: Blob, filename: string, mimeType: string}>} Результат экспорта.
@@ -139,176 +139,6 @@
             });
 
             return { blob, filename: `${name}.zip`, mimeType: 'application/zip' };
-        }
-
-        /**
-         * Разбирает ранее экспортированный файл, выбирая парсер по расширению.
-         * @param {File} file - Файл для разбора (.zip или .txt).
-         * @returns {Promise<{metadata: object, cover: string, chapters: object[]}>} Разобранное содержимое.
-         */
-        parse(file) {
-            if (file.name && file.name.toLowerCase().endsWith('.zip'))
-                return this.parseZip(file);
-            return this.parseTxt(file);
-        }
-
-        /**
-         * Разбирает TXT-файл обратно в структуру метаданных и глав.
-         * @param {File} file - TXT-файл для разбора.
-         * @returns {Promise<{metadata: object, cover: string, chapters: object[]}>} Разобранное содержимое.
-         */
-        async parseTxt(file) {
-            const text = await this._readText(file);
-            const lines = text.split('\n');
-
-            let headerDone = false;
-            const headerLines = [];
-            const chapters = [];
-            let current = null;
-            let chapterIdx = 0;
-
-            for (const line of lines) {
-                const trimmed = line.trimEnd();
-                const m = trimmed.match(/^=== Глава \d+: (.*) ===$/);
-                if (m) {
-                    headerDone = true;
-                    if (current) chapters.push(current);
-                    chapterIdx += 1;
-                    const title = m[1].trim();
-                    const vn = this._extractVolNum(title);
-                    current = {
-                        title,
-                        content: [],
-                        number: vn ? vn.number : String(chapterIdx),
-                        volume: vn ? vn.volume : '1'
-                    };
-                } else if (!headerDone)
-                    headerLines.push(trimmed);
-                else if (current && trimmed) {
-                    const last = current.content[current.content.length - 1];
-                    if (last && last.type === 'text')
-                        last.text += `\n${trimmed}`;
-                    else
-                        current.content.push({ type: 'text', text: trimmed });
-                }
-            }
-            if (current) chapters.push(current);
-
-            const name = headerLines[0] || (file.name ? file.name.replace(/\.txt$/i, '') : 'Unknown');
-            const author = headerLines[1] &&
-                !headerLines[1].startsWith('Год') &&
-                !headerLines[1].startsWith('Жанры') &&
-                !headerLines[1].startsWith('Возраст') &&
-                !headerLines[1].startsWith('─') ? headerLines[1] : '';
-            const authors = author ? [author] : [];
-
-            return {
-                metadata: {
-                    name, rus_name: name, authors, summary: '',
-                    genres: [], tags: [], releaseDate: '', rating: ''
-                },
-                cover: '',
-                chapters
-            };
-        }
-
-        /**
-         * Разбирает ZIP-файл обратно в структуру метаданных и глав, группируя
-         * изображения страниц по тому/главе, закодированным в именах файлов.
-         * @param {File} file - ZIP-файл для разбора.
-         * @returns {Promise<{metadata: object, cover: string, chapters: object[]}>} Разобранное содержимое.
-         * @throws {Error} Если библиотека JSZip не загружена.
-         */
-        async parseZip(file) {
-            if (typeof global.JSZip === 'undefined')
-                throw new Error('[SimpleExporter] JSZip not loaded');
-
-            const zip = new global.JSZip();
-            const zipContent = await zip.loadAsync(file);
-
-            const imageFiles = Object.keys(zipContent.files)
-                .filter(f => f.match(/\.(jpe?g|png|webp|gif)$/i))
-                .sort();
-
-            const chaptersMap = new Map();
-            for (const filename of imageFiles) {
-                const m = /_volume_(.+?)_chapter_(.+?)_page_/.exec(filename);
-                const key = m ? `v${m[1]}_ch${m[2]}` : 'v1_ch1';
-                if (!chaptersMap.has(key))
-                    chaptersMap.set(key, { volume: m ? m[1] : '1', number: m ? m[2] : '1', images: [] });
-                chaptersMap.get(key).images.push(filename);
-            }
-
-            const chapters = [];
-            for (const [, info] of chaptersMap) {
-                const content = [];
-                for (const imgFilename of info.images) {
-                    const imgFile = zipContent.file(imgFilename);
-                    if (!imgFile) continue;
-                    const blob = await imgFile.async('blob');
-                    const base64url = await this._blobToBase64(blob);
-                    const [, b64] = base64url.split(',');
-                    content.push({ type: 'image', data: { base64: b64, contentType: blob.type || 'image/jpeg' } });
-                }
-
-                if (content.length > 0) {
-                    chapters.push({
-                        title: `Том ${info.volume}, Глава ${info.number}`,
-                        content,
-                        number: info.number,
-                        volume: info.volume
-                    });
-                }
-            }
-
-            const name = file.name ? file.name.replace(/\.zip$/i, '') : 'Unknown';
-            return {
-                metadata: { name, rus_name: name, authors: [], summary: '', genres: [], tags: [] },
-                cover: '',
-                chapters
-            };
-        }
-
-        /**
-         * Извлекает номер тома и главы из строки заголовка вида "Том X, Глава Y".
-         * @param {string} title - Заголовок главы.
-         * @returns {?{volume: string, number: string}} Найденные том/номер главы,
-         * либо null, если заголовок не соответствует ожидаемому формату.
-         */
-        _extractVolNum(title) {
-            const m = title.match(/Том\s+([^\s,]+)[,\s]+Глава\s+(\S+)/);
-            if (m) return { volume: m[1], number: m[2] };
-            const m2 = title.match(/Глава\s+(\S+)/);
-            if (m2) return { volume: '1', number: m2[1] };
-            return null;
-        }
-
-        /**
-         * Читает содержимое файла как текст в кодировке UTF-8.
-         * @param {File} file - Читаемый файл.
-         * @returns {Promise<string>} Текстовое содержимое файла.
-         */
-        _readText(file) {
-            return new Promise((resolve, reject) => {
-                const reader = new FileReader();
-                reader.onload = e => resolve(e.target.result);
-                reader.onerror = reject;
-                reader.readAsText(file, 'utf-8');
-            });
-        }
-
-        /**
-         * Кодирует Blob в data-URL с base64-содержимым.
-         * @param {Blob} blob - Исходный Blob.
-         * @returns {Promise<string>} data-URL с base64-содержимым.
-         */
-        _blobToBase64(blob) {
-            return new Promise((resolve, reject) => {
-                const reader = new FileReader();
-                reader.onloadend = () => resolve(reader.result);
-                reader.onerror = reject;
-                reader.readAsDataURL(blob);
-            });
         }
 
         /**

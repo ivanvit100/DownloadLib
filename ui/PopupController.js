@@ -51,7 +51,6 @@
             this.shouldStop = false;
             this._shellEventsBound = false;
             this.currentDownloadId = null;
-            this.loadedFile = null;
             this.currentSlug = null;
             this.currentServiceKey = null;
             this.currentTitle = null;
@@ -163,8 +162,7 @@
 
         /**
          * Навешивает обработчики на элементы шаблона title: заполняет и сохраняет выбор
-         * формата экспорта, чекбокс разбиения страниц, выбор кастомного файла для
-         * обновления и валидацию диапазона выбора глав.
+         * формата экспорта, чекбокс разбиения страниц и валидацию диапазона выбора глав.
          * @returns {void}
          */
         _bindTitleEvents() {
@@ -175,9 +173,6 @@
             }
 
             const formatSelector = $el('formatSelector');
-            const hiddenFileInput = $el('fileInput');
-            const customFileBtn = $el('customFileBtn');
-            const status = $el('status');
             const chapterFromSelect = $el('chapterFromSelect');
             const chapterToSelect = $el('chapterToSelect');
 
@@ -219,41 +214,6 @@
                 });
             }
 
-            if (hiddenFileInput && customFileBtn && formatSelector) {
-                hiddenFileInput.addEventListener('change', (e) => {
-                    e.stopPropagation();
-                    const file = hiddenFileInput.files && hiddenFileInput.files[0];
-                    this.loadedFile = null;
-
-                    if (!file) {
-                        formatSelector.disabled = false;
-                        if (status) status.textContent = '';
-                        customFileBtn.textContent = 'Загрузить файл для обновления';
-                        btn.textContent = 'Скачать';
-                        btn.style.display = 'block';
-                        return;
-                    }
-
-                    const ext = file.name.split('.').pop().toLowerCase();
-                    if (['pdf', 'epub', 'fb2'].includes(ext)) {
-                        formatSelector.value = ext;
-                        formatSelector.disabled = true;
-                        if (status) status.textContent = `Загружен файл: ${file.name}`;
-                        customFileBtn.textContent = `Файл загружен: ${file.name}`;
-                        btn.textContent = 'Обновить файл';
-                        btn.style.display = 'block';
-                        this.loadedFile = file;
-                    } else {
-                        formatSelector.disabled = false;
-                        if (status) status.textContent = 'Ошибка: поддерживаются только файлы PDF, EPUB или FB2';
-                        customFileBtn.textContent = 'Загрузить файл для обновления';
-                        hiddenFileInput.value = '';
-                        this.loadedFile = null;
-                        btn.textContent = 'Скачать';
-                    }
-                });
-            }
-
             if (chapterFromSelect && chapterToSelect) {
                 chapterFromSelect.addEventListener('change', () => {
                     if (parseInt(chapterFromSelect.value) > parseInt(chapterToSelect.value))
@@ -284,8 +244,7 @@
         /**
          * Собирает ссылки на все DOM-элементы формы загрузки в один объект для удобной передачи.
          * @returns {object} Объект со ссылками на элементы: btn, formatSelector, status,
-         * progress, controls, hiddenFileInput, customFileBtn, fileInputContainer,
-         * chapterRangeContainer, fromSelect, toSelect.
+         * progress, controls, chapterRangeContainer, fromSelect, toSelect.
          */
         _getDownloadElements() {
             return {
@@ -294,9 +253,6 @@
                 status: $el('status'),
                 progress: $el('progress'),
                 controls: $el('downloadControls'),
-                hiddenFileInput: $el('fileInput'),
-                customFileBtn: $el('customFileBtn'),
-                fileInputContainer: $el('fileInputContainer'),
                 chapterRangeContainer: $el('chapterRangeContainer'),
                 fromSelect: $el('chapterFromSelect'),
                 toSelect: $el('chapterToSelect')
@@ -305,13 +261,13 @@
 
         /**
          * Определяет, открыт ли попап в отдельном окне (а не как выпадающий попап
-         * тулбара): по параметрам URL (download/fileUpload) либо по типу текущего окна.
+         * тулбара): по параметру URL download либо по типу текущего окна.
          * @returns {Promise<boolean>} true, если попап работает как отдельное окно.
          */
         async isInSeparateWindow() {
             try {
                 const urlParams = new URLSearchParams(window.location.search);
-                if (urlParams.has('download') || urlParams.has('fileUpload')) return true;
+                if (urlParams.has('download')) return true;
                 const currentWindow = await browserAPI.windows.getCurrent();
                 console.log('[PopupController] Window type:', currentWindow.type);
                 return currentWindow.type === 'popup';
@@ -441,21 +397,14 @@
         }
 
         /**
-         * Переводит форму загрузки в состояние готовности: разблокирует кнопку
-         * скачивания и, в режиме обновления файла, предлагает сразу выбрать файл.
-         * @param {{btn: HTMLButtonElement, status: ?HTMLElement, fileUploadMode: boolean,
-         * hiddenFileInput: ?HTMLInputElement}} params - Элементы формы и флаг режима обновления файла.
+         * Переводит форму загрузки в состояние готовности: разблокирует кнопку скачивания.
+         * @param {{btn: HTMLButtonElement, status: ?HTMLElement}} params - Элементы формы.
          * @returns {void}
          */
-        _setReadyState({ btn, status, fileUploadMode, hiddenFileInput }) {
+        _setReadyState({ btn, status }) {
             btn.disabled = false;
             if (status) status.textContent = 'Нажмите "Скачать" для загрузки книги';
             else console.warn('Status element not found when setting ready to download message');
-            if (fileUploadMode && hiddenFileInput) {
-                if (status) status.textContent = 'Выберите файл для обновления';
-                else console.warn('Status element not found when prompting for file selection in file upload mode');
-                setTimeout(() => hiddenFileInput.click(), 300);
-            }
         }
 
         /**
@@ -527,16 +476,16 @@
 
         /**
          * Определяет сервис и slug тайтла: либо напрямую из параметров URL (когда попап
-         * открыт с заранее известными данными для авто-скачивания/обновления файла),
-         * либо по URL активной вкладки браузера. Если сервис активной вкладки не
-         * поддерживается, показывает экран "неподдерживаемый сервис" и возвращает null.
-         * @param {{autoDownload: boolean, fileUploadMode: boolean, slugFromUrl: ?string,
-         * serviceFromUrl: ?string, tabIdFromUrl: ?number}} params - Флаги режима и данные из URL.
+         * открыт с заранее известными данными для авто-скачивания), либо по URL активной
+         * вкладки браузера. Если сервис активной вкладки не поддерживается, показывает
+         * экран "неподдерживаемый сервис" и возвращает null.
+         * @param {{autoDownload: boolean, slugFromUrl: ?string, serviceFromUrl: ?string,
+         * tabIdFromUrl: ?number}} params - Флаг режима и данные из URL.
          * @returns {Promise<?{slug: ?string, serviceKey: string, service: object, activeTabId: ?number}>}
          * Разрешённые slug/сервис и id активной вкладки, либо null, если сервис не поддерживается.
          */
-        async _resolveService({ autoDownload, fileUploadMode, slugFromUrl, serviceFromUrl, tabIdFromUrl }) {
-            if ((autoDownload || fileUploadMode) && slugFromUrl && serviceFromUrl) {
+        async _resolveService({ autoDownload, slugFromUrl, serviceFromUrl, tabIdFromUrl }) {
+            if (autoDownload && slugFromUrl && serviceFromUrl) {
                 const serviceKey = serviceFromUrl;
                 let service;
                 if (serviceKey === 'ranobelib')
@@ -568,53 +517,6 @@
         }
 
         /**
-         * Навешивает обработчик на кнопку выбора файла для обновления: в отдельном
-         * окне сразу открывает системный диалог выбора файла, а в выпадающем попапе
-         * тулбара — открывает попап заново в отдельном окне (диалог выбора файла не
-         * работает корректно в закрывающемся при потере фокуса попапе).
-         * @param {{customFileBtn: ?HTMLButtonElement, status: ?HTMLElement, hiddenFileInput: HTMLInputElement,
-         * slug: string, serviceKey: string}} params - Элементы UI и данные текущего тайтла.
-         * @returns {void}
-         */
-        _setupFileUploadButton({ customFileBtn, status, hiddenFileInput, slug, serviceKey }) {
-            if (!customFileBtn) {
-                console.warn('[PopupController] customFileBtn not found');
-                return;
-            }
-
-            customFileBtn.onclick = async () => {
-                try {
-                    const inSeparateWindow = await this.isInSeparateWindow();
-                    console.log(`[PopupController] In separate window: ${inSeparateWindow}`);
-
-                    if (inSeparateWindow) {
-                        if (status) status.textContent = 'Выберите файл для обновления';
-                        hiddenFileInput.click();
-                    } else {
-                        const formatSelector = $el('formatSelector');
-                        const format = formatSelector ? formatSelector.value : 'fb2';
-
-                        try {
-                            const fileUploadParams = new URLSearchParams({
-                                fileUpload: 'true', slug, service: serviceKey, format
-                            });
-                            const fileUploadUrl = `${browserAPI.runtime.getURL('popup.html')}?${fileUploadParams}`;
-                            await this.openInNewContext(fileUploadUrl);
-                        } catch (createError) {
-                            console.error('Failed to create window:', createError);
-                            if (status) status.textContent = 'Не удалось открыть окно, используем текущее';
-                            hiddenFileInput.click();
-                        }
-                    }
-                } catch (e) {
-                    console.error('Failed to handle file upload:', e);
-                    if (status) status.textContent = 'Выберите файл для обновления';
-                    hiddenFileInput.click();
-                }
-            };
-        }
-
-        /**
          * Главный сценарий загрузки экрана тайтла: разбирает параметры URL, определяет
          * сервис и slug, применяет токен авторизации и тему сервиса, загружает
          * метаданные тайтла и список глав, отрисовывает их и переводит форму
@@ -630,13 +532,10 @@
             const desc = $el('description');
             const releaseEl = $el('releaseDate');
             const siteLogo = $el('siteLogo');
-            const customFileBtn = $el('customFileBtn');
-            const hiddenFileInput = $el('fileInput');
             const uiElements = { logoInfo, coverImg, desc, releaseEl, btn, status };
 
             const urlParams = new URLSearchParams(window.location.search);
             const autoDownload = urlParams.get('download') === 'true';
-            const fileUploadMode = urlParams.get('fileUpload') === 'true';
             const slugFromUrl = urlParams.get('slug');
             const serviceFromUrl = urlParams.get('service');
             const formatFromUrl = urlParams.get('format');
@@ -659,7 +558,7 @@
 
             try {
                 const resolved = await this._resolveService({
-                    autoDownload, fileUploadMode, slugFromUrl, serviceFromUrl, tabIdFromUrl
+                    autoDownload, slugFromUrl, serviceFromUrl, tabIdFromUrl
                 });
                 if (resolved === null) return;
                 const { slug, serviceKey, service, activeTabId } = resolved;
@@ -697,9 +596,7 @@
                 );
 
                 this._renderMeta({ patched, chaptersCount, slug, coverImg, desc, releaseEl, logoInfo });
-                this._setReadyState({ btn, status, fileUploadMode, hiddenFileInput });
-
-                this._setupFileUploadButton({ customFileBtn, status, hiddenFileInput, slug, serviceKey });
+                this._setReadyState({ btn, status });
 
                 if (autoDownload) setTimeout(() => this.startDownload(), 500);
             } catch (error) {
@@ -738,9 +635,9 @@
 
         /**
          * Навешивает обработчики на кнопки скачивания, паузы и остановки на главном
-         * экране тайтла. Клик по скачиванию в выпадающем попапе тулбара (без загруженного
-         * файла обновления) переоткрывает попап в отдельном окне с параметрами загрузки
-         * в URL, чтобы процесс скачивания не прерывался закрытием попапа.
+         * экране тайтла. Клик по скачиванию в выпадающем попапе тулбара переоткрывает
+         * попап в отдельном окне с параметрами загрузки в URL, чтобы процесс скачивания
+         * не прерывался закрытием попапа.
          * @returns {void}
          */
         setupEventListeners() {
@@ -752,7 +649,7 @@
                 downloadBtn.addEventListener('click', async () => {
                     const inSeparateWindow = await this.isInSeparateWindow();
 
-                    if (!this.loadedFile && !inSeparateWindow) {
+                    if (!inSeparateWindow) {
                         const formatSelector = $el('formatSelector');
                         const fromSelect = $el('chapterFromSelect');
                         const toSelect = $el('chapterToSelect');
@@ -844,23 +741,18 @@
 
         /**
          * Переводит интерфейс в состояние "идёт загрузка": скрывает элементы выбора
-         * (формат, переводчик, разбиение страниц, файл, диапазон), показывает прогресс-бар
+         * (формат, переводчик, разбиение страниц, диапазон), показывает прогресс-бар
          * и панель с параметрами текущей загрузки, обновляет статус.
-         * @param {{btn: HTMLButtonElement, hiddenFileInput: ?HTMLInputElement, customFileBtn: ?HTMLButtonElement,
-         * fileInputContainer: ?HTMLElement, progress: ?HTMLElement, controls: ?HTMLElement,
+         * @param {{btn: HTMLButtonElement, progress: ?HTMLElement, controls: ?HTMLElement,
          * chapterRangeContainer: ?HTMLElement, status: ?HTMLElement}} elements - Элементы формы загрузки.
          * @returns {void}
          */
-        _setDownloadingUIState({ btn, hiddenFileInput, customFileBtn,
-            fileInputContainer, progress, controls, chapterRangeContainer, status }) {
+        _setDownloadingUIState({ btn, progress, controls, chapterRangeContainer, status }) {
             btn.disabled = true;
             btn.style.display = 'none';
             this._setVisibility('formatContainer', 'none');
             this._setVisibility('translatorContainer', 'none');
             this._setVisibility('splitPagesContainer', 'none');
-            if (hiddenFileInput) hiddenFileInput.disabled = true;
-            if (customFileBtn) customFileBtn.disabled = true;
-            if (fileInputContainer) fileInputContainer.style.display = 'none';
             if (progress) progress.style.display = 'block';
             if (controls) controls.style.display = 'block';
             if (chapterRangeContainer) chapterRangeContainer.style.display = 'none';
@@ -880,31 +772,14 @@
                 downloadInfoPanel.style.display = 'block';
             }
 
-            const statusText = this.loadedFile ? 'Запуск обновления...' : 'Запуск скачивания...';
-            if (status) status.textContent = statusText;
-        }
-
-        /**
-         * Отображает итог операции обновления существующего файла (если результат
-         * загрузки содержит поле updated); для обычного скачивания ничего не делает.
-         * @param {object} result - Результат downloadManager.startDownload.
-         * @param {?HTMLElement} status - Элемент статуса для вывода сообщения.
-         * @returns {void}
-         */
-        _handleDownloadResult(result, status) {
-            if (!('updated' in result)) return;
-            const message = result.updated
-                ? `Файл обновлён! Добавлено глав: ${result.addedChapters}`
-                : 'Файл уже актуален!';
-            if (status) status.textContent = message;
-            else console.warn('Status element not found when showing download result message');
+            if (status) status.textContent = 'Запуск скачивания...';
         }
 
         /**
          * Запускает загрузку текущего тайтла: собирает параметры (диапазон глав, ветку
          * перевода, формат, лимиты), переводит UI в состояние загрузки, вызывает
          * downloadManager.startDownload с контроллером паузы/остановки, а по завершении
-         * отображает результат и добавляет запись в историю загрузок.
+         * добавляет запись в историю загрузок.
          * @returns {Promise<void>}
          */
         async startDownload() {
@@ -914,8 +789,7 @@
             }
 
             const { btn, formatSelector, status, progress,
-                controls, hiddenFileInput, customFileBtn, fileInputContainer,
-                chapterRangeContainer, fromSelect, toSelect } = this._getDownloadElements();
+                controls, chapterRangeContainer, fromSelect, toSelect } = this._getDownloadElements();
 
             try {
                 const { chapterRange, branchId, historyParams } = await this._prepareDownload({
@@ -927,8 +801,7 @@
                 this.shouldStop = false;
 
                 this._setDownloadingUIState({
-                    btn, hiddenFileInput, customFileBtn, fileInputContainer,
-                    progress, controls, chapterRangeContainer, status
+                    btn, progress, controls, chapterRangeContainer, status
                 });
 
                 const format = formatSelector?.value || 'fb2';
@@ -938,11 +811,10 @@
                 const splitPages = splitPagesEl ? splitPagesEl.checked : false;
                 const fitFb2Images = localStorage.getItem('manga_parser_fit_fb2_images') === 'true';
 
-                const result = await this.downloadManager.startDownload({
+                await this.downloadManager.startDownload({
                     slug: this.currentSlug,
                     serviceKey: this.currentServiceKey,
                     format,
-                    loadedFile: this.loadedFile,
                     chapterRange,
                     branchId,
                     maxSizeMB,
@@ -960,7 +832,6 @@
                     }
                 });
 
-                this._handleDownloadResult(result, status);
                 global.DownloadHistory.add({
                     service: this.currentServiceKey,
                     slug: this.currentSlug,
@@ -1057,9 +928,9 @@
 
         /**
          * Возвращает интерфейс попапа в исходное состояние после завершения, ошибки
-         * или остановки загрузки: сбрасывает флаги, очищает загруженный файл, снова
-         * показывает элементы выбора формата/файла/диапазона глав и переводчика,
-         * скрывает прогресс-бар и панель параметров загрузки.
+         * или остановки загрузки: сбрасывает флаги, снова показывает элементы выбора
+         * формата/диапазона глав и переводчика, скрывает прогресс-бар и панель
+         * параметров загрузки.
          * @returns {void}
          */
         resetUI() {
@@ -1075,10 +946,9 @@
             }
             if (stopBtn) stopBtn.disabled = false;
 
-            this.loadedFile = null;
             this.currentDownloadId = null;
 
-            const { btn, progress, controls, hiddenFileInput, customFileBtn } = this._getDownloadElements();
+            const { btn, progress, controls } = this._getDownloadElements();
 
             if (btn) {
                 btn.style.display = 'block';
@@ -1090,17 +960,10 @@
             const showSplitOnReset =
                 this.currentServiceKey === 'mangalib' || !!this.currentService?.config?.splitLongImages;
             this._setVisibility('splitPagesContainer', showSplitOnReset ? 'block' : 'none');
-            if (hiddenFileInput) { hiddenFileInput.disabled = false; hiddenFileInput.value = ''; }
-            else console.warn('Hidden file input not found when resetting UI');
-            if (customFileBtn) {
-                customFileBtn.disabled = false;
-                customFileBtn.textContent = 'Загрузить файл для обновления';
-            } else console.warn('Custom file button not found when resetting UI');
             if (progress) progress.style.display = 'none';
             else console.warn('Progress element not found when resetting UI');
             if (controls) controls.style.display = 'none';
             else console.warn('Controls container not found when resetting UI');
-            this._setVisibility('fileInputContainer', 'block');
 
             const chapterRangeContainer = $el('chapterRangeContainer');
             const fromSelectReset = $el('chapterFromSelect');
