@@ -7,18 +7,12 @@ let mockScripting;
 beforeEach(async () => {
     vi.resetModules();
 
-    delete global.getExtensionApi;
-    if (typeof window !== 'undefined') delete window.getExtensionApi;
-
     mockRuntime = { sendMessage: vi.fn() };
     mockScripting = { executeScript: vi.fn() };
 
-    const browserMock = { runtime: mockRuntime, scripting: mockScripting };
-    global.browser = browserMock;
-    if (typeof window !== 'undefined') window.browser = browserMock;
+    global.browser = { runtime: mockRuntime, scripting: mockScripting };
 
-    await import('../../core/AuthManager.js');
-    AuthManager = (typeof window !== 'undefined' ? window : global).AuthManager;
+    ({ AuthManager } = await import('../../core/AuthManager.js'));
 });
 
 describe('AuthManager.getToken', () => {
@@ -81,27 +75,10 @@ describe('AuthManager.getToken', () => {
 
     it('skips executeScript when scripting API is absent', async () => {
         vi.resetModules();
-        delete global.getExtensionApi;
-        if (typeof window !== 'undefined') delete window.getExtensionApi;
-        const browserMock = { runtime: { sendMessage: vi.fn().mockResolvedValue({ token: null }) } };
-        global.browser = browserMock;
-        if (typeof window !== 'undefined') window.browser = browserMock;
-        await import('../../core/AuthManager.js');
-        const AM = (typeof window !== 'undefined' ? window : global).AuthManager;
+        global.browser = { runtime: { sendMessage: vi.fn().mockResolvedValue({ token: null }) } };
+        const { AuthManager: AM } = await import('../../core/AuthManager.js');
         const token = await AM.getToken('mangalib', 1);
         expect(token).toBeNull();
-    });
-
-    it('uses getExtensionApi() when it is a function', async () => {
-        vi.resetModules();
-        const host = typeof window !== 'undefined' ? window : global;
-        const mockApi = { runtime: { sendMessage: vi.fn().mockResolvedValue({ token: 'via-getter' }) } };
-        host.getExtensionApi = () => mockApi;
-        await import('../../core/AuthManager.js');
-        const AM = host.AuthManager;
-        const token = await AM.getToken('mangalib');
-        expect(token).toBe('via-getter');
-        delete host.getExtensionApi;
     });
 
     it('silently ignores cacheAuthToken sendMessage failure', async () => {
@@ -113,29 +90,22 @@ describe('AuthManager.getToken', () => {
         expect(token).toBe('extracted-jwt');
     });
 
-    it('falls back to chrome API when browser global is absent', async () => {
+    it('uses the chrome API (via BrowserApi) when browser global is absent', async () => {
         vi.resetModules();
-        const host = typeof window !== 'undefined' ? window : global;
-        delete host.getExtensionApi;
-        delete host.browser;
-        const mockChrome = { runtime: { sendMessage: vi.fn().mockResolvedValue({ token: 'chrome-token' }) } };
-        host.chrome = mockChrome;
-        await import('../../core/AuthManager.js');
-        const AM = host.AuthManager;
+        delete global.browser;
+        global.chrome = { runtime: { sendMessage: vi.fn().mockResolvedValue({ token: 'chrome-token' }) } };
+        const { AuthManager: AM } = await import('../../core/AuthManager.js');
         const token = await AM.getToken('mangalib');
         expect(token).toBe('chrome-token');
-        delete host.chrome;
+        delete global.chrome;
     });
 
     it('returns null when neither browser nor chrome are available', async () => {
         vi.resetModules();
-        const host = typeof window !== 'undefined' ? window : global;
-        delete host.getExtensionApi;
-        delete host.browser;
-        delete host.chrome;
+        delete global.browser;
+        delete global.chrome;
         const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
-        await import('../../core/AuthManager.js');
-        const AM = host.AuthManager;
+        const { AuthManager: AM } = await import('../../core/AuthManager.js');
         const token = await AM.getToken('mangalib');
         expect(token).toBeNull();
         warnSpy.mockRestore();

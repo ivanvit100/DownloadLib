@@ -3,10 +3,8 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 let EventBus;
 
 beforeEach(async () => {
-    const path = require.resolve('../../core/EventBus.js');
-    delete require.cache[path];
-    await import('../../core/EventBus.js');
-    EventBus = global.EventBus;
+    vi.resetModules();
+    ({ EventBus } = await import('../../core/EventBus.js'));
 });
 
 describe('EventBus', () => {

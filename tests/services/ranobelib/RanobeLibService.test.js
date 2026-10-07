@@ -1,15 +1,28 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 
+vi.mock('../../../core/BrowserApi.js', async () =>
+    (await import('../../helpers/globalBridge.js')).globalBridge('extensionApi', 'requestViaTab', 'NoServiceTabError'));
+vi.mock('../../../core/DownloadManager.js', async () =>
+    (await import('../../helpers/globalBridge.js')).globalBridge('fetchPageImage', 'loadImageOrDefer'));
+vi.mock('../../../core/ImageCompressor.js', async () =>
+    (await import('../../helpers/globalBridge.js')).globalBridge('ImageCompressor'));
+vi.mock('../../../services/ranobelib/config.js', async () =>
+    (await import('../../helpers/globalBridge.js')).globalBridge('ranolibConfig'));
+
 let RanobeLibService;
 
 beforeEach(async () => {
-    global.getExtensionApi = () => ({
+    vi.resetModules();
+    global.extensionApi = {
         get runtime() {
             if (global.browser && global.browser.runtime) return global.browser.runtime;
             if (global.chrome && global.chrome.runtime) return global.chrome.runtime;
             return undefined;
         }
-    });
+    };
+    global.NoServiceTabError = class NoServiceTabError extends Error {};
+    global.loadImageOrDefer = (label, load) => load();
+    global.ImageCompressor = { compress: vi.fn(async (base64, contentType) => ({ base64, contentType })) };
 
     global.ranolibConfig = {
         name: 'RanobeLib',
@@ -17,17 +30,11 @@ beforeEach(async () => {
         headers: { 'X-Test': '1' },
         fields: ['id', 'title']
     };
-    const basePath = require.resolve('../../../services/BaseService.js');
-    delete require.cache[basePath];
-    await import('../../../services/BaseService.js');
-    const path = require.resolve('../../../services/ranobelib/RanobeLibService.js');
-    delete require.cache[path];
-    await import('../../../services/ranobelib/RanobeLibService.js');
-    RanobeLibService = global.RanobeLibService;
+    ({ RanobeLibService } = await import('../../../services/ranobelib/RanobeLibService.js'));
 });
 
 afterEach(() => {
-    delete global.getExtensionApi;
+    delete global.extensionApi;
     delete global.browser;
     delete global.chrome;
     delete global.fetch;
@@ -912,7 +919,7 @@ describe('RanobeLibService', () => {
         delete global.NoServiceTabError;
     });
 
-    it('_processImageBlock compresses image when global.ImageCompressor is defined', async () => {
+    it('_processImageBlock compresses image through ImageCompressor', async () => {
         const svc = new RanobeLibService();
         global.browser = { runtime: { sendMessage: vi.fn() } };
         global.fetchPageImage = vi.fn().mockResolvedValue({ ok: true, base64: 'raw', contentType: 'image/jpeg' });
@@ -1047,21 +1054,5 @@ describe('RanobeLibService', () => {
         }]);
         expect(result).toHaveLength(1);
         expect(result[0].align).toBe('right');
-    });
-
-    it('Registers with serviceRegistry when it is already defined on load', async () => {
-        vi.resetModules();
-        const register = vi.fn();
-        global.serviceRegistry = { register };
-        global.ranolibConfig = {
-            name: 'RanobeLib',
-            baseUrl: 'https://ranobelib.me',
-            headers: {},
-            fields: []
-        };
-        await import('../../../services/BaseService.js');
-        await import('../../../services/ranobelib/RanobeLibService.js');
-        expect(register).toHaveBeenCalledWith(expect.any(Function));
-        delete global.serviceRegistry;
     });
 });

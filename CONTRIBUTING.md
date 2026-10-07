@@ -85,11 +85,12 @@ npm install
 
 ```
 DownloadLib/
-├── app.js                   # Точка входа popup: проверяет зависимости, создаёт PopupController
+├── app.js                   # Точка входа popup (ES-модуль): регистрирует сервисы, экспортёры, плагины, создаёт PopupController
 ├── popup.html               # Страница попапа (оболочка; шаблоны подгружает TemplateLoader)
-├── background/              # Фоновые скрипты
-│   ├── service-worker.js    # Chrome: точка входа SW, грузит всё через importScripts
-│   ├── background.html      # Firefox: точка входа фоновой страницы
+├── background/              # Фоновые модули
+│   ├── main.js              # Общая точка входа фона: импортирует RequestInterceptor и MessageRouter
+│   ├── service-worker.js    # Chrome: модульный service worker, импортирует main.js
+│   ├── background.html      # Firefox: фоновая страница, подключает main.js как модуль
 │   ├── RequestInterceptor.js# Перехват HTTP-запросов, заголовки, авторизация, блокировка рекламы
 │   └── MessageRouter.js     # Маршрутизация runtime.onMessage (fetchImage, fetchWithRateLimit, …)
 ├── content/                 # Контент-скрипты (исполняются на страницах сайтов)
@@ -100,7 +101,8 @@ DownloadLib/
 │   ├── BrowserApi.js        # Единый API-адаптер (Firefox/Chrome)
 │   ├── EventBus.js          # Pub/Sub шина событий
 │   ├── RateLimiter.js       # Ограничитель частоты запросов
-│   ├── Storage.js           # Обёртка над localStorage
+│   ├── Storage.js           # SafeStorage: обёртка над localStorage
+│   ├── pluginApi.js         # Публикует в globalThis классы и реестры для плагинов
 │   ├── DownloadHistory.js   # Хранение истории загрузок (до 10 записей)
 │   ├── AuthManager.js       # Извлечение и кэширование JWT-токенов авторизации
 │   ├── MangaPatcher.js      # Нормализация метаданных тайтла

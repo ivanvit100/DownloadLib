@@ -1,15 +1,28 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 
+vi.mock('../../../core/BrowserApi.js', async () =>
+    (await import('../../helpers/globalBridge.js')).globalBridge('extensionApi', 'requestViaTab', 'NoServiceTabError'));
+vi.mock('../../../core/DownloadManager.js', async () =>
+    (await import('../../helpers/globalBridge.js')).globalBridge('fetchPageImage', 'loadImageOrDefer'));
+vi.mock('../../../core/ImageCompressor.js', async () =>
+    (await import('../../helpers/globalBridge.js')).globalBridge('ImageCompressor'));
+vi.mock('../../../services/mangalib/config.js', async () =>
+    (await import('../../helpers/globalBridge.js')).globalBridge('mangalibConfig'));
+
 let MangaLibService;
 
 beforeEach(async () => {
-    global.getExtensionApi = () => ({
+    vi.resetModules();
+    global.extensionApi = {
         get runtime() {
             if (global.browser && global.browser.runtime) return global.browser.runtime;
             if (global.chrome && global.chrome.runtime) return global.chrome.runtime;
             return undefined;
         }
-    });
+    };
+    global.NoServiceTabError = class NoServiceTabError extends Error {};
+    global.loadImageOrDefer = (label, load) => load();
+    global.ImageCompressor = { compress: vi.fn(async (base64, contentType) => ({ base64, contentType })) };
 
     global.mangalibConfig = {
         name: 'MangaLib',
@@ -18,17 +31,11 @@ beforeEach(async () => {
         fields: ['id', 'title'],
         imagesDomain: 'https://imgslib.link'
     };
-    const basePath = require.resolve('../../../services/BaseService.js');
-    delete require.cache[basePath];
-    await import('../../../services/BaseService.js');
-    const path = require.resolve('../../../services/mangalib/MangaLibService.js');
-    delete require.cache[path];
-    await import('../../../services/mangalib/MangaLibService.js');
-    MangaLibService = global.MangaLibService;
+    ({ MangaLibService } = await import('../../../services/mangalib/MangaLibService.js'));
 });
 
 afterEach(() => {
-    delete global.getExtensionApi;
+    delete global.extensionApi;
     delete global.browser;
     delete global.chrome;
     delete global.fetch;
@@ -793,24 +800,6 @@ describe('MangaLibService', () => {
         delete global.ImageCompressor;
     });
 
-    it('_processImage returns split parts as is when imageFit is set but ImageCompressor is absent', async () => {
-        const svc = new MangaLibService();
-        global.browser = { runtime: { sendMessage: vi.fn() } };
-        global.fetchPageImage = vi.fn().mockResolvedValue({ ok: true, base64: 'raw', contentType: 'image/jpeg' });
-        const parts = [
-            { base64: 'p1', contentType: 'image/jpeg' },
-            { base64: 'p2', contentType: 'image/jpeg' }
-        ];
-        svc.splitLongImage = vi.fn().mockResolvedValue(parts);
-        delete global.ImageCompressor;
-        const result = await svc.loadPageAsBase64('img.jpg', {
-            splitLongImages: true, imageFit: { maxWidth: 560, maxHeight: 740 }
-        });
-        expect(result).toEqual(parts);
-        delete global.browser;
-        delete global.fetchPageImage;
-    });
-
     it('_processImage calls ImageCompressor.compress when splitLongImages is false', async () => {
         const svc = new MangaLibService();
         global.browser = { runtime: { sendMessage: vi.fn() } };
@@ -877,22 +866,5 @@ describe('MangaLibService', () => {
         expect(warnSpy).toHaveBeenCalled();
         delete global.fetchPageImage;
         warnSpy.mockRestore();
-    });
-
-    it('Registers with serviceRegistry when it is already defined on load', async () => {
-        vi.resetModules();
-        const register = vi.fn();
-        global.serviceRegistry = { register };
-        global.mangalibConfig = {
-            name: 'MangaLib',
-            baseUrl: 'https://mangalib.me',
-            headers: {},
-            fields: [],
-            imagesDomain: 'https://imgslib.link'
-        };
-        await import('../../../services/BaseService.js');
-        await import('../../../services/mangalib/MangaLibService.js');
-        expect(register).toHaveBeenCalledWith(expect.any(Function));
-        delete global.serviceRegistry;
     });
 });

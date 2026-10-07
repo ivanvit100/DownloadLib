@@ -14,38 +14,44 @@
 
 **Popup-контекст** (`popup.html`) — открывается браузером при клике на иконку расширения или в отдельном окне при запуске загрузки. Имеет доступ к DOM, может делать fetch, но не может напрямую перехватывать сетевые запросы.
 
-**Background-контекст** — для Firefox: `background/background.html`, для Chrome MV3: `background/service-worker.js`. Живёт в фоне, перехватывает HTTP-запросы через `webRequest`, принимает сообщения от popup и контент-скриптов через `runtime.onMessage`.
+**Background-контекст** — для Firefox: `background/background.html`, для Chrome MV3: модульный service worker `background/service-worker.js`. Оба загружают один модуль `background/main.js`, который импортирует `RequestInterceptor` и `MessageRouter`. Фон перехватывает HTTP-запросы через `webRequest` и принимает сообщения от popup и контент-скриптов через `runtime.onMessage`.
 
 **Content scripts** (`content/`) — три скрипта, исполняемых на страницах сайтов. Не участвуют в логике загрузки (кроме `ImageFetcher.js`, который прокидывает fetch-запросы изображений через вкладку).
 
 Общение между контекстами — исключительно через `runtime.sendMessage` / `runtime.onMessage`. Напрямую вызывать функции другого контекста нельзя.
 
-### Паттерн самостоятельной регистрации
+### ES-модули
 
-Каждый сервис и каждый экспортер после объявления класса **сам** регистрируется в своём реестре:
+Код в `core/`, `services/`, `exporters/`, `ui/`, `background/` и `app.js` написан как нативные ES-модули без сборки: зависимости подключаются через `import`, публичный API — через `export`. Глобальные переменные модули не создают.
+
+Исключения — классические скрипты:
+- `content/*.js` — MV3 не загружает content scripts как модули. API расширения они получают выражением `globalThis.browser ?? globalThis.chrome`.
+- `sandbox.js` и `sw.js`.
+- Сторонние `lib/jszip.min.js` и `lib/html2pdf.min.js`. Они подключаются в `popup.html` обычными `<script>`, модули обращаются к ним через `globalThis.JSZip` и `globalThis.html2pdf`.
+
+Точки входа:
+- `popup.html` → `app.js`. Это composition root попапа: импортирует `core/pluginApi.js`, `services/index.js`, `exporters/index.js`, затем вызывает `PluginManager.loadAll()` и создаёт `PopupController`.
+- `background/background.html` и `background/service-worker.js` → `background/main.js`.
+
+### Регистрация встроенных сервисов и экспортеров
+
+Классы сервисов и экспортеров сами себя не регистрируют. Это делают два index-модуля:
 
 ```js
-// В конце MangaLibService.js:
-if (global.serviceRegistry) global.serviceRegistry.register(MangaLibService);
+// services/index.js
+serviceRegistry.register(MangaLibService);
+serviceRegistry.register(RanobeLibService);
 
-// В конце FB2Exporter.js:
-if (global.ExporterRegistry) global.ExporterRegistry.register('fb2', FB2Exporter, { label: 'FB2' });
+// exporters/index.js
+ExporterRegistry.register('fb2', FB2Exporter, { label: 'FB2' });
+// … epub, mobi, pdf, simple
 ```
 
-Реестры к этому моменту уже созданы (они загружены раньше). Добавление нового сервиса или экспортера не требует правок в реестре — только добавление файла в массив скриптов реестра.
+Порядок вызовов `ExporterRegistry.register` задаёт порядок форматов в селекторе.
 
-### Паттерн IIFE
+### API для плагинов
 
-Каждый файл обёрнут в:
-
-```js
-(function(global) {
-    // ...
-    global.MyClass = MyClass;
-})(typeof window !== 'undefined' ? window : self);
-```
-
-Это позволяет одному и тому же коду работать в `window`-контексте (popup) и `self`-контексте (Service Worker), не загрязняя глобальное пространство имён посторонними переменными. Background-скрипты (`RequestInterceptor.js`, `MessageRouter.js`) используют безаргументное IIFE — они исполняются только в `self`-контексте воркера.
+Плагины остаются классическими скриптами и не могут импортировать модули расширения. Поэтому `core/pluginApi.js` публикует в `globalThis` ровно четыре объекта: `BaseExporter`, `ExporterRegistry`, `BaseService`, `serviceRegistry`. Это единственное место в расширении с намеренными глобалами. `app.js` импортирует его до `PluginManager.loadAll()`.
 
 ### Маршрут данных при загрузке
 
@@ -82,13 +88,12 @@ PopupController.startDownload()
 
 ### `core/BrowserApi.js`
 
-Выставляет четыре глобала: `getExtensionApi`, `getBrowserEnv`, `extensionApi`, `browserEnv`.
+Единственная точка доступа к API браузера. Экспортирует:
+- `extensionApi` — `globalThis.browser ?? globalThis.chrome ?? null`. Обёртки над callback-API не нужны: в MV3 методы `chrome.*` сами возвращают промисы.
+- `browserEnv` — объект `{ isFirefox, isChromium, supportsDnr, nativeName }` для условной логики. Вычисляется только здесь.
+- Сетевые функции через вкладку сервиса: `setServiceTab`, `fetchViaTab`, `requestViaTab`, `hasServiceTab` и класс ошибки `NoServiceTabError`.
 
-`extensionApi` — унифицированный объект с Promise-based методами: `runtime.sendMessage`, `tabs.query/sendMessage`, `windows.getCurrent/create/update`, `downloads.download`, `storage.local.get/set`, `scripting.executeScript`. Firefox нативно возвращает промисы, для Chrome callback-API оборачивается вручную через `toPromise()`.
-
-`browserEnv` — объект `{ isFirefox, isChromium, supportsDnr }` для условной логики.
-
-Все остальные модули читают API через `getExtensionApi()`, никогда не обращаясь к `browser`/`chrome` напрямую.
+Остальные модули импортируют `extensionApi` и `browserEnv` отсюда и не обращаются к `browser`/`chrome` напрямую.
 
 ---
 
@@ -96,7 +101,7 @@ PopupController.startDownload()
 
 Безопасная обёртка над `localStorage`. Проверяет доступность при инициализации; все методы (`get`, `set`, `getJSON`, `setJSON`, `remove`) перехватывают исключения и возвращают `null`/`false` вместо выброса.
 
-Создаётся `window.Storage` — класс, не синглтон; `DownloadHistory` создаёт свой экземпляр.
+Экспортирует класс `SafeStorage` (не синглтон; имя не затеняет встроенный `window.Storage`). `DownloadHistory` создаёт свой экземпляр.
 
 ---
 
@@ -118,7 +123,7 @@ PopupController.startDownload()
 
 `apply(serviceKey, tabId, service)` — вызывает `getToken`, при успехе добавляет `Authorization: Bearer <token>` в `service.config.headers`.
 
-Кэш токенов хранится в `globalThis.authTokenStore` внутри background-процесса; синхронизируется сообщениями `getAuthToken` / `cacheAuthToken` через `MessageRouter`.
+Кэш токенов — объект `authTokens`, экспортируемый `background/RequestInterceptor.js`. Его читают и пишут сообщения `getAuthToken` / `cacheAuthToken` через `MessageRouter`.
 
 ---
 
@@ -136,7 +141,7 @@ PopupController.startDownload()
 
 ### `core/RateLimiter.js`
 
-Ограничивает количество HTTP-запросов к API сервиса. При загрузке создаётся синглтон `window.globalRateLimiter` (80 req/min по умолчанию).
+Ограничивает количество HTTP-запросов к API сервиса. Экспортирует класс `RateLimiter` и общий экземпляр `globalRateLimiter` (85 req/min по умолчанию).
 
 `acquire(name)` / `trackRequest(name)` — возвращает промис, который резолвится только тогда, когда счётчик запросов за последнюю минуту не превышает лимит. Запросы встают в очередь `_pendingQueue`.
 
@@ -184,7 +189,7 @@ PopupController.startDownload()
 
 ### `services/ServiceRegistry.js`
 
-Реестр сервисов. Создаёт синглтон `window.serviceRegistry`. При своей загрузке через `importScripts` (background) или `<script>` (popup) подключает все конфиги и классы сервисов.
+Реестр сервисов. Экспортирует класс `ServiceRegistry` и общий экземпляр `serviceRegistry`. Сам ничего не подключает: встроенные сервисы регистрирует `services/index.js`, сервисы плагинов — `PluginManager`.
 
 Методы:
 - `register(ServiceClass)` — создаёт экземпляр, сохраняет `{ class, instance, matcher }`.
@@ -210,13 +215,13 @@ PopupController.startDownload()
 
 ### `services/*/config.js`
 
-Объект конфигурации сервиса, выставляемый в `global`. Содержит: `name`, `baseUrl`, `imagesDomain`, `siteId`, `fields[]`, `headers`, `imageHeaders`, опциональные `splitLongImages` и `maxImageHeight`. Загружается до класса сервиса.
+Экспортируемый объект конфигурации сервиса (`mangalibConfig`, `ranolibConfig`). Содержит: `name`, `baseUrl`, `imagesDomain`, `siteId`, `fields[]`, `headers`, `imageHeaders`, опциональные `splitLongImages` и `maxImageHeight`. Класс сервиса импортирует его и передаёт в `super(config)`.
 
 ---
 
 ### `exporters/ExporterRegistry.js`
 
-Реестр экспортеров со статическим приватным полем `#registry`. При загрузке подключает все файлы экспортеров.
+Реестр экспортеров со статическим приватным полем `#registry`. Сам ничего не подключает: встроенные экспортеры регистрирует `exporters/index.js`, форматы плагинов — сами плагины или `PluginManager`.
 
 Методы:
 - `register(format, Class, meta)` — регистрация по строковому ключу формата.
@@ -267,7 +272,7 @@ Content script. Слушает сообщение `{ action: 'fetchImageFromTab'
 
 В обоих браузерах блокирует запросы к рекламным URL через `webRequest.onBeforeRequest`.
 
-Выставляет `globalThis.detectServiceByUrl` — функцию определения сервиса по URL, используемую также в `MessageRouter`.
+Экспортирует `detectServiceByUrl` — функцию определения сервиса по URL — и хранилище токенов `authTokens`. Оба импортирует `MessageRouter`.
 
 ---
 
@@ -276,7 +281,7 @@ Content script. Слушает сообщение `{ action: 'fetchImageFromTab'
 Маршрутизатор сообщений. Слушает `runtime.onMessage` и делегирует обработку зарегистрированным хендлерам.
 
 Хендлеры (`Map<action, handler>`):
-- `getAuthToken` / `cacheAuthToken` — чтение и запись токенов из `globalThis.authTokenStore`.
+- `getAuthToken` / `cacheAuthToken` — чтение и запись токенов в `authTokens` из `RequestInterceptor`.
 - `setRateLimit` / `getRateLimiterStats` — управление rate limiter background-процесса.
 - `fetchImage` — находит открытую вкладку нужного сервиса, отправляет ей `fetchImageFromTab`, прокидывает ответ обратно в popup.
 - `fetchWithRateLimit` — делает fetch с rate limiting и retry при 429, возвращает тело и заголовки.
@@ -308,7 +313,7 @@ Content script. Слушает сообщение `{ action: 'fetchImageFromTab'
 
 Управляет видом истории загрузок (шаблон `history.html`).
 
-`init()` — рендерит список через `DownloadHistory.getAll()` и вешает обработчики кнопок «Назад» и «Очистить». Карточки содержат цветовую метку сервиса, формат, дату, диапазон глав и переводчика. При наличии `browserAPI.tabs` заголовок карточки становится кликабельной ссылкой на тайтл.
+`init(onBack)` — рендерит список через `DownloadHistory.getAll()` и вешает обработчики кнопок «Назад» и «Очистить». Кнопка «Назад» вызывает колбэк `onBack`: `PopupController` передаёт в него `_restoreMainView`. Так же устроен `SettingsController.init(onBack)`. Карточки содержат цветовую метку сервиса, формат, дату, диапазон глав и переводчика. При наличии `extensionApi.tabs` заголовок карточки становится кликабельной ссылкой на тайтл.
 
 ---
 
@@ -334,27 +339,27 @@ Content script. Слушает сообщение `{ action: 'fetchImageFromTab'
 
 ## Как добавить новый экспортер
 
-1. Создать `exporters/XyzExporter.js` по шаблону:
+1. Создать модуль `exporters/XyzExporter.js`:
 
 ```js
-'use strict';
-(function(global) {
-    class XyzExporter extends global.BaseExporter {
-        async export(manga, chapters, coverBase64) {
-            // manga.name, manga.authors[], manga.summary — всегда строки/массивы строк
-            // chapters[i].content[j] — { type: 'text', text } или { type: 'image', data: { base64, contentType } }
-            const blob = new Blob([...], { type: 'application/xyz' });
-            return { blob, filename: `${manga.name}.xyz`, mimeType: 'application/xyz' };
-        }
-    }
+import { BaseExporter } from './BaseExporter.js';
 
-    global.XyzExporter = XyzExporter;
-    if (global.ExporterRegistry)
-        global.ExporterRegistry.register('xyz', XyzExporter, { label: 'XYZ' });
-})(typeof window !== 'undefined' ? window : self);
+export class XyzExporter extends BaseExporter {
+    async export(manga, chapters, coverBase64) {
+        // manga.name, manga.authors[], manga.summary — всегда строки/массивы строк
+        // chapters[i].content[j] — { type: 'text', text } или { type: 'image', data: { base64, contentType } }
+        const blob = new Blob([...], { type: 'application/xyz' });
+        return { blob, filename: `${manga.name}.xyz`, mimeType: 'application/xyz' };
+    }
+}
 ```
 
-2. Добавить путь `/exporters/XyzExporter.js` в массив `EXPORTER_SCRIPTS` в `exporters/ExporterRegistry.js`.
+2. Импортировать его в `exporters/index.js` и зарегистрировать:
+
+```js
+import { XyzExporter } from './XyzExporter.js';
+ExporterRegistry.register('xyz', XyzExporter, { label: 'XYZ' });
+```
 
 3. `PopupController` автоматически добавит новый вариант в `<select>` форматов через `ExporterRegistry.getFormats()`.
 
@@ -362,67 +367,66 @@ Content script. Слушает сообщение `{ action: 'fetchImageFromTab'
 
 ## Как добавить новый сервис
 
-1. Создать `services/newsite/config.js`:
+1. Создать модуль `services/newsite/config.js`:
 
 ```js
-'use strict';
-(function(global) {
-    global.newsiteConfig = {
-        name: 'newsite',
-        baseUrl: 'https://api.newsite.example',
-        imagesDomain: 'https://img.newsite.example',
-        siteId: '42',
-        fields: ['authors', 'summary', 'genres', 'tags'],
-        headers: {
-            'User-Agent': '...',
-            'Site-Id': '42',
-            'X-DL-Service': 'newsite',
-            'Referer': 'https://newsite.example/'
-        },
-        imageHeaders: { 'Referer': 'https://newsite.example/' }
-    };
-})(typeof window !== 'undefined' ? window : self);
+export const newsiteConfig = {
+    name: 'newsite',
+    baseUrl: 'https://api.newsite.example',
+    imagesDomain: 'https://img.newsite.example',
+    siteId: '42',
+    fields: ['authors', 'summary', 'genres', 'tags'],
+    headers: {
+        'User-Agent': '...',
+        'Site-Id': '42',
+        'X-DL-Service': 'newsite',
+        'Referer': 'https://newsite.example/'
+    },
+    imageHeaders: { 'Referer': 'https://newsite.example/' }
+};
 ```
 
-2. Создать `services/newsite/NewSiteService.js`:
+2. Создать модуль `services/newsite/NewSiteService.js`:
 
 ```js
-'use strict';
-(function(global) {
-    class NewSiteService extends global.BaseService {
-        constructor() { super(global.newsiteConfig); }
+import { fetchPageImage, loadImageOrDefer } from '../../core/DownloadManager.js';
+import { BaseService } from '../BaseService.js';
+import { newsiteConfig } from './config.js';
 
-        static matches(url) {
-            try { return /newsite\.example$/i.test(new URL(url).hostname); }
-            catch { return false; }
-        }
+export class NewSiteService extends BaseService {
+    constructor() { super(newsiteConfig); }
 
-        extractText(content) {
-            // Разобрать content (формат зависит от API сервиса)
-            return [];
-        }
-
-        async processChapterContent(extracted, _statusEl, opts) {
-            const result = [];
-            for (const block of extracted) {
-                if (block.type === 'image') {
-                    const resp = await this.extensionApi.runtime.sendMessage({
-                        action: 'fetchImage', url: block.src
-                    });
-                    if (resp?.ok)
-                        result.push({ type: 'image', id: `img_${Date.now()}`, data: { base64: resp.base64, contentType: resp.contentType } });
-                } else result.push(block);
-            }
-            return result;
-        }
+    static matches(url) {
+        try { return /newsite\.example$/i.test(new URL(url).hostname); }
+        catch { return false; }
     }
 
-    global.NewSiteService = NewSiteService;
-    if (global.serviceRegistry) global.serviceRegistry.register(NewSiteService);
-})(typeof window !== 'undefined' ? window : self);
+    extractText(content) {
+        // Разобрать content (формат зависит от API сервиса)
+        return [];
+    }
+
+    async processChapterContent(extracted, _statusEl, opts) {
+        const result = [];
+        for (const [index, block] of extracted.entries()) {
+            if (block.type !== 'image') {
+                result.push(block);
+                continue;
+            }
+            const blocks = await loadImageOrDefer(index + 1, async () => {
+                const resp = await fetchPageImage(block.src, this.name);
+                return resp?.ok
+                    ? [{ type: 'image', id: `img_${Date.now()}`, data: { base64: resp.base64, contentType: resp.contentType } }]
+                    : null;
+            });
+            if (blocks) result.push(...blocks);
+        }
+        return result;
+    }
+}
 ```
 
-3. Добавить оба пути в массив `SERVICE_SCRIPTS` в `services/ServiceRegistry.js` (конфиг — перед классом).
+3. Импортировать класс в `services/index.js` и вызвать `serviceRegistry.register(NewSiteService)`.
 
 4. В `manifest.json`: добавить домен в `host_permissions` и `content_scripts.matches`.
 

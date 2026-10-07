@@ -1,6 +1,17 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 
-let DownloadManager, fetchPageImage, globalMock, eventBusMock, exporterMock, serviceMock, fileUtilsMock;
+vi.mock('../../core/BrowserApi.js', async () => (await import('../helpers/globalBridge.js'))
+    .globalBridge('extensionApi', 'fetchViaTab', 'hasServiceTab', 'NoServiceTabError'));
+vi.mock('../../core/EventBus.js', async () => (await import('../helpers/globalBridge.js')).globalBridge('EventBus'));
+vi.mock('../../core/ImageCompressor.js', async () => (await import('../helpers/globalBridge.js')).globalBridge('ImageCompressor'));
+vi.mock('../../core/MangaPatcher.js', async () => (await import('../helpers/globalBridge.js')).globalBridge('MangaPatcher'));
+vi.mock('../../core/PluginManager.js', async () => (await import('../helpers/globalBridge.js')).globalBridge('PluginManager'));
+vi.mock('../../core/RateLimiter.js', async () => (await import('../helpers/globalBridge.js')).globalBridge('globalRateLimiter'));
+vi.mock('../../exporters/ExporterRegistry.js', async () => (await import('../helpers/globalBridge.js')).globalBridge('ExporterRegistry'));
+vi.mock('../../services/ServiceRegistry.js', async () => (await import('../helpers/globalBridge.js')).globalBridge('serviceRegistry'));
+
+let DownloadManager, fetchPageImage, loadImageOrDefer, DeferredQueue, deferredLoadSettings;
+let globalMock, eventBusMock, exporterMock, serviceMock, fileUtilsMock;
 
 function createChapter(vol, num, name = undefined) {
     return { volume: vol, number: num, name };
@@ -52,10 +63,17 @@ beforeEach(async () => {
     });
 
     globalThis.fetchViaTab = vi.fn(async () => null);
+    globalThis.hasServiceTab = vi.fn(async () => false);
+    globalThis.NoServiceTabError = class NoServiceTabError extends Error {};
+    globalThis.PluginManager = { loadAll: vi.fn(async () => {}) };
+    globalThis.ImageCompressor = { compress: vi.fn(async (base64, contentType) => ({ base64, contentType })) };
+    globalThis.globalRateLimiter = {
+        trackRequest: vi.fn(async () => {}),
+        getStats: vi.fn(() => ({ queueSize: 0, throttled: false }))
+    };
 
-    await import('../../core/DownloadManager.js');
-    DownloadManager = globalThis.DownloadManager;
-    fetchPageImage = globalThis.fetchPageImage;
+    ({ DownloadManager, fetchPageImage, loadImageOrDefer, DeferredQueue, deferredLoadSettings } =
+        await import('../../core/DownloadManager.js'));
 });
 
 describe('DownloadManager', () => {
@@ -228,7 +246,7 @@ describe('DownloadManager', () => {
             ...serviceMock,
             fetchChapter: vi.fn(async () => {
                 stopped = true;
-                await globalThis.fetchPageImage('url', 'mangalib');
+                await fetchPageImage('url', 'mangalib');
                 return { data: { content: [] } };
             })
         };
@@ -250,7 +268,7 @@ describe('DownloadManager', () => {
         const outerService = {
             ...serviceMock,
             fetchChapter: vi.fn(async () => {
-                await globalThis.fetchPageImage('url', 'mangalib');
+                await fetchPageImage('url', 'mangalib');
                 await dm.startDownload({ slug: 'nested', serviceKey: 'ranobelib', format: 'fb2' });
                 outerService._gate = null;
                 return { data: { content: [{ type: 'text', text: 'ok' }] } };
@@ -285,7 +303,7 @@ describe('DownloadManager', () => {
         const pausingService = {
             ...serviceMock,
             fetchChapter: vi.fn(async () => {
-                const response = await globalThis.fetchPageImage('url', 'mangalib');
+                const response = await fetchPageImage('url', 'mangalib');
                 observedResumed.push(resumed);
                 expect(response.ok).toBe(true);
                 return { data: { content: [{ type: 'text', text: 'ok' }] } };
@@ -318,8 +336,6 @@ describe('DownloadManager', () => {
         const createServiceSpy = vi.fn(key => key === 'ranobelib' ? ranobeMock : null);
         globalThis.serviceRegistry = { getServiceByUrl: vi.fn(() => null), createService: createServiceSpy };
 
-        await import('../../core/DownloadManager.js');
-        const DownloadManager = globalThis.DownloadManager;
         const dm = new DownloadManager();
         await dm.startDownload({ serviceKey: 'ranobelib', url: 'https://site/book/slug' });
 
@@ -338,8 +354,6 @@ describe('DownloadManager', () => {
 
         globalThis.serviceRegistry = { getServiceByUrl: vi.fn(() => serviceWithoutData), createService: vi.fn(() => serviceWithoutData) };
 
-        await import('../../core/DownloadManager.js');
-        const DownloadManager = globalThis.DownloadManager;
         const dm = new DownloadManager();
 
         const res = await dm.startDownload({ serviceKey: 'mangalib', url: 'https://site/manga/slug' });
@@ -893,19 +907,13 @@ describe('DownloadManager', () => {
         delete globalThis.PluginManager;
     });
 
-    it('_createExporter loads plugins when format is not supported and PluginManager exists', async () => {
+    it('_createExporter loads plugins when format is not supported', async () => {
         const dm = new DownloadManager();
         globalThis.PluginManager = { loadAll: vi.fn(async () => {}) };
         await dm._createExporter('myplugin');
         expect(globalThis.PluginManager.loadAll).toHaveBeenCalled();
-        delete globalThis.PluginManager;
-    });
-
-    it('_createExporter skips plugin load when PluginManager is absent', async () => {
-        const dm = new DownloadManager();
-        delete globalThis.PluginManager;
-        await dm._createExporter('myplugin');
         expect(globalThis.ExporterRegistry.create).toHaveBeenCalledWith('myplugin');
+        delete globalThis.PluginManager;
     });
 
     it('_fetchAndFilterChapters filters by branchId', async () => {
@@ -1079,14 +1087,13 @@ describe('DownloadManager', () => {
             delete globalThis.extensionApi;
         });
 
-        it('resolves the extension api through global.getExtensionApi when it is defined', () => {
+        it('connects through the shared extension api', () => {
             const dm = new DownloadManager();
             const connect = vi.fn(() => ({ postMessage: vi.fn(), disconnect: vi.fn(), onDisconnect: { addListener: vi.fn() } }));
-            globalThis.getExtensionApi = vi.fn(() => ({ runtime: { connect } }));
+            globalThis.extensionApi = { runtime: { connect } };
             expect(dm._startKeepAlive()).not.toBeNull();
-            expect(globalThis.getExtensionApi).toHaveBeenCalled();
             expect(connect).toHaveBeenCalledWith({ name: 'downloadKeepAlive' });
-            delete globalThis.getExtensionApi;
+            delete globalThis.extensionApi;
         });
 
         it('does not reconnect if stopped externally right before a pending reconnect fires', () => {
@@ -1260,7 +1267,7 @@ describe('DownloadManager', () => {
             delete globalThis.hasServiceTab;
         });
 
-        it('tracks the request through globalRateLimiter when available', async () => {
+        it('tracks the request through globalRateLimiter', async () => {
             globalThis.fetchViaTab = vi.fn().mockResolvedValue({ ok: true, base64: 'b64' });
             const trackRequest = vi.fn().mockResolvedValue();
             globalThis.globalRateLimiter = { trackRequest };
@@ -1269,10 +1276,11 @@ describe('DownloadManager', () => {
             delete globalThis.globalRateLimiter;
         });
 
-        it('throws when fetchViaTab fails and hasServiceTab is not available either', async () => {
-            globalThis.fetchViaTab = vi.fn().mockResolvedValue(null);
-            delete globalThis.hasServiceTab;
-            await expect(fetchPageImage('https://img.example.com/a.jpg', 'mangalib')).rejects.toThrow();
+        it('throws NoServiceTabError when the service tab is missing', async () => {
+            globalThis.fetchViaTab = vi.fn().mockResolvedValue({ ok: false, error: 'no tab' });
+            await expect(fetchPageImage('https://img.example.com/a.jpg', 'mangalib'))
+                .rejects.toBeInstanceOf(globalThis.NoServiceTabError);
+            expect(globalThis.hasServiceTab).toHaveBeenCalledWith('mangalib');
         });
 
         it('defaults the rate limiter source to "image" when no serviceKey is given', async () => {
@@ -1282,13 +1290,6 @@ describe('DownloadManager', () => {
             await fetchPageImage('https://img.example.com/a.jpg');
             expect(trackRequest).toHaveBeenCalledWith('image');
             delete globalThis.globalRateLimiter;
-        });
-
-        it('throws when fetchViaTab is not defined and no service tab is open', async () => {
-            delete globalThis.fetchViaTab;
-            globalThis.hasServiceTab = vi.fn().mockResolvedValue(false);
-            await expect(fetchPageImage('https://img.example.com/a.jpg', 'mangalib')).rejects.toThrow();
-            delete globalThis.hasServiceTab;
         });
     });
 
@@ -1312,7 +1313,7 @@ describe('DownloadManager', () => {
         const contentOf = chapter => chapter.content.map(b => b.text || b.data.base64);
 
         beforeEach(() => {
-            settings = globalThis.deferredLoadSettings;
+            settings = deferredLoadSettings;
             saved = { ...settings };
             Object.assign(settings, {
                 deferAfterMs: 20, backgroundAttemptTimeoutMs: 60, retryDelayMs: 5, maxAttempts: 3,
@@ -1331,17 +1332,17 @@ describe('DownloadManager', () => {
         describe('loadImageOrDefer', () => {
             it('returns the image when it loads in time', async () => {
                 const blocks = [image()];
-                expect(await globalThis.loadImageOrDefer(1, async () => blocks)).toBe(blocks);
+                expect(await loadImageOrDefer(1, async () => blocks)).toBe(blocks);
             });
 
             it('rethrows an error that happens in time', async () => {
-                await expect(globalThis.loadImageOrDefer(1, async () => { throw new Error('tab gone'); }))
+                await expect(loadImageOrDefer(1, async () => { throw new Error('tab gone'); }))
                     .rejects.toThrow('tab gone');
             });
 
             it('returns a placeholder after the deadline while the load keeps running', async () => {
                 const load = later(200, [image()]);
-                const [block] = await globalThis.loadImageOrDefer(2, load);
+                const [block] = await loadImageOrDefer(2, load);
                 expect(block).toEqual({
                     type: 'text',
                     text: '[Изображение 2 загружается в фоне]',
@@ -1363,14 +1364,14 @@ describe('DownloadManager', () => {
                         })
                         .mockReturnValue({ queueSize: 0, throttled: false })
                 };
-                expect(await globalThis.loadImageOrDefer(1, () => run.promise)).toBe(blocks);
+                expect(await loadImageOrDefer(1, () => run.promise)).toBe(blocks);
                 expect(globalThis.globalRateLimiter.getStats).toHaveBeenCalledTimes(2);
             });
         });
 
         describe('DeferredQueue', () => {
             it('registers placeholders of a chapter and reserves the average image size for them', () => {
-                const queue = new globalThis.DeferredQueue();
+                const queue = new DeferredQueue();
                 const first = placeholder(1, never());
                 queue.observe({ content: [first] });
                 expect(first.pendingImage.estimatedBytes).toBe(1000);
@@ -1396,7 +1397,7 @@ describe('DownloadManager', () => {
             });
 
             it('inserts an image into place as soon as its original load finishes, without restarting it', async () => {
-                const queue = new globalThis.DeferredQueue();
+                const queue = new DeferredQueue();
                 const run = deferred();
                 const load = vi.fn();
                 const chapter = { title: 'Глава 1', content: [image('X'), placeholder(3, run.promise, load), { type: 'text', text: 'after' }] };
@@ -1412,7 +1413,7 @@ describe('DownloadManager', () => {
             });
 
             it('leaves the content alone when the placeholder is no longer in it', async () => {
-                const queue = new globalThis.DeferredQueue();
+                const queue = new DeferredQueue();
                 const run = deferred();
                 const chapter = { content: [placeholder(1, run.promise)] };
                 queue.observe(chapter);
@@ -1423,7 +1424,7 @@ describe('DownloadManager', () => {
             });
 
             it('does not report a chapter as complete while it still has background images', async () => {
-                const queue = new globalThis.DeferredQueue();
+                const queue = new DeferredQueue();
                 const chapter = { content: [placeholder(1, Promise.resolve([image()])), placeholder(2, never())] };
                 queue.observe(chapter);
                 await vi.waitFor(() => expect(queue.size).toBe(1));
@@ -1432,7 +1433,7 @@ describe('DownloadManager', () => {
             });
 
             it('retries a failed background load after a pause', async () => {
-                const queue = new globalThis.DeferredQueue();
+                const queue = new DeferredQueue();
                 const load = vi.fn().mockResolvedValue([image('R')]);
                 const chapter = { content: [placeholder(1, Promise.resolve(null), load)] };
                 queue.observe(chapter);
@@ -1446,7 +1447,7 @@ describe('DownloadManager', () => {
             });
 
             it('gives up after the last attempt and leaves an error marker', async () => {
-                const queue = new globalThis.DeferredQueue();
+                const queue = new DeferredQueue();
                 const load = vi.fn().mockRejectedValueOnce(new Error('boom')).mockRejectedValueOnce('oops');
                 const block = placeholder(4, Promise.reject(new Error('first')), load);
                 queue.observe({ content: [block] });
@@ -1460,7 +1461,7 @@ describe('DownloadManager', () => {
             });
 
             it('starts another attempt when one hangs too long and accepts whichever finishes first', async () => {
-                const queue = new globalThis.DeferredQueue();
+                const queue = new DeferredQueue();
                 const first = deferred();
                 const second = deferred();
                 const third = deferred();
@@ -1483,7 +1484,7 @@ describe('DownloadManager', () => {
             });
 
             it('ignores results that arrive after the image was already inserted', async () => {
-                const queue = new globalThis.DeferredQueue();
+                const queue = new DeferredQueue();
                 const first = deferred();
                 const second = deferred();
                 const chapter = { content: [placeholder(1, first.promise, vi.fn(() => second.promise))] };
@@ -1497,7 +1498,7 @@ describe('DownloadManager', () => {
             });
 
             it('gives up when every attempt hangs', async () => {
-                const queue = new globalThis.DeferredQueue();
+                const queue = new DeferredQueue();
                 const block = placeholder(1, never(), vi.fn(never));
                 queue.observe({ content: [block] });
                 await vi.waitFor(() => expect(queue.size).toBe(0), { timeout: 2000 });
@@ -1510,7 +1511,7 @@ describe('DownloadManager', () => {
                 globalThis.globalRateLimiter = {
                     getStats: vi.fn().mockReturnValueOnce({ queueSize: 2 }).mockReturnValue({ queueSize: 0 })
                 };
-                const queue = new globalThis.DeferredQueue();
+                const queue = new DeferredQueue();
                 const load = vi.fn(never);
                 queue.observe({ content: [placeholder(1, never(), load)] });
                 await tick(90);
@@ -1521,7 +1522,7 @@ describe('DownloadManager', () => {
             });
 
             it('does not retry a load interrupted by a download stop; cancelAll leaves error markers', async () => {
-                const queue = new globalThis.DeferredQueue();
+                const queue = new DeferredQueue();
                 const aborted = Object.assign(new Error('Download aborted'), { aborted: true });
                 const load = vi.fn();
                 const block = placeholder(1, Promise.reject(aborted), load);
@@ -1541,7 +1542,7 @@ describe('DownloadManager', () => {
             });
 
             it('dispose drops all loads silently', async () => {
-                const queue = new globalThis.DeferredQueue();
+                const queue = new DeferredQueue();
                 const load = vi.fn();
                 const block = placeholder(1, Promise.resolve(null), load);
                 queue.observe({ content: [block] });
@@ -1553,7 +1554,7 @@ describe('DownloadManager', () => {
             });
 
             it('defers a chapter, fills it in place when loaded and tracks its own background images', async () => {
-                const queue = new globalThis.DeferredQueue();
+                const queue = new DeferredQueue();
                 queue.observe({ content: [{ type: 'text', text: 'x'.repeat(500) }] });
                 const run = deferred();
                 const chapter = queue.deferChapter({ volume: '1', number: '2' }, 'Том 1, Глава 2', vi.fn(), run.promise);
@@ -1581,7 +1582,7 @@ describe('DownloadManager', () => {
             });
 
             it('leaves an error chapter when a deferred chapter cannot be loaded', async () => {
-                const queue = new globalThis.DeferredQueue();
+                const queue = new DeferredQueue();
                 const chapter = queue.deferChapter({ volume: '1', number: '3' }, 'Глава 3',
                     vi.fn().mockRejectedValue(new Error('api down')), Promise.reject(new Error('api down')));
                 await vi.waitFor(() => expect(chapter.pendingChapter).toBeUndefined());
@@ -1626,7 +1627,7 @@ describe('DownloadManager', () => {
                     }),
                     processChapterContent: vi.fn(async (c, s, opts) => {
                         if (opts.chapterObj.number !== '1') return [image('N2')];
-                        const slow = await globalThis.loadImageOrDefer(2, async () => {
+                        const slow = await loadImageOrDefer(2, async () => {
                             await nextChapterStarted.promise;
                             events.push('slow image loaded');
                             return [image('S')];
@@ -1717,7 +1718,7 @@ describe('DownloadManager', () => {
                         return { data: { content: [] } };
                     }),
                     processChapterContent: vi.fn(async (c, s, opts) => (opts.chapterObj.volume === '1'
-                        ? globalThis.loadImageOrDefer(1, async () => {
+                        ? loadImageOrDefer(1, async () => {
                             await nextVolumeFetched.promise;
                             return [image('V1')];
                         })
@@ -1820,7 +1821,7 @@ describe('DownloadManager', () => {
                 const dm = new DownloadManager();
                 const service = {
                     ...serviceMock,
-                    processChapterContent: vi.fn(async () => globalThis.loadImageOrDefer(1, later(80, [image('DC')])))
+                    processChapterContent: vi.fn(async () => loadImageOrDefer(1, later(80, [image('DC')])))
                 };
                 const ds = { ...dm._createDownloadState({ slug: 'slug' }, service), controller: dm.createController() };
                 const res = await dm.downloadChapters(service, ds, [createChapter('1', '1')], () => {});

@@ -1,11 +1,9 @@
-import { describe, it, expect, beforeEach } from 'vitest';
+import { describe, it, expect, beforeEach, vi } from 'vitest';
 
 let BaseExporter;
 beforeEach(async () => {
-    const path = require.resolve('../../exporters/BaseExporter.js');
-    delete require.cache[path];
-    await import('../../exporters/BaseExporter.js');
-    BaseExporter = globalThis.BaseExporter;
+    vi.resetModules();
+    ({ BaseExporter } = await import('../../exporters/BaseExporter.js'));
 });
 
 describe('BaseExporter', () => {

@@ -2,13 +2,8 @@ import { describe, it, expect, beforeEach, vi } from 'vitest';
 
 let EPUBExporter;
 beforeEach(async () => {
-    const basePath = require.resolve('../../exporters/BaseExporter.js');
-    delete require.cache[basePath];
-    await import('../../exporters/BaseExporter.js');
-    const path = require.resolve('../../exporters/EPUBExporter.js');
-    delete require.cache[path];
-    await import('../../exporters/EPUBExporter.js');
-    EPUBExporter = globalThis.EPUBExporter;
+    vi.resetModules();
+    ({ EPUBExporter } = await import('../../exporters/EPUBExporter.js'));
 });
 
 describe('EPUBExporter', () => {
@@ -398,15 +393,5 @@ describe('EPUBExporter', () => {
     it('Omits meta age-rating when rating is absent', () => {
         const opf = exporter.createOPF({ name: 'T', authors: ['A'] }, '', '');
         expect(opf).not.toContain('age-rating');
-    });
-
-    it('Registers with ExporterRegistry when it is already defined on load', async () => {
-        vi.resetModules();
-        const register = vi.fn();
-        global.ExporterRegistry = { register };
-        await import('../../exporters/BaseExporter.js');
-        await import('../../exporters/EPUBExporter.js');
-        expect(register).toHaveBeenCalledWith('epub', expect.any(Function), { label: 'EPUB' });
-        delete global.ExporterRegistry;
     });
 });

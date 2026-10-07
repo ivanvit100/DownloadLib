@@ -1,81 +1,49 @@
 /**
  * DownloadLib main module
- * Initializes the application, registers services, and sets up the UI
+ * Composition root of the popup: registers built-in services, exporters
+ * and user plugins, then starts the UI
+ * @module app
  * @license MIT
  * @author ivanvit
- * @version 1.0.7
+ * @version 1.1.0
  */
 
-'use strict';
+import './core/pluginApi.js';
+import './services/index.js';
+import './exporters/index.js';
+import { PluginManager } from './core/PluginManager.js';
+import { PopupController } from './ui/PopupController.js';
 
-(function() {
-    console.log('[App] Initializing...');
+console.log('[App] Initializing...');
 
-    const extensionApi = typeof getExtensionApi === 'function'
-        ? getExtensionApi()
-        : ((typeof browser !== 'undefined' && browser) || (typeof chrome !== 'undefined' && chrome) || null);
+/**
+ * Создаёт главный контроллер попапа и показывает ошибку в UI, если его
+ * конструктор выбросил исключение.
+ * @returns {void}
+ */
+function initUI() {
+    console.log('[App] Initializing UI...');
 
-    if (!extensionApi)
-        console.warn('[App] Extension API is not available in this context');
-
-    const dependencies = [
-        'EventBus',
-        'RateLimiter',
-        'Storage',
-        'DownloadHistory',
-        'ServiceRegistry',
-        'DownloadManager',
-        'MangaPatcher',
-        'ExporterRegistry',
-        'AuthManager',
-        'TemplateLoader',
-        'HistoryController',
-        'ChapterController',
-        'PopupController'
-    ];
-
-    const missing = dependencies.filter(dep => typeof window[dep] === 'undefined');
-
-    if (missing.length > 0) {
-        console.error('[App] Missing dependencies:', missing);
-        document.body.innerHTML = `<div style="padding: 20px; color: red;">Ошибка загрузки модулей: ${missing.join(', ')}</div>`;
-        return;
+    try {
+        new PopupController();
+    } catch (e) {
+        console.error('[App] Failed to initialize PopupController:', e);
+        document.getElementById('error').textContent = `Ошибка инициализации: ${e.message}`;
+        document.getElementById('error').classList.remove('hidden');
     }
+}
 
-    console.log('[App] All dependencies loaded');
+/**
+ * Точка входа приложения: догружает пользовательские плагины, затем
+ * инициализирует UI попапа.
+ * @returns {Promise<void>}
+ */
+async function initApp() {
+    await PluginManager.loadAll();
+    initUI();
+}
 
-    /**
-     * Создаёт главный контроллер попапа и показывает ошибку в UI, если его
-     * конструктор выбросил исключение.
-     * @returns {void}
-     */
-    function initUI() {
-        console.log('[App] Initializing UI...');
-
-        try {
-            window.popupController = new window.PopupController();
-        } catch (e) {
-            console.error('[App] Failed to initialize PopupController:', e);
-            document.getElementById('error').textContent = `Ошибка инициализации: ${e.message}`;
-            document.getElementById('error').classList.remove('hidden');
-        }
-    }
-
-    /**
-     * Точка входа приложения: догружает пользовательские плагины (если доступен
-     * PluginManager), затем инициализирует UI попапа.
-     * @returns {Promise<void>}
-     */
-    async function initApp() {
-        if (window.PluginManager)
-            await window.PluginManager.loadAll();
-        else
-            console.warn('[App] PluginManager not available, skipping plugins');
-        initUI();
-    }
-
-    if (document.readyState === 'loading')
-        document.addEventListener('DOMContentLoaded', () => initApp());
-    else
-        setTimeout(() => initApp(), 100);
-})();
+if (document.readyState === 'loading')
+    document.addEventListener('DOMContentLoaded', () => initApp());
+else
+    initApp();

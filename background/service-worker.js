@@ -1,21 +1,4 @@
-'use strict';
-
-console.log('[ServiceWorker] Loading scripts...');
-
-try {
-    importScripts('/core/BrowserApi.js',
-        '/core/RateLimiter.js',
-        '/core/EventBus.js',
-        '/services/ServiceRegistry.js',
-        '/lib/jszip.min.js',
-        '/exporters/ExporterRegistry.js',
-        '/core/MangaPatcher.js',
-        '/background/RequestInterceptor.js',
-        '/background/MessageRouter.js');
-} catch (e) {
-    console.error('[ServiceWorker] Failed to load scripts:', e.message, e.stack);
-    throw e;
-}
+import './main.js';
 
 /**
  * Обработчик события 'install': пропускает ожидание и активирует новую версию

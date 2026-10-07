@@ -1,5 +1,8 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 
+vi.mock('../../core/RateLimiter.js', async () => (await import('../helpers/globalBridge.js')).globalBridge('globalRateLimiter'));
+
+let RequestInterceptor;
 let mockTrackRequest;
 let mockSetLimit;
 let mockGetStats;
@@ -13,9 +16,6 @@ let isFirefoxMode;
 let isChromeMode;
 
 function setupGlobals(mode) {
-    delete globalThis.getExtensionApi;
-    delete globalThis.detectServiceByUrl;
-
     isFirefoxMode = mode === 'firefox';
     isChromeMode = mode === 'chrome';
 
@@ -29,7 +29,6 @@ function setupGlobals(mode) {
         setLimit: mockSetLimit,
         getStats: mockGetStats,
     };
-    globalThis.RateLimiter = vi.fn(() => globalThis.globalRateLimiter);
 
     globalThis.mangalibConfig = {
         headers: { 'Accept': 'text/html', 'X-Custom': 'mangalib' },
@@ -38,8 +37,6 @@ function setupGlobals(mode) {
     globalThis.ranolibConfig = {
         headers: { 'Accept': 'text/html', 'X-Custom': 'ranobelib' },
     };
-
-    globalThis.authTokenStore = {};
 
     capturedBeforeSendHeadersCb = null;
     capturedOnBeforeRequestCb = null;
@@ -78,15 +75,12 @@ function setupGlobals(mode) {
 
 async function loadModule() {
     vi.resetModules();
-    globalThis.authTokenStore = {};
-    await import('../../background/RequestInterceptor.js');
+    RequestInterceptor = await import('../../background/RequestInterceptor.js');
 }
 
 describe('RequestInterceptor', () => {
     afterEach(() => {
         vi.restoreAllMocks();
-        delete globalThis.detectServiceByUrl;
-        delete globalThis.authTokenStore;
     });
 
     describe('Firefox mode', () => {
@@ -723,16 +717,29 @@ describe('RequestInterceptor', () => {
             await loadModule();
         });
 
-        it('Exposes detectServiceByUrl globally', () => {
-            expect(typeof globalThis.detectServiceByUrl).toBe('function');
-            expect(globalThis.detectServiceByUrl('https://ranobelib.me/book/slug')).toBe('ranobelib');
-            expect(globalThis.detectServiceByUrl('https://mangalib.me/manga/slug')).toBe('mangalib');
-            expect(globalThis.detectServiceByUrl('https://example.com')).toBeNull();
+        it('Exports detectServiceByUrl', () => {
+            const { detectServiceByUrl } = RequestInterceptor;
+            expect(detectServiceByUrl('https://ranobelib.me/book/slug')).toBe('ranobelib');
+            expect(detectServiceByUrl('https://mangalib.me/manga/slug')).toBe('mangalib');
+            expect(detectServiceByUrl('https://example.com')).toBeNull();
+            expect(globalThis.detectServiceByUrl).toBeUndefined();
         });
 
         it('detectServiceByUrl returns mangalib for cdnlibs.org URL', () => {
-            expect(globalThis.detectServiceByUrl('https://img3.cdnlibs.org/image.jpg')).toBe('mangalib');
-            expect(globalThis.detectServiceByUrl('https://cover.cdnlibs.org/cover.jpg')).toBe('mangalib');
+            const { detectServiceByUrl } = RequestInterceptor;
+            expect(detectServiceByUrl('https://img3.cdnlibs.org/image.jpg')).toBe('mangalib');
+            expect(detectServiceByUrl('https://cover.cdnlibs.org/cover.jpg')).toBe('mangalib');
+        });
+
+        it('Stores a captured token in the exported authTokens', async () => {
+            await capturedBeforeSendHeadersCb({
+                tabId: 5,
+                url: 'https://api.cdnlibs.org/api/manga/slug',
+                originUrl: 'https://ranobelib.me/ru/book/slug',
+                requestHeaders: [{ name: 'Authorization', value: 'Bearer tok123' }]
+            });
+            expect(RequestInterceptor.authTokens.ranobelib).toBe('tok123');
+            expect(globalThis.authTokenStore).toBeUndefined();
         });
 
         it('onBeforeSendHeaders handles image request with undefined requestHeaders', async () => {
@@ -752,24 +759,6 @@ describe('RequestInterceptor', () => {
     });
 
     describe('Global initialization', () => {
-        it('Uses globalRateLimiter when available', async () => {
-            setupGlobals('firefox');
-            await loadModule();
-            expect(globalThis.RateLimiter).not.toHaveBeenCalled();
-        });
-
-        it('Creates new RateLimiter when globalRateLimiter is missing', async () => {
-            setupGlobals('firefox');
-            globalThis.globalRateLimiter = null;
-            globalThis.RateLimiter = vi.fn(function () {
-                this.trackRequest = mockTrackRequest;
-                this.setLimit = mockSetLimit;
-                this.getStats = mockGetStats;
-            });
-            await loadModule();
-            expect(globalThis.RateLimiter).toHaveBeenCalledWith({ maxRequestsPerMinute: 80 });
-        });
-
         it('Skips mangalib config when not defined', async () => {
             setupGlobals('firefox');
             delete globalThis.mangalibConfig;
@@ -784,48 +773,10 @@ describe('RequestInterceptor', () => {
             expect(mockAddListenerBeforeSendHeaders).toHaveBeenCalled();
         });
 
-        it('Initializes authTokenStore when not present', async () => {
+        it('Starts with an empty token store on each load', async () => {
             setupGlobals('firefox');
-            delete globalThis.authTokenStore;
             await loadModule();
-            expect(globalThis.authTokenStore).toBeDefined();
-        });
-
-        it('Module itself creates authTokenStore when not pre-set before import', async () => {
-            setupGlobals('firefox');
-            vi.resetModules();
-            delete globalThis.authTokenStore;
-            await import('../../background/RequestInterceptor.js');
-            expect(globalThis.authTokenStore).toBeDefined();
-        });
-    });
-
-    describe('With getExtensionApi and getBrowserEnv defined', () => {
-        beforeEach(async () => {
-            setupGlobals('chrome');
-            const apiObj = {
-                webRequest: {
-                    onBeforeSendHeaders: { addListener: vi.fn() },
-                    onBeforeRequest: { addListener: vi.fn() }
-                },
-                runtime: { id: 'ext-id' },
-                declarativeNetRequest: {}
-            };
-            globalThis.getExtensionApi = vi.fn(() => apiObj);
-            globalThis.getBrowserEnv = vi.fn(() => ({
-                isFirefox: false,
-                isChromium: true,
-                supportsDnr: false
-            }));
-            await loadModule();
-        });
-
-        it('Calls getExtensionApi when defined as a function', () => {
-            expect(globalThis.getExtensionApi).toHaveBeenCalled();
-        });
-
-        it('Calls getBrowserEnv when defined as a function', () => {
-            expect(globalThis.getBrowserEnv).toHaveBeenCalled();
+            expect(RequestInterceptor.authTokens).toEqual({});
         });
     });
 });

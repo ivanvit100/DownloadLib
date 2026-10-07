@@ -4,7 +4,7 @@
  * @module content/DownloadButton
  * @license MIT
  * @author ivanvit
- * @version 1.0.7
+ * @version 1.1.0
  */
 
 'use strict';
@@ -13,7 +13,7 @@
     const DOWNLOAD_BTN_CLASS = 'dl-ext-download-btn';
     const READ_BTN_SELECTOR = 'a.btn';
     const FORMAT_STORAGE_KEY = 'manga_parser_selected_format';
-    const _dlApi = (typeof browser !== 'undefined' && browser) || (typeof chrome !== 'undefined' && chrome) || null;
+    const _dlApi = globalThis.browser ?? globalThis.chrome ?? null;
 
     /**
      * Находит на странице все кнопки чтения и добавляет рядом с каждой ещё не

@@ -10,13 +10,8 @@ const blobToText = (blob) => new Promise((resolve, reject) => {
 let SimpleExporter;
 
 beforeEach(async () => {
-    const basePath = require.resolve('../../exporters/BaseExporter.js');
-    delete require.cache[basePath];
-    await import('../../exporters/BaseExporter.js');
-    const path = require.resolve('../../exporters/SimpleExporter.js');
-    delete require.cache[path];
-    await import('../../exporters/SimpleExporter.js');
-    SimpleExporter = globalThis.SimpleExporter;
+    vi.resetModules();
+    ({ SimpleExporter } = await import('../../exporters/SimpleExporter.js'));
 });
 
 describe('SimpleExporter', () => {
@@ -437,15 +432,5 @@ describe('SimpleExporter', () => {
             const text = await blobToText(result.blob);
             expect(text).not.toContain('Жанры:');
         });
-    });
-
-    it('Registers with ExporterRegistry when it is already defined on load', async () => {
-        vi.resetModules();
-        const register = vi.fn();
-        global.ExporterRegistry = { register };
-        await import('../../exporters/BaseExporter.js');
-        await import('../../exporters/SimpleExporter.js');
-        expect(register).toHaveBeenCalledWith('simple', expect.any(Function), { label: 'TXT/JPEG' });
-        delete global.ExporterRegistry;
     });
 });

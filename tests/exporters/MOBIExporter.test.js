@@ -1,4 +1,4 @@
-import { describe, it, expect, beforeEach } from 'vitest';
+import { describe, it, expect, beforeEach, vi } from 'vitest';
 
 let MOBIExporter;
 
@@ -18,13 +18,8 @@ const decodeBlobToText = async (blob) => {
 };
 
 beforeEach(async () => {
-    const basePath = require.resolve('../../exporters/BaseExporter.js');
-    delete require.cache[basePath];
-    await import('../../exporters/BaseExporter.js');
-    const path = require.resolve('../../exporters/MOBIExporter.js');
-    delete require.cache[path];
-    await import('../../exporters/MOBIExporter.js');
-    MOBIExporter = globalThis.MOBIExporter;
+    vi.resetModules();
+    ({ MOBIExporter } = await import('../../exporters/MOBIExporter.js'));
 
     if (!globalThis.atob) {
         globalThis.atob = (b64) => Buffer.from(b64, 'base64').toString('binary');
@@ -287,15 +282,5 @@ describe('MOBIExporter', () => {
         } finally {
             Array.prototype.map = origMap;
         }
-    });
-
-    it('Registers with ExporterRegistry when it is already defined on load', async () => {
-        vi.resetModules();
-        const register = vi.fn();
-        global.ExporterRegistry = { register };
-        await import('../../exporters/BaseExporter.js');
-        await import('../../exporters/MOBIExporter.js');
-        expect(register).toHaveBeenCalledWith('mobi', expect.any(Function), { label: 'MOBI' });
-        delete global.ExporterRegistry;
     });
 });

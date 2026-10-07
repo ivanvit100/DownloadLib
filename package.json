@@ -12,7 +12,7 @@
   },
   "license": "MIT",
   "author": "ivanvit",
-  "type": "commonjs",
+  "type": "module",
   "main": "app.js",
   "directories": {
     "lib": "lib",

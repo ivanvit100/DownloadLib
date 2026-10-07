@@ -1,41 +1,12 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 
 let RateLimiter;
-
-describe('RateLimiter global instance log', () => {
-    it('Logs when using existing global RateLimiter instance', async () => {
-        const path = require.resolve('../../core/RateLimiter.js');
-        delete require.cache[path];
-
-        global.RateLimiter = undefined;
-        global.globalRateLimiter = { test: true };
-
-        const logSpy = vi.spyOn(console, 'log').mockImplementation(() => {});
-
-        await import('../../core/RateLimiter.js');
-
-        expect(
-            logSpy.mock.calls.some(
-                call => String(call[0]).includes('[RateLimiter] Using existing global RateLimiter instance')
-            )
-        ).toBe(true);
-
-        logSpy.mockRestore();
-
-        delete global.globalRateLimiter;
-    });
-});
+let globalRateLimiter;
 
 describe('RateLimiter', () => {
     beforeEach(async () => {
-        const path = require.resolve('../../core/RateLimiter.js');
-        delete require.cache[path];
-        delete global.globalRateLimiter;
-        await import('../../core/RateLimiter.js');
-        RateLimiter = global.RateLimiter;
-        if (!global.globalRateLimiter) {
-            global.globalRateLimiter = new RateLimiter({ maxRequestsPerMinute: 99 });
-        }
+        vi.resetModules();
+        ({ RateLimiter, globalRateLimiter } = await import('../../core/RateLimiter.js'));
     });
 
     it('Initializes with default limit', () => {
@@ -176,7 +147,8 @@ describe('RateLimiter', () => {
     });
 
     it('globalRateLimiter is defined and is instance of RateLimiter', () => {
-        expect(global.globalRateLimiter).toBeInstanceOf(RateLimiter);
+        expect(globalRateLimiter).toBeInstanceOf(RateLimiter);
+        expect(globalRateLimiter.getStats().maxRequestsPerMinute).toBe(85);
     });
 
     it('Blocks requests and unblocks after duration when throttle is called', async () => {

@@ -1,5 +1,9 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 
+vi.mock('../../core/RateLimiter.js', async () => (await import('../helpers/globalBridge.js')).globalBridge('globalRateLimiter'));
+vi.mock('../../background/RequestInterceptor.js', async () => (await import('../helpers/globalBridge.js'))
+    .globalBridge({ authTokens: 'authTokenStore', detectServiceByUrl: 'detectServiceByUrl' }));
+
 let mockTrackRequest;
 let mockSetLimit;
 let mockGetStats;
@@ -11,8 +15,6 @@ let capturedConnectCb;
 let isFirefoxMode;
 
 function setupGlobals(mode) {
-    delete globalThis.getExtensionApi;
-
     isFirefoxMode = mode === 'firefox';
 
     mockTrackRequest = vi.fn().mockResolvedValue();
@@ -26,7 +28,6 @@ function setupGlobals(mode) {
         getStats: mockGetStats,
         throttle: mockThrottle,
     };
-    globalThis.RateLimiter = vi.fn(() => globalThis.globalRateLimiter);
 
     globalThis.authTokenStore = {};
 
@@ -78,6 +79,25 @@ async function loadModule() {
     vi.resetModules();
     globalThis.authTokenStore = {};
     await import('../../background/MessageRouter.js');
+}
+
+async function loadWithPlugins(plugins) {
+    setupGlobals('firefox');
+    const storageGet = vi.fn().mockResolvedValue({ custom_plugins: plugins });
+    globalThis.browser.storage = { local: { get: storageGet } };
+    await loadModule();
+    await vi.waitFor(() => expect(storageGet).toHaveBeenCalled());
+    await new Promise(resolve => setTimeout(resolve, 0));
+}
+
+async function detectedServiceFor(url) {
+    const create = vi.fn().mockResolvedValue({ id: 1 });
+    globalThis.browser.windows = { create, update: vi.fn() };
+    const sendResponse = vi.fn();
+    capturedMessageCb({ action: 'openDownloadWindow' }, { tab: { url } }, sendResponse);
+    await vi.waitFor(() => expect(sendResponse).toHaveBeenCalled());
+    const popupUrl = create.mock.calls[0]?.[0]?.url;
+    return popupUrl ? new URLSearchParams(popupUrl.split('?')[1]).get('service') : null;
 }
 
 describe('MessageRouter', () => {
@@ -775,84 +795,18 @@ describe('MessageRouter', () => {
     });
 
     describe('Global initialization', () => {
-        it('Uses globalRateLimiter when available', async () => {
+        it('Shares the auth token store with RequestInterceptor', async () => {
             setupGlobals('firefox');
             await loadModule();
-            expect(globalThis.RateLimiter).not.toHaveBeenCalled();
-        });
-
-        it('Creates new RateLimiter when globalRateLimiter is missing', async () => {
-            setupGlobals('firefox');
-            globalThis.globalRateLimiter = null;
-            globalThis.RateLimiter = vi.fn(function () {
-                this.trackRequest = mockTrackRequest;
-                this.setLimit = mockSetLimit;
-                this.getStats = mockGetStats;
-            });
-            await loadModule();
-            expect(globalThis.RateLimiter).toHaveBeenCalledWith({ maxRequestsPerMinute: 80 });
-        });
-
-        it('Initializes authTokenStore when not present', async () => {
-            setupGlobals('firefox');
-            delete globalThis.authTokenStore;
-            await loadModule();
-            expect(globalThis.authTokenStore).toBeDefined();
-        });
-
-        it('Module itself creates authTokenStore when not pre-set before import', async () => {
-            setupGlobals('firefox');
-            vi.resetModules();
-            delete globalThis.authTokenStore;
-            await import('../../background/MessageRouter.js');
-            expect(globalThis.authTokenStore).toBeDefined();
-        });
-
-        it('Falls back gracefully when detectServiceByUrl is not set', async () => {
-            setupGlobals('firefox');
-            delete globalThis.detectServiceByUrl;
-
-            globalThis.browser.tabs = {
-                query: vi.fn().mockResolvedValue([{ id: 1 }]),
-                sendMessage: vi.fn().mockResolvedValue({ ok: true, base64: 'X', contentType: 'image/jpeg' }),
-            };
-
-            await loadModule();
-
-            const sendResponse = vi.fn();
-            capturedMessageCb({ action: 'fetchImage', url: 'https://img.mixlib.me/a.jpg' }, {}, sendResponse);
-            await vi.waitFor(() => expect(sendResponse).toHaveBeenCalled());
-            expect(sendResponse).toHaveBeenCalledWith(expect.objectContaining({ ok: true }));
-        });
-    });
-
-    describe('With getExtensionApi defined', () => {
-        it('Calls getExtensionApi when defined as a function', async () => {
-            setupGlobals('chrome');
-            const apiObj = {
-                webRequest: { onBeforeSendHeaders: { addListener: vi.fn() }, onBeforeRequest: { addListener: vi.fn() } },
-                runtime: { onMessage: { addListener: vi.fn() }, id: 'ext-id', getURL: vi.fn(p => p) },
-                declarativeNetRequest: {}
-            };
-            globalThis.getExtensionApi = vi.fn(() => apiObj);
-            globalThis.getBrowserEnv = vi.fn(() => ({
-                isFirefox: false,
-                isChromium: true,
-                supportsDnr: false
-            }));
-            await loadModule();
-            expect(globalThis.getExtensionApi).toHaveBeenCalled();
+            capturedMessageCb({ action: 'cacheAuthToken', serviceKey: 'mangalib', token: 'abc' }, {}, vi.fn());
+            expect(globalThis.authTokenStore.mangalib).toBe('abc');
+            expect(globalThis.pluginServiceHosts).toBeUndefined();
         });
     });
 
     describe('fetchImage plugin service paths', () => {
-        beforeEach(async () => {
-            setupGlobals('firefox');
-            await loadModule();
-        });
-
         it('Uses pluginServiceHosts patterns when serviceKey is a plugin', async () => {
-            globalThis.pluginServiceHosts = { myplugin: ['myplugin.com'] };
+            await loadWithPlugins([{ service: 'myplugin', hosts: ['myplugin.com'] }]);
             globalThis.browser.tabs = {
                 query: vi.fn().mockResolvedValue([{ id: 3 }]),
                 sendMessage: vi.fn().mockResolvedValue({ ok: true, base64: 'ZZ', contentType: 'image/webp' }),
@@ -865,11 +819,10 @@ describe('MessageRouter', () => {
             await vi.waitFor(() => expect(sendResponse).toHaveBeenCalled());
             expect(sendResponse).toHaveBeenCalledWith({ ok: true, base64: 'ZZ', contentType: 'image/webp' });
             expect(globalThis.browser.tabs.query).toHaveBeenCalledWith({ url: ['*://myplugin.com/*'] });
-            delete globalThis.pluginServiceHosts;
         });
 
         it('Responds with error when pluginServiceHosts has no hosts for service', async () => {
-            globalThis.pluginServiceHosts = {};
+            await loadWithPlugins([]);
             globalThis.browser.tabs = { query: vi.fn(), sendMessage: vi.fn() };
             const sendResponse = vi.fn();
             capturedMessageCb(
@@ -878,18 +831,15 @@ describe('MessageRouter', () => {
             );
             await vi.waitFor(() => expect(sendResponse).toHaveBeenCalled());
             expect(sendResponse).toHaveBeenCalledWith({ ok: false, error: 'No tab patterns for service: myplugin' });
-            delete globalThis.pluginServiceHosts;
         });
     });
 
     describe('openDownloadWindow plugin paths', () => {
         beforeEach(async () => {
-            setupGlobals('firefox');
-            await loadModule();
+            await loadWithPlugins([{ service: 'myplugin', hosts: ['myplugin.com'] }]);
         });
 
         it('Detects service via pluginServiceHosts when detectServiceByUrl returns null', async () => {
-            globalThis.pluginServiceHosts = { myplugin: ['myplugin.com'] };
             const mockCreate = vi.fn().mockResolvedValue({ id: 1 });
             globalThis.browser.windows = { create: mockCreate, update: vi.fn() };
             const sendResponse = vi.fn();
@@ -903,11 +853,9 @@ describe('MessageRouter', () => {
             const urlArg = mockCreate.mock.calls[0][0].url;
             expect(urlArg).toContain('service=myplugin');
             expect(urlArg).toContain('slug=my-slug');
-            delete globalThis.pluginServiceHosts;
         });
 
         it('Detects service via pluginServiceHosts using subdomain match', async () => {
-            globalThis.pluginServiceHosts = { myplugin: ['myplugin.com'] };
             const mockCreate = vi.fn().mockResolvedValue({ id: 1 });
             globalThis.browser.windows = { create: mockCreate, update: vi.fn() };
             const sendResponse = vi.fn();
@@ -918,11 +866,9 @@ describe('MessageRouter', () => {
             );
             await vi.waitFor(() => expect(sendResponse).toHaveBeenCalled());
             expect(sendResponse).toHaveBeenCalledWith({ ok: true });
-            delete globalThis.pluginServiceHosts;
         });
 
         it('Fails when hostname matches no pluginServiceHosts entry', async () => {
-            globalThis.pluginServiceHosts = { myplugin: ['myplugin.com'] };
             const sendResponse = vi.fn();
             capturedMessageCb(
                 { action: 'openDownloadWindow', format: 'epub' },
@@ -931,11 +877,10 @@ describe('MessageRouter', () => {
             );
             await vi.waitFor(() => expect(sendResponse).toHaveBeenCalled());
             expect(sendResponse).toHaveBeenCalledWith({ ok: false, error: 'Cannot detect slug or service' });
-            delete globalThis.pluginServiceHosts;
         });
 
-        it('Falls back to empty object when pluginServiceHosts is not defined', async () => {
-            delete globalThis.pluginServiceHosts;
+        it('Fails for a non-service host when no plugins are installed', async () => {
+            await loadWithPlugins([]);
             const sendResponse = vi.fn();
             capturedMessageCb(
                 { action: 'openDownloadWindow', format: 'epub' },
@@ -1266,8 +1211,8 @@ describe('MessageRouter', () => {
             };
             await loadModule();
             await vi.waitFor(() => expect(storageGet).toHaveBeenCalled());
-            expect(globalThis.pluginServiceHosts).toEqual({ myplugin: ['myplugin.com'] });
-            delete globalThis.pluginServiceHosts;
+            await new Promise(resolve => setTimeout(resolve, 0));
+            expect(await detectedServiceFor('https://myplugin.com/manga/slug')).toBe('myplugin');
         });
 
         it('Uses empty array when custom_plugins key is absent from storage', async () => {
@@ -1297,7 +1242,7 @@ describe('MessageRouter', () => {
                 js: ['/content/AdCleaner.js', '/content/DownloadButton.js', '/content/ImageFetcher.js'],
                 runAt: 'document_idle',
             }]));
-            expect(globalThis.pluginServiceHosts).toEqual({ myplugin: ['myplugin.com'] });
+            expect(await detectedServiceFor('https://myplugin.com/manga/slug')).toBe('myplugin');
         });
 
         it('Uses format as key when service is absent', async () => {

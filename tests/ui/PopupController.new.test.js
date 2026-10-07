@@ -1,5 +1,20 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 
+vi.mock('../../core/AuthManager.js', async () => (await import('../helpers/globalBridge.js')).globalBridge('AuthManager'));
+vi.mock('../../core/BrowserApi.js', async () => (await import('../helpers/globalBridge.js'))
+    .globalBridge('extensionApi', 'browserEnv', 'fetchViaTab', 'setServiceTab'));
+vi.mock('../../core/DownloadHistory.js', async () => (await import('../helpers/globalBridge.js')).globalBridge('DownloadHistory'));
+vi.mock('../../core/DownloadManager.js', async () => (await import('../helpers/globalBridge.js')).globalBridge('DownloadManager'));
+vi.mock('../../core/PluginManager.js', async () => (await import('../helpers/globalBridge.js')).globalBridge('PluginManager'));
+vi.mock('../../exporters/ExporterRegistry.js', async () => (await import('../helpers/globalBridge.js')).globalBridge('ExporterRegistry'));
+vi.mock('../../services/mangalib/MangaLibService.js', async () => (await import('../helpers/globalBridge.js')).globalBridge('MangaLibService'));
+vi.mock('../../services/ranobelib/RanobeLibService.js', async () => (await import('../helpers/globalBridge.js')).globalBridge('RanobeLibService'));
+vi.mock('../../services/ServiceRegistry.js', async () => (await import('../helpers/globalBridge.js')).globalBridge('serviceRegistry'));
+vi.mock('../../ui/ChapterController.js', async () => (await import('../helpers/globalBridge.js')).globalBridge('ChapterController'));
+vi.mock('../../ui/HistoryController.js', async () => (await import('../helpers/globalBridge.js')).globalBridge('HistoryController'));
+vi.mock('../../ui/SettingsController.js', async () => (await import('../helpers/globalBridge.js')).globalBridge('SettingsController'));
+vi.mock('../../ui/TemplateLoader.js', async () => (await import('../helpers/globalBridge.js')).globalBridge('TemplateLoader'));
+
 let PopupController;
 let RealChapterController;
 let intervals = [];
@@ -54,7 +69,6 @@ function setupDOM() {
 
 beforeEach(async () => {
     vi.resetModules();
-    delete global.getExtensionApi;
 
     intervals = [];
     if (!originalSetInterval) {
@@ -98,7 +112,7 @@ beforeEach(async () => {
         })),
         getService: vi.fn(() => null),
     };
-    global.browser = {
+    global.extensionApi = {
         runtime: {
             sendMessage: vi.fn(async () => ({ ok: true, downloads: [{ slug: 'slug', status: 'active', progress: 50 }] })),
             getURL: vi.fn(() => 'popup.html')
@@ -125,8 +139,7 @@ beforeEach(async () => {
 
     global.DownloadHistory = { add: vi.fn(), getAll: vi.fn(() => []), clear: vi.fn() };
     global.AuthManager = { getToken: vi.fn(async () => null), apply: vi.fn(async () => null) };
-    await import('../../ui/ChapterController.js');
-    RealChapterController = global.ChapterController;
+    ({ ChapterController: RealChapterController } = await vi.importActual('../../ui/ChapterController.js'));
     global.ChapterController = class extends RealChapterController {
         constructor() {
             super();
@@ -139,10 +152,11 @@ beforeEach(async () => {
         current: vi.fn(() => null)
     };
     global.HistoryController = { init: vi.fn() };
+    global.browserEnv = { isFirefox: true };
+    global.PluginManager = { loadAll: vi.fn(async () => {}) };
+    global.SettingsController = { init: vi.fn() };
 
-    await import('../../core/MangaPatcher.js');
-    await import('../../ui/PopupController.js');
-    PopupController = global.PopupController;
+    ({ PopupController } = await import('../../ui/PopupController.js'));
 });
 
 afterEach(() => {
@@ -179,7 +193,7 @@ describe('PopupController second test file', () => {
         const controller = new PopupController();
         controller.currentSlug = 'slug';
         controller.currentServiceKey = 'ranobelib';
-        const sendMessageSpy = vi.spyOn(global.browser.runtime, 'sendMessage');
+        const sendMessageSpy = vi.spyOn(global.extensionApi.runtime, 'sendMessage');
 
         await controller.startDownload();
 
@@ -193,7 +207,7 @@ describe('PopupController second test file', () => {
         const controller = new PopupController();
         controller.currentSlug = 'slug';
         controller.currentServiceKey = 'ranobelib';
-        const sendMessageSpy = vi.spyOn(global.browser.runtime, 'sendMessage');
+        const sendMessageSpy = vi.spyOn(global.extensionApi.runtime, 'sendMessage');
 
         await controller.startDownload();
 
@@ -214,7 +228,7 @@ describe('PopupController second test file', () => {
             stop = vi.fn();
             getDownloadState = vi.fn(() => null);
         };
-        global.browser.runtime.sendMessage = vi.fn(async () => ({ ok: true, downloads: [] }));
+        global.extensionApi.runtime.sendMessage = vi.fn(async () => ({ ok: true, downloads: [] }));
 
         const warnSpy = vi.spyOn(console, 'warn');
 
@@ -229,7 +243,7 @@ describe('PopupController second test file', () => {
         await controller.startDownload();
 
         expect(warnSpy).not.toHaveBeenCalled();
-        expect(global.browser.runtime.sendMessage).toHaveBeenCalledWith(
+        expect(global.extensionApi.runtime.sendMessage).toHaveBeenCalledWith(
             expect.objectContaining({ action: 'setRateLimit', limit: 85 })
         );
     });
@@ -544,20 +558,20 @@ describe('PopupController second test file', () => {
 
     it('openInNewContext uses tabs.create when windows API is unavailable and tab is returned', async () => {
         const controller = new PopupController();
-        delete global.browser.windows;
-        global.browser.tabs = { create: vi.fn(async () => ({ id: 5, active: true })) };
+        delete global.extensionApi.windows;
+        global.extensionApi.tabs = { create: vi.fn(async () => ({ id: 5, active: true })) };
 
         const warnSpy = vi.spyOn(console, 'warn');
         await controller.openInNewContext('popup.html?test=1');
 
-        expect(global.browser.tabs.create).toHaveBeenCalledWith({ url: 'popup.html?test=1', active: true });
+        expect(global.extensionApi.tabs.create).toHaveBeenCalledWith({ url: 'popup.html?test=1', active: true });
         expect(warnSpy).not.toHaveBeenCalledWith('Tab created but no ID found:', expect.anything());
     });
 
     it('openInNewContext warns when tabs.create returns null', async () => {
         const controller = new PopupController();
-        delete global.browser.windows;
-        global.browser.tabs = { create: vi.fn(async () => null) };
+        delete global.extensionApi.windows;
+        global.extensionApi.tabs = { create: vi.fn(async () => null) };
 
         const warnSpy = vi.spyOn(console, 'warn');
         await controller.openInNewContext('popup.html?test=1');
@@ -567,8 +581,8 @@ describe('PopupController second test file', () => {
 
     it('openInNewContext logs error when neither windows nor tabs API is available', async () => {
         const controller = new PopupController();
-        delete global.browser.windows;
-        delete global.browser.tabs;
+        delete global.extensionApi.windows;
+        delete global.extensionApi.tabs;
 
         const errorSpy = vi.spyOn(console, 'error');
         await controller.openInNewContext('popup.html?test=1');
@@ -576,27 +590,23 @@ describe('PopupController second test file', () => {
         expect(errorSpy).toHaveBeenCalledWith('No window/tab API available');
     });
 
-    it('openInNewContext uses getBrowserEnv().isFirefox when getBrowserEnv is defined (Firefox)', async () => {
+    it('openInNewContext opens a popup window when browserEnv.isFirefox is true', async () => {
         const controller = new PopupController();
-        global.getBrowserEnv = vi.fn(() => ({ isFirefox: true }));
+        global.browserEnv = { isFirefox: true };
 
         await controller.openInNewContext('popup.html?test=1');
 
-        expect(global.getBrowserEnv).toHaveBeenCalled();
-        expect(global.browser.windows.create).toHaveBeenCalledWith(expect.objectContaining({ url: 'popup.html?test=1' }));
-        delete global.getBrowserEnv;
+        expect(global.extensionApi.windows.create).toHaveBeenCalledWith(expect.objectContaining({ url: 'popup.html?test=1' }));
     });
 
-    it('openInNewContext uses getBrowserEnv().isFirefox when getBrowserEnv is defined (Chrome)', async () => {
+    it('openInNewContext asks the background when browserEnv.isFirefox is false', async () => {
         const controller = new PopupController();
-        global.getBrowserEnv = vi.fn(() => ({ isFirefox: false }));
+        global.browserEnv = { isFirefox: false };
 
         await controller.openInNewContext('popup.html?test=1');
 
-        expect(global.getBrowserEnv).toHaveBeenCalled();
-        expect(global.browser.runtime.sendMessage).toHaveBeenCalledWith({ action: 'openWindowWithUrl', url: 'popup.html?test=1' });
-        expect(global.browser.windows.create).not.toHaveBeenCalled();
-        delete global.getBrowserEnv;
+        expect(global.extensionApi.runtime.sendMessage).toHaveBeenCalledWith({ action: 'openWindowWithUrl', url: 'popup.html?test=1' });
+        expect(global.extensionApi.windows.create).not.toHaveBeenCalled();
     });
 
     it('_setupTranslatorSelector returns null when translatorContainer is missing from DOM', () => {
@@ -744,7 +754,7 @@ describe('PopupController second test file', () => {
         ts.appendChild(opt);
         ts.value = '42';
 
-        const windowsCreateSpy = vi.spyOn(global.browser.windows, 'create').mockResolvedValue({ id: 123 });
+        const windowsCreateSpy = vi.spyOn(global.extensionApi.windows, 'create').mockResolvedValue({ id: 123 });
 
         document.getElementById('downloadBtn').click();
 

@@ -2,13 +2,8 @@ import { describe, it, expect, beforeEach, vi } from 'vitest';
 
 let FB2Exporter;
 beforeEach(async () => {
-    const basePath = require.resolve('../../exporters/BaseExporter.js');
-    delete require.cache[basePath];
-    await import('../../exporters/BaseExporter.js');
-    const path = require.resolve('../../exporters/FB2Exporter.js');
-    delete require.cache[path];
-    await import('../../exporters/FB2Exporter.js');
-    FB2Exporter = globalThis.FB2Exporter;
+    vi.resetModules();
+    ({ FB2Exporter } = await import('../../exporters/FB2Exporter.js'));
 });
 
 describe('FB2Exporter', () => {
@@ -275,13 +270,4 @@ describe('FB2Exporter', () => {
         expect(result).toContain('</stanza></poem>');
     });
 
-    it('Registers with ExporterRegistry when it is already defined on load', async () => {
-        vi.resetModules();
-        const register = vi.fn();
-        global.ExporterRegistry = { register };
-        await import('../../exporters/BaseExporter.js');
-        await import('../../exporters/FB2Exporter.js');
-        expect(register).toHaveBeenCalledWith('fb2', expect.any(Function), { label: 'FB2' });
-        delete global.ExporterRegistry;
-    });
 });

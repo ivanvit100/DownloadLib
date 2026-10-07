@@ -1,169 +1,84 @@
 import { describe, it, beforeEach, vi, expect, afterEach } from 'vitest';
 
+vi.mock('../core/pluginApi.js', () => ({}));
+vi.mock('../services/index.js', () => ({}));
+vi.mock('../exporters/index.js', () => ({}));
+vi.mock('../core/PluginManager.js', async () => (await import('./helpers/globalBridge.js')).globalBridge('PluginManager'));
+vi.mock('../ui/PopupController.js', async () => (await import('./helpers/globalBridge.js')).globalBridge('PopupController'));
+
+const flush = () => new Promise(resolve => setTimeout(resolve, 0));
+
 describe('App initialization', () => {
-    let originalWindow, originalDocument, errorDiv, logSpy, errorSpy;
+    let errorDiv, logSpy, errorSpy, readyState;
 
     beforeEach(() => {
         vi.resetModules();
-        vi.useFakeTimers();
+        document.body.innerHTML = '<div id="error" class="hidden"></div>';
+        errorDiv = document.getElementById('error');
+        readyState = 'complete';
+        vi.spyOn(document, 'readyState', 'get').mockImplementation(() => readyState);
 
-        originalWindow = global.window;
-        originalDocument = global.document;
-
-        errorDiv = { textContent: '', classList: { remove: vi.fn() } };
-
-        const mockWindow = {};
-        const mockDocument = {
-            body: { innerHTML: '' },
-            getElementById: vi.fn(() => errorDiv),
-            readyState: 'complete',
-            addEventListener: vi.fn(),
-        };
-
-        global.window = mockWindow;
-        global.document = mockDocument;
-
-        ['EventBus', 'RateLimiter', 'Storage', 'DownloadHistory', 'ServiceRegistry', 'DownloadManager',
-            'MangaPatcher', 'ExporterRegistry', 'AuthManager', 'TemplateLoader',
-            'HistoryController', 'ChapterController', 'PopupController']
-            .forEach(dep => {
-                mockWindow[dep] = {};
-            });
-
-        mockWindow.serviceRegistry = {
-            register: vi.fn(),
-            getAllServices: vi.fn(() => ['MangaLibService', 'RanobeLibService']),
-        };
-        mockWindow.PopupController = vi.fn();
+        global.PluginManager = { loadAll: vi.fn(async () => {}) };
+        global.PopupController = vi.fn();
 
         logSpy = vi.spyOn(console, 'log').mockImplementation(() => {});
         errorSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
     });
 
     afterEach(() => {
-        global.window = originalWindow;
-        global.document = originalDocument;
         vi.restoreAllMocks();
-        vi.useRealTimers();
+        delete global.PluginManager;
+        delete global.PopupController;
     });
 
-    it('Initialize and register services when all dependencies are present', async () => {
-        await import('../app.js?test1');
-        vi.runAllTimers();
-        expect(logSpy).toHaveBeenCalledWith('[App] Initializing...');
-        expect(logSpy).toHaveBeenCalledWith('[App] All dependencies loaded');
-        expect(window.PopupController).toHaveBeenCalled();
-        expect(errorSpy).not.toHaveBeenCalledWith('[App] Missing dependencies:', expect.anything());
-    });
-
-    it('Show error if dependencies are missing', async () => {
-        delete window.EventBus;
-        await import('../app.js?test2');
-        expect(errorSpy).toHaveBeenCalledWith('[App] Missing dependencies:', expect.arrayContaining(['EventBus']));
-        expect(document.body.innerHTML).toContain('Ошибка загрузки модулей');
-    });
-
-    it('Handle PopupController initialization error', async () => {
-        window.PopupController = vi.fn(() => { throw new Error('fail'); });
-        document.getElementById = vi.fn(() => errorDiv);
-        await import('../app.js?test3');
-        vi.runAllTimers();
-        expect(errorSpy).toHaveBeenCalledWith(
-            '[App] Failed to initialize PopupController:',
-            expect.any(Error)
-        );
-        expect(errorDiv.textContent).toContain('Ошибка инициализации');
-        expect(errorDiv.classList.remove).toHaveBeenCalledWith('hidden');
-    });
-
-
-    it('Check if document ready state is "loading"', async () => {
-        document.readyState = 'loading';
-        const addEventListenerSpy = vi.spyOn(document, 'addEventListener');
-        await import('../app.js?domcontentloaded');
-        expect(addEventListenerSpy).toHaveBeenCalledWith('DOMContentLoaded', expect.any(Function));
-    });
-
-    it('DOMContentLoaded callback executes initApp', async () => {
-        document.readyState = 'loading';
-        let capturedCb;
-        document.addEventListener = vi.fn((evt, cb) => { if (evt === 'DOMContentLoaded') capturedCb = cb; });
-        await import('../app.js?dom-cb');
-        expect(capturedCb).toBeDefined();
-        await capturedCb();
-        expect(window.PopupController).toHaveBeenCalled();
-    });
-
-    it('calls PluginManager.loadAll when PluginManager is present', async () => {
-        window.PluginManager = { loadAll: vi.fn().mockResolvedValue() };
-        await import('../app.js?pm-test');
-        vi.runAllTimers();
-        await Promise.resolve();
-        await Promise.resolve();
-        expect(window.PluginManager.loadAll).toHaveBeenCalled();
-    });
-
-    it('Does not force assigning window.chrome from window.browser', async () => {
-        const originalBrowser = global.browser;
-        const originalChrome = global.chrome;
-        const originalWindow = global.window;
-
-        global.window = {};
-        global.browser = { foo: 'bar' };
-        delete global.chrome;
-
-        await import('../app.js?chrome-test');
-
-        expect(global.window.chrome).toBeUndefined();
-
-        if (originalBrowser !== undefined) global.browser = originalBrowser;
-        else delete global.browser;
-        if (originalChrome !== undefined) global.chrome = originalChrome;
-        else delete global.chrome;
-        global.window = originalWindow;
-    });
-
-    it('Uses provided extension api resolver when available', async () => {
-        vi.resetModules();
-        document.body.innerHTML = '<div id="error" class="hidden"></div>';
-        window.EventBus = class {};
-        window.RateLimiter = class {};
-        window.ServiceRegistry = class {};
-        window.DownloadManager = class {};
-        window.BaseService = class {};
-        window.MangaLibService = class {};
-        window.RanobeLibService = class {};
-        window.BaseExporter = class {};
-        window.FB2Exporter = class {};
-        window.EPUBExporter = class {};
-        window.PDFExporter = class {};
-        window.ExporterRegistry = class {};
-        window.PopupController = class {};
-        window.serviceRegistry = { register: vi.fn(), getAllServices: vi.fn(() => []) };
-        globalThis.getExtensionApi = vi.fn(() => ({ runtime: {} }));
-        globalThis.browser = { runtime: { id: 'browser' } };
-        globalThis.chrome = { runtime: { id: 'chrome' } };
+    it('Loads plugins and then creates the popup controller', async () => {
+        const order = [];
+        global.PluginManager.loadAll = vi.fn(async () => { order.push('plugins'); });
+        global.PopupController = vi.fn(function() { order.push('ui'); });
         await import('../app.js');
-        expect(globalThis.getExtensionApi).toHaveBeenCalledTimes(1);
+        await flush();
+        expect(logSpy).toHaveBeenCalledWith('[App] Initializing...');
+        expect(order).toEqual(['plugins', 'ui']);
     });
 
-    it('Uses chrome api fallback when browser is unavailable', async () => {
-        vi.resetModules();
-        const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
-        delete globalThis.getExtensionApi;
-        delete globalThis.browser;
-        let chromeReads = 0;
-        Object.defineProperty(globalThis, 'chrome', {
-            configurable: true,
-            get() {
-                chromeReads += 1;
-                return { runtime: { id: 'chrome' } };
-            }
+    it('Imports the plugin API and the built-in registrations before starting', async () => {
+        const pluginApi = await import('../core/pluginApi.js');
+        const services = await import('../services/index.js');
+        const exporters = await import('../exporters/index.js');
+        await import('../app.js');
+        expect(pluginApi).toBeDefined();
+        expect(services).toBeDefined();
+        expect(exporters).toBeDefined();
+    });
+
+    it('Shows an error when PopupController throws', async () => {
+        global.PopupController = vi.fn(function() { throw new Error('fail'); });
+        await import('../app.js');
+        await flush();
+        expect(errorSpy).toHaveBeenCalledWith('[App] Failed to initialize PopupController:', expect.any(Error));
+        expect(errorDiv.textContent).toContain('Ошибка инициализации: fail');
+        expect(errorDiv.classList.contains('hidden')).toBe(false);
+    });
+
+    it('Waits for DOMContentLoaded while the document is loading', async () => {
+        readyState = 'loading';
+        let capturedCb;
+        vi.spyOn(document, 'addEventListener').mockImplementation((evt, cb) => {
+            if (evt === 'DOMContentLoaded') capturedCb = cb;
         });
         await import('../app.js');
-        expect(chromeReads).toBeGreaterThan(0);
-        expect(warnSpy).not.toHaveBeenCalledWith('[App] Extension API is not available in this context');
-        warnSpy.mockRestore();
-        delete globalThis.chrome;
+        await flush();
+        expect(global.PopupController).not.toHaveBeenCalled();
+        expect(capturedCb).toBeDefined();
+        await capturedCb();
+        await flush();
+        expect(global.PluginManager.loadAll).toHaveBeenCalled();
+        expect(global.PopupController).toHaveBeenCalled();
+    });
+
+    it('Does not publish the popup controller as a global', async () => {
+        await import('../app.js');
+        await flush();
+        expect(window.popupController).toBeUndefined();
     });
 });

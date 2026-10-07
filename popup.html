@@ -2,7 +2,7 @@
  -- DownloadLib popup interface
  -- @license MIT
  -- @author ivanvit
- -- @version 1.0.7
+ -- @version 1.1.0
 -->
 <!DOCTYPE html>
 <html>
@@ -32,36 +32,11 @@
             <div id="success" class="hidden"></div>
             <div id="view"></div>
 
+            <!-- Third-party libraries (classic scripts, used via globalThis) -->
             <script src="lib/jszip.min.js"></script>
             <script src="lib/html2pdf.min.js"></script>
 
-            <!-- Browser API adapter -->
-            <script src="core/BrowserApi.js"></script>
-
-            <!-- Core -->
-            <script src="core/ImageCompressor.js"></script>
-            <script src="core/PluginManager.js"></script>
-            <script src="core/EventBus.js"></script>
-            <script src="core/RateLimiter.js"></script>
-            <script src="core/Storage.js"></script>
-            <script src="core/DownloadHistory.js"></script>
-            <script src="core/DownloadManager.js"></script>
-            <script src="core/MangaPatcher.js"></script>
-            <script src="core/AuthManager.js"></script>
-
-            <!-- Services -->
-            <script src="services/ServiceRegistry.js"></script>
-
-            <!-- Exporters -->
-            <script src="exporters/ExporterRegistry.js"></script>
-
-            <!-- UI -->
-            <script src="ui/TemplateLoader.js"></script>
-            <script src="ui/HistoryController.js"></script>
-            <script src="ui/SettingsController.js"></script>
-            <script src="ui/ChapterController.js"></script>
-            <script src="ui/PopupController.js"></script>
-
+            <!-- Application: app.js imports every other module -->
             <script type="module" src="app.js"></script>
         </div>
     </body>

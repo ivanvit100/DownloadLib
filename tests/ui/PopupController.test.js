@@ -1,5 +1,20 @@
 import { describe, it, expect, beforeEach, vi } from 'vitest';
 
+vi.mock('../../core/AuthManager.js', async () => (await import('../helpers/globalBridge.js')).globalBridge('AuthManager'));
+vi.mock('../../core/BrowserApi.js', async () => (await import('../helpers/globalBridge.js'))
+    .globalBridge('extensionApi', 'browserEnv', 'fetchViaTab', 'setServiceTab'));
+vi.mock('../../core/DownloadHistory.js', async () => (await import('../helpers/globalBridge.js')).globalBridge('DownloadHistory'));
+vi.mock('../../core/DownloadManager.js', async () => (await import('../helpers/globalBridge.js')).globalBridge('DownloadManager'));
+vi.mock('../../core/PluginManager.js', async () => (await import('../helpers/globalBridge.js')).globalBridge('PluginManager'));
+vi.mock('../../exporters/ExporterRegistry.js', async () => (await import('../helpers/globalBridge.js')).globalBridge('ExporterRegistry'));
+vi.mock('../../services/mangalib/MangaLibService.js', async () => (await import('../helpers/globalBridge.js')).globalBridge('MangaLibService'));
+vi.mock('../../services/ranobelib/RanobeLibService.js', async () => (await import('../helpers/globalBridge.js')).globalBridge('RanobeLibService'));
+vi.mock('../../services/ServiceRegistry.js', async () => (await import('../helpers/globalBridge.js')).globalBridge('serviceRegistry'));
+vi.mock('../../ui/ChapterController.js', async () => (await import('../helpers/globalBridge.js')).globalBridge('ChapterController'));
+vi.mock('../../ui/HistoryController.js', async () => (await import('../helpers/globalBridge.js')).globalBridge('HistoryController'));
+vi.mock('../../ui/SettingsController.js', async () => (await import('../helpers/globalBridge.js')).globalBridge('SettingsController'));
+vi.mock('../../ui/TemplateLoader.js', async () => (await import('../helpers/globalBridge.js')).globalBridge('TemplateLoader'));
+
 let PopupController;
 let controller;
 
@@ -108,7 +123,7 @@ beforeEach(async () => {
         fetchMangaMetadata = vi.fn(async () => ({ data: { rus_name: 'Title', summary: 'Summary', cover: 'cover.png', authors: ['Author'], ageRestriction: { label: '18+' }, releaseDate: '2020' }, image: 'cover.png' }));
         fetchChaptersList = vi.fn(async () => ({ data: [{}, {}] }));
     };
-    global.browser = {
+    global.extensionApi = {
         runtime: {
             sendMessage: vi.fn(async () => ({ ok: true, downloads: [{ slug: 'slug', status: 'active', progress: 50 }] })),
             getURL: vi.fn(() => 'popup.html')
@@ -149,10 +164,11 @@ beforeEach(async () => {
     global.HistoryController = { init: vi.fn() };
     global.fetchViaTab = vi.fn(async () => null);
     global.setServiceTab = vi.fn();
+    global.browserEnv = { isFirefox: true };
+    global.PluginManager = { loadAll: vi.fn(async () => {}) };
+    global.SettingsController = { init: vi.fn() };
 
-    await import('../../core/MangaPatcher.js');
-    await import('../../ui/PopupController.js');
-    PopupController = global.PopupController;
+    ({ PopupController } = await import('../../ui/PopupController.js'));
 });
 
 afterEach(() => {
@@ -351,66 +367,6 @@ describe('PopupController', () => {
         expect(controller.showError).toHaveBeenCalled();
     });
 
-	it('Returns early when browserAPI is not available', async () => {
-        vi.resetModules();
-        
-        const originalBrowser = global.browser;
-        const originalChrome = global.chrome;
-        
-        global.browser = undefined;
-        global.chrome = undefined;
-        
-        const consoleErrorSpy = vi.spyOn(console, 'error');
-        
-        delete global.PopupController;
-        
-        await import('../../ui/PopupController.js?nocache=' + Math.random());
-        
-        expect(consoleErrorSpy).toHaveBeenCalledWith('[PopupController] No browser API available');
-        expect(global.PopupController).toBeUndefined();
-        
-        consoleErrorSpy.mockRestore();
-        
-        global.browser = originalBrowser;
-        global.chrome = originalChrome;
-    });
-
-	it('Detects browserAPI as chrome when chrome.runtime exists', async () => {
-        vi.resetModules();
-        delete global.PopupController;
-        global.browser = undefined;
-        global.chrome = { runtime: { foo: 'bar' } };
-
-        const consoleLogSpy = vi.spyOn(console, 'log');
-        const consoleErrorSpy = vi.spyOn(console, 'error');
-
-        await import('../../ui/PopupController.js?nocache=' + Math.random());
-
-        expect(consoleLogSpy).toHaveBeenCalledWith('[PopupController] Loading...');
-        expect(global.PopupController).toBeDefined();
-        expect(consoleErrorSpy).not.toHaveBeenCalledWith('[PopupController] No browser API available');
-
-        consoleLogSpy.mockRestore();
-        consoleErrorSpy.mockRestore();
-    });
-
-	it('Uses getExtensionApi when available', async () => {
-        vi.resetModules();
-        setupDOM();
-        const extensionApi = {
-            runtime: { sendMessage: vi.fn(async () => ({})), getURL: vi.fn(() => 'popup.html') },
-            windows: { getCurrent: vi.fn(async () => ({ type: 'normal' })), create: vi.fn(), update: vi.fn() },
-            tabs: { query: vi.fn(async () => ([{ url: 'https://ranobelib.me/manga/slug' }])) }
-        };
-        global.getExtensionApi = vi.fn(() => extensionApi);
-        global.browser = undefined;
-        global.chrome = undefined;
-        global.DownloadManager = class { constructor() { this.eventBus = { on: vi.fn() }; } };
-        await import('../../ui/PopupController.js?nocache=' + Math.random());
-        expect(global.getExtensionApi).toHaveBeenCalled();
-        delete global.getExtensionApi;
-    });
-
 	it('Handles download:started event in constructor', async () => {
         vi.resetModules();
         setupDOM();
@@ -424,7 +380,7 @@ describe('PopupController', () => {
                 };
             }
         };
-        global.browser = {
+        global.extensionApi = {
             runtime: { sendMessage: vi.fn(async () => ({ ok: true, downloads: [] })), getURL: vi.fn() },
             windows: { getCurrent: vi.fn(), create: vi.fn(), update: vi.fn() },
             tabs: { query: vi.fn() }
@@ -432,7 +388,7 @@ describe('PopupController', () => {
         global.chrome = undefined;
 
         await import('../../ui/PopupController.js?nocache=' + Math.random());
-        const PopupControllerClass = global.PopupController;
+        const PopupControllerClass = PopupController;
         const controller = new PopupControllerClass();
 
         handler({ id: 42 });
@@ -444,7 +400,7 @@ describe('PopupController', () => {
         vi.resetModules();
         document.body.innerHTML = '';
         global.DownloadManager = class { constructor() { this.eventBus = { on: vi.fn() }; } };
-        global.browser = {
+        global.extensionApi = {
             runtime: { sendMessage: vi.fn(async () => ({ ok: true, downloads: [] })), getURL: vi.fn() },
             windows: { getCurrent: vi.fn(), create: vi.fn(), update: vi.fn() },
             tabs: { query: vi.fn() }
@@ -454,7 +410,7 @@ describe('PopupController', () => {
         const consoleErrorSpy = vi.spyOn(console, 'error');
 
         const PopupModule = await import('../../ui/PopupController.js?nocache=' + Math.random());
-        const PopupControllerClass = global.PopupController;
+        const PopupControllerClass = PopupController;
         new PopupControllerClass();
         await Promise.resolve();
         await Promise.resolve();
@@ -467,7 +423,7 @@ it('Sets formatSelector value from localStorage', async () => {
         vi.resetModules();
         setupDOM();
         global.DownloadManager = class { constructor() { this.eventBus = { on: vi.fn() }; } };
-        global.browser = {
+        global.extensionApi = {
             runtime: { sendMessage: vi.fn(async () => ({ ok: true, downloads: [] })), getURL: vi.fn() },
             windows: { getCurrent: vi.fn(), create: vi.fn(), update: vi.fn() },
             tabs: { query: vi.fn() }
@@ -477,7 +433,7 @@ it('Sets formatSelector value from localStorage', async () => {
         global.localStorage.getItem = vi.fn(() => 'epub');
 
         const PopupModule = await import('../../ui/PopupController.js?nocache=' + Math.random());
-        const PopupControllerClass = global.PopupController;
+        const PopupControllerClass = PopupController;
         new PopupControllerClass();
         await Promise.resolve();
         await Promise.resolve();
@@ -490,7 +446,7 @@ it('Sets formatSelector value from localStorage', async () => {
         vi.resetModules();
         setupDOM();
         global.DownloadManager = class { constructor() { this.eventBus = { on: vi.fn() }; } };
-        global.browser = {
+        global.extensionApi = {
             runtime: { sendMessage: vi.fn(async () => ({ ok: true, downloads: [] })), getURL: vi.fn() },
             windows: { getCurrent: vi.fn(), create: vi.fn(), update: vi.fn() },
             tabs: { query: vi.fn() }
@@ -499,7 +455,7 @@ it('Sets formatSelector value from localStorage', async () => {
         const FORMAT_STORAGE_KEY = 'manga_parser_selected_format';
         const setItemSpy = vi.spyOn(global.localStorage, 'setItem');
 
-        const PopupControllerClass = global.PopupController;
+        const PopupControllerClass = PopupController;
         new PopupControllerClass();
         await Promise.resolve();
         await Promise.resolve();
@@ -514,8 +470,7 @@ it('Sets formatSelector value from localStorage', async () => {
 
     it('Returns true if hasParams', async () => {
         vi.resetModules();
-        delete global.PopupController;
-        global.browser = {
+        global.extensionApi = {
             runtime: { sendMessage: vi.fn(async () => ({ ok: true, downloads: [] })), getURL: vi.fn() },
             windows: { getCurrent: vi.fn(async () => ({ type: 'normal' })) },
             tabs: { query: vi.fn(async () => ([{ url: 'https://ranobelib.me/manga/slug' }])) }
@@ -523,7 +478,7 @@ it('Sets formatSelector value from localStorage', async () => {
         global.chrome = undefined;
         const hasSpy = vi.spyOn(URLSearchParams.prototype, 'has').mockReturnValue(true);
         await import('../../ui/PopupController.js?nocache=' + Math.random());
-        const PopupControllerClass = global.PopupController;
+        const PopupControllerClass = PopupController;
         const controller = new PopupControllerClass();
         const result = await controller.isInSeparateWindow();
         expect(result).toBe(true);
@@ -533,14 +488,14 @@ it('Sets formatSelector value from localStorage', async () => {
 
     it('Returns false and warns on exception', async () => {
         const controller = new PopupController();
-        const origGetCurrent = global.browser.windows.getCurrent;
-        global.browser.windows.getCurrent = vi.fn(() => { throw new Error('fail'); });
+        const origGetCurrent = global.extensionApi.windows.getCurrent;
+        global.extensionApi.windows.getCurrent = vi.fn(() => { throw new Error('fail'); });
         const consoleWarnSpy = vi.spyOn(console, 'warn');
         const result = await controller.isInSeparateWindow();
         expect(result).toBe(false);
         expect(consoleWarnSpy).toHaveBeenCalledWith('Failed to detect window type:', expect.any(Error));
         consoleWarnSpy.mockRestore();
-        global.browser.windows.getCurrent = origGetCurrent;
+        global.extensionApi.windows.getCurrent = origGetCurrent;
     });
 
     it('Sets formatSelector value from url param', async () => {
@@ -632,7 +587,7 @@ it('Sets formatSelector value from localStorage', async () => {
 
     it('Sets slug to null when no match in url', async () => {
         const controller = new PopupController();
-        global.browser.tabs.query = vi.fn(async () => ([{ url: 'https://ranobelib.me/' }]));
+        global.extensionApi.tabs.query = vi.fn(async () => ([{ url: 'https://ranobelib.me/' }]));
         const originalSearch = window.location.search;
         Object.defineProperty(window, 'location', {
             value: { search: '' },
@@ -661,7 +616,7 @@ it('Sets formatSelector value from localStorage', async () => {
             value: { search: '' },
             writable: true
         });
-        global.browser.tabs.query = vi.fn(async () => ([{ url: 'https://ranobelib.me/manga/slug' }]));
+        global.extensionApi.tabs.query = vi.fn(async () => ([{ url: 'https://ranobelib.me/manga/slug' }]));
         await controller.loadMetadata();
         expect(document.getElementById('logoInfo').textContent).toContain('Глав:');
         expect(document.getElementById('description').innerHTML).toContain('Title');
@@ -677,7 +632,7 @@ it('Sets formatSelector value from localStorage', async () => {
             value: { search: '?download=true&slug=testslug&service=mangalib' },
             writable: true
         });
-        global.browser.tabs.query = vi.fn(async () => ([{ url: 'https://mangalib.me/manga/testslug' }]));
+        global.extensionApi.tabs.query = vi.fn(async () => ([{ url: 'https://mangalib.me/manga/testslug' }]));
         const siteLogo = document.getElementById('siteLogo');
         if (siteLogo && siteLogo.parentNode) siteLogo.parentNode.removeChild(siteLogo);
         const consoleWarnSpy = vi.spyOn(console, 'warn');
@@ -707,7 +662,7 @@ it('Sets formatSelector value from localStorage', async () => {
             value: { search: '' },
             writable: true
         });
-        global.browser.tabs.query = vi.fn(async () => ([{ url: 'https://ranobelib.me/manga/slug' }]));
+        global.extensionApi.tabs.query = vi.fn(async () => ([{ url: 'https://ranobelib.me/manga/slug' }]));
         await controller.loadMetadata();
         expect(document.getElementById('logoInfo').textContent).not.toContain('Глав: 1');
     });
@@ -732,7 +687,7 @@ it('Sets formatSelector value from localStorage', async () => {
             value: { search: '' },
             writable: true
         });
-        global.browser.tabs.query = vi.fn(async () => ([{ url: 'https://ranobelib.me/manga/slug1' }]));
+        global.extensionApi.tabs.query = vi.fn(async () => ([{ url: 'https://ranobelib.me/manga/slug1' }]));
         await controller.loadMetadata();
         expect(document.getElementById('description').innerHTML).toContain('MetaName');
 
@@ -749,7 +704,7 @@ it('Sets formatSelector value from localStorage', async () => {
             })),
             fetchChaptersList: vi.fn(async () => ({ data: [{}, {}] }))
         }));
-        global.browser.tabs.query = vi.fn(async () => ([{ url: 'https://ranobelib.me/manga/slug2' }]));
+        global.extensionApi.tabs.query = vi.fn(async () => ([{ url: 'https://ranobelib.me/manga/slug2' }]));
         await controller.loadMetadata();
         expect(document.getElementById('description').innerHTML).toContain('slug2');
     });
@@ -774,7 +729,7 @@ it('Sets formatSelector value from localStorage', async () => {
             value: { search: '' },
             writable: true
         });
-        global.browser.tabs.query = vi.fn(async () => ([{ url: 'https://ranobelib.me/manga/slug1' }]));
+        global.extensionApi.tabs.query = vi.fn(async () => ([{ url: 'https://ranobelib.me/manga/slug1' }]));
         await controller.loadMetadata();
         expect(document.getElementById('description').innerHTML).toContain('Rich summary text');
 
@@ -791,7 +746,7 @@ it('Sets formatSelector value from localStorage', async () => {
             })),
             fetchChaptersList: vi.fn(async () => ({ data: [{}, {}] }))
         }));
-        global.browser.tabs.query = vi.fn(async () => ([{ url: 'https://ranobelib.me/manga/slug2' }]));
+        global.extensionApi.tabs.query = vi.fn(async () => ([{ url: 'https://ranobelib.me/manga/slug2' }]));
         await controller.loadMetadata();
         expect(document.getElementById('description').innerHTML).toContain('Описание отсутствует');
     });
@@ -836,7 +791,7 @@ it('Sets formatSelector value from localStorage', async () => {
             value: { search: '' },
             writable: true
         });
-        global.browser.tabs.query = vi.fn(async () => ([{ url: 'https://ranobelib.me/manga/slug' }]));
+        global.extensionApi.tabs.query = vi.fn(async () => ([{ url: 'https://ranobelib.me/manga/slug' }]));
         const consoleWarnSpy = vi.spyOn(console, 'warn');
         await controller.loadMetadata();
         expect(consoleWarnSpy).toHaveBeenCalledWith('No cover information found in metadata');
@@ -863,7 +818,7 @@ it('Sets formatSelector value from localStorage', async () => {
             value: { search: '' },
             writable: true
         });
-        global.browser.tabs.query = vi.fn(async () => ([{ url: 'https://ranobelib.me/manga/slug' }]));
+        global.extensionApi.tabs.query = vi.fn(async () => ([{ url: 'https://ranobelib.me/manga/slug' }]));
         await controller.loadMetadata();
         expect(document.getElementById('cover').src).toContain('default-cover.png');
     });
@@ -888,7 +843,7 @@ it('Sets formatSelector value from localStorage', async () => {
             value: { search: '' },
             writable: true
         });
-        global.browser.tabs.query = vi.fn(async () => ([{ url: 'https://ranobelib.me/manga/slug' }]));
+        global.extensionApi.tabs.query = vi.fn(async () => ([{ url: 'https://ranobelib.me/manga/slug' }]));
         await controller.loadMetadata();
         expect(document.getElementById('cover').src).toContain('thumbnail-cover.png');
     });
@@ -913,7 +868,7 @@ it('Sets formatSelector value from localStorage', async () => {
             value: { search: '' },
             writable: true
         });
-        global.browser.tabs.query = vi.fn(async () => ([{ url: 'https://ranobelib.me/manga/slug' }]));
+        global.extensionApi.tabs.query = vi.fn(async () => ([{ url: 'https://ranobelib.me/manga/slug' }]));
         await controller.loadMetadata();
         expect(document.getElementById('cover').src).toContain('md-cover.png');
     });
@@ -938,7 +893,7 @@ it('Sets formatSelector value from localStorage', async () => {
             value: { search: '' },
             writable: true
         });
-        global.browser.tabs.query = vi.fn(async () => ([{ url: 'https://ranobelib.me/manga/slug' }]));
+        global.extensionApi.tabs.query = vi.fn(async () => ([{ url: 'https://ranobelib.me/manga/slug' }]));
         await controller.loadMetadata();
         expect(document.getElementById('cover').src).toContain('url-cover.png');
     });
@@ -963,7 +918,7 @@ it('Sets formatSelector value from localStorage', async () => {
             value: { search: '' },
             writable: true
         });
-        global.browser.tabs.query = vi.fn(async () => ([{ url: 'https://ranobelib.me/manga/slug' }]));
+        global.extensionApi.tabs.query = vi.fn(async () => ([{ url: 'https://ranobelib.me/manga/slug' }]));
         await controller.loadMetadata();
         expect(document.getElementById('cover').src).toContain('meta-image.png');
     });
@@ -987,7 +942,7 @@ it('Sets formatSelector value from localStorage', async () => {
             value: { search: '' },
             writable: true
         });
-        global.browser.tabs.query = vi.fn(async () => ([{ url: 'https://ranobelib.me/manga/slug' }]));
+        global.extensionApi.tabs.query = vi.fn(async () => ([{ url: 'https://ranobelib.me/manga/slug' }]));
         const consoleWarnSpy = vi.spyOn(console, 'warn');
         await controller.loadMetadata();
         expect(consoleWarnSpy).toHaveBeenCalledWith('No cover information found in metadata');
@@ -1014,7 +969,7 @@ it('Sets formatSelector value from localStorage', async () => {
             value: { search: '' },
             writable: true
         });
-        global.browser.tabs.query = vi.fn(async () => ([{ url: 'https://ranobelib.me/manga/slug' }]));
+        global.extensionApi.tabs.query = vi.fn(async () => ([{ url: 'https://ranobelib.me/manga/slug' }]));
         await controller.loadMetadata();
         expect(document.getElementById('logoInfo').textContent).toContain('Авторы: Author');
     });
@@ -1039,7 +994,7 @@ it('Sets formatSelector value from localStorage', async () => {
             value: { search: '' },
             writable: true
         });
-        global.browser.tabs.query = vi.fn(async () => ([{ url: 'https://ranobelib.me/manga/slug' }]));
+        global.extensionApi.tabs.query = vi.fn(async () => ([{ url: 'https://ranobelib.me/manga/slug' }]));
         await controller.loadMetadata();
         expect(document.getElementById('logoInfo').textContent).toContain('Авторы: Author');
     });
@@ -1064,7 +1019,7 @@ it('Sets formatSelector value from localStorage', async () => {
             value: { search: '' },
             writable: true
         });
-        global.browser.tabs.query = vi.fn(async () => ([{ url: 'https://ranobelib.me/manga/slug' }]));
+        global.extensionApi.tabs.query = vi.fn(async () => ([{ url: 'https://ranobelib.me/manga/slug' }]));
         await controller.loadMetadata();
         expect(document.getElementById('logoInfo').textContent).toContain('Авторы: Ivan');
     });
@@ -1089,7 +1044,7 @@ it('Sets formatSelector value from localStorage', async () => {
             value: { search: '' },
             writable: true
         });
-        global.browser.tabs.query = vi.fn(async () => ([{ url: 'https://ranobelib.me/manga/slug' }]));
+        global.extensionApi.tabs.query = vi.fn(async () => ([{ url: 'https://ranobelib.me/manga/slug' }]));
         const consoleWarnSpy = vi.spyOn(console, 'warn');
         await controller.loadMetadata();
         expect(consoleWarnSpy).toHaveBeenCalledWith('No age restriction label found in metadata');
@@ -1113,7 +1068,7 @@ it('Sets formatSelector value from localStorage', async () => {
             })),
             fetchChaptersList: vi.fn(async () => ({ data: [{}, {}] }))
         }));
-        global.browser.tabs.query = vi.fn(async () => ([{ url: 'https://ranobelib.me/manga/slug1' }]));
+        global.extensionApi.tabs.query = vi.fn(async () => ([{ url: 'https://ranobelib.me/manga/slug1' }]));
         await controller.loadMetadata();
         expect(document.getElementById('releaseDate').textContent).toContain('2022-01-01');
 
@@ -1131,7 +1086,7 @@ it('Sets formatSelector value from localStorage', async () => {
             })),
             fetchChaptersList: vi.fn(async () => ({ data: [{}, {}] }))
         }));
-        global.browser.tabs.query = vi.fn(async () => ([{ url: 'https://ranobelib.me/manga/slug2' }]));
+        global.extensionApi.tabs.query = vi.fn(async () => ([{ url: 'https://ranobelib.me/manga/slug2' }]));
         await controller.loadMetadata();
         expect(document.getElementById('releaseDate').textContent).toContain('2023-02-02');
 
@@ -1149,7 +1104,7 @@ it('Sets formatSelector value from localStorage', async () => {
             })),
             fetchChaptersList: vi.fn(async () => ({ data: [{}, {}] }))
         }));
-        global.browser.tabs.query = vi.fn(async () => ([{ url: 'https://ranobelib.me/manga/slug3' }]));
+        global.extensionApi.tabs.query = vi.fn(async () => ([{ url: 'https://ranobelib.me/manga/slug3' }]));
         await controller.loadMetadata();
         expect(document.getElementById('releaseDate').textContent).toContain('2024-03-03');
 
@@ -1167,7 +1122,7 @@ it('Sets formatSelector value from localStorage', async () => {
             })),
             fetchChaptersList: vi.fn(async () => ({ data: [{}, {}] }))
         }));
-        global.browser.tabs.query = vi.fn(async () => ([{ url: 'https://ranobelib.me/manga/slug4' }]));
+        global.extensionApi.tabs.query = vi.fn(async () => ([{ url: 'https://ranobelib.me/manga/slug4' }]));
         await controller.loadMetadata();
         expect(document.getElementById('releaseDate').textContent).toContain('2025-04-04');
 
@@ -1185,7 +1140,7 @@ it('Sets formatSelector value from localStorage', async () => {
             })),
             fetchChaptersList: vi.fn(async () => ({ data: [{}, {}] }))
         }));
-        global.browser.tabs.query = vi.fn(async () => ([{ url: 'https://ranobelib.me/manga/slug5' }]));
+        global.extensionApi.tabs.query = vi.fn(async () => ([{ url: 'https://ranobelib.me/manga/slug5' }]));
         await controller.loadMetadata();
         expect(document.getElementById('releaseDate').textContent).toContain('2026');
 
@@ -1203,7 +1158,7 @@ it('Sets formatSelector value from localStorage', async () => {
             })),
             fetchChaptersList: vi.fn(async () => ({ data: [{}, {}] }))
         }));
-        global.browser.tabs.query = vi.fn(async () => ([{ url: 'https://ranobelib.me/manga/slug6' }]));
+        global.extensionApi.tabs.query = vi.fn(async () => ([{ url: 'https://ranobelib.me/manga/slug6' }]));
         await controller.loadMetadata();
         expect(document.getElementById('releaseDate').textContent).toContain('2027-06-06');
 
@@ -1220,7 +1175,7 @@ it('Sets formatSelector value from localStorage', async () => {
             })),
             fetchChaptersList: vi.fn(async () => ({ data: [{}, {}] }))
         }));
-        global.browser.tabs.query = vi.fn(async () => ([{ url: 'https://ranobelib.me/manga/slug7' }]));
+        global.extensionApi.tabs.query = vi.fn(async () => ([{ url: 'https://ranobelib.me/manga/slug7' }]));
         await controller.loadMetadata();
         expect(document.getElementById('releaseDate').textContent).toBe('');
     });
@@ -1245,7 +1200,7 @@ it('Sets formatSelector value from localStorage', async () => {
             value: { search: '' },
             writable: true
         });
-        global.browser.tabs.query = vi.fn(async () => ([{ url: 'https://ranobelib.me/manga/slug' }]));
+        global.extensionApi.tabs.query = vi.fn(async () => ([{ url: 'https://ranobelib.me/manga/slug' }]));
         const releaseEl = document.getElementById('releaseDate');
         if (releaseEl && releaseEl.parentNode) releaseEl.parentNode.removeChild(releaseEl);
         const consoleWarnSpy = vi.spyOn(console, 'warn');
@@ -1274,7 +1229,7 @@ it('Sets formatSelector value from localStorage', async () => {
             value: { search: '' },
             writable: true
         });
-        global.browser.tabs.query = vi.fn(async () => ([{ url: 'https://ranobelib.me/manga/slug' }]));
+        global.extensionApi.tabs.query = vi.fn(async () => ([{ url: 'https://ranobelib.me/manga/slug' }]));
         const status = document.getElementById('status');
         if (status && status.parentNode) status.parentNode.removeChild(status);
         const consoleWarnSpy = vi.spyOn(console, 'warn');
@@ -1285,7 +1240,7 @@ it('Sets formatSelector value from localStorage', async () => {
 
     it('Warns if window created but no ID found', async () => {
         const controller = new PopupController();
-        const windowsCreateSpy = vi.spyOn(global.browser.windows, 'create').mockResolvedValue({});
+        const windowsCreateSpy = vi.spyOn(global.extensionApi.windows, 'create').mockResolvedValue({});
         const consoleWarnSpy = vi.spyOn(console, 'warn');
         await controller.openInNewContext('popup.html?download=true');
         expect(consoleWarnSpy).toHaveBeenCalledWith('Window created but no ID found:', {});
@@ -1305,8 +1260,8 @@ it('Sets formatSelector value from localStorage', async () => {
         controller.currentSlug = 'slug';
         controller.currentServiceKey = 'ranobelib';
         const isInSeparateWindowSpy = vi.spyOn(controller, 'isInSeparateWindow').mockResolvedValue(false);
-        const windowsCreateSpy = vi.spyOn(global.browser.windows, 'create').mockResolvedValue({ id: 123 });
-        const windowsUpdateSpy = vi.spyOn(global.browser.windows, 'update').mockResolvedValue({});
+        const windowsCreateSpy = vi.spyOn(global.extensionApi.windows, 'create').mockResolvedValue({ id: 123 });
+        const windowsUpdateSpy = vi.spyOn(global.extensionApi.windows, 'update').mockResolvedValue({});
         const getElementByIdSpy = vi.spyOn(document, 'getElementById');
         const downloadBtn = document.getElementById('downloadBtn');
         await downloadBtn.click();
@@ -1363,8 +1318,8 @@ it('Sets formatSelector value from localStorage', async () => {
 
     it('openInNewContext sends openWindowWithUrl to background in Chrome mode', async () => {
         const sendMessageMock = vi.fn(async () => ({ ok: true }));
-        global.browser.runtime.sendMessage = sendMessageMock;
-        global.browser = undefined;
+        global.extensionApi.runtime.sendMessage = sendMessageMock;
+        global.browserEnv = { isFirefox: false };
         const controller = new PopupController();
         await controller.openInNewContext('popup.html?download=true');
         expect(sendMessageMock).toHaveBeenCalledWith({ action: 'openWindowWithUrl', url: 'popup.html?download=true' });
@@ -1372,8 +1327,8 @@ it('Sets formatSelector value from localStorage', async () => {
 
     it('openInNewContext silently catches sendMessage rejection in Chrome mode', async () => {
         const sendMessageMock = vi.fn(async () => { throw new Error('port closed'); });
-        global.browser.runtime.sendMessage = sendMessageMock;
-        global.browser = undefined;
+        global.extensionApi.runtime.sendMessage = sendMessageMock;
+        global.browserEnv = { isFirefox: false };
         const controller = new PopupController();
         await controller.openInNewContext('popup.html?download=true');
         await Promise.resolve();
@@ -1444,7 +1399,7 @@ it('Sets formatSelector value from localStorage', async () => {
             value: { search: '' },
             writable: true
         });
-        global.browser.tabs.query = vi.fn(async () => ([{ url: 'https://ranobelib.me/manga/slug' }]));
+        global.extensionApi.tabs.query = vi.fn(async () => ([{ url: 'https://ranobelib.me/manga/slug' }]));
         await controller.loadMetadata();
         const container = document.getElementById('splitPagesContainer');
         expect(container.style.display).toBe('none');

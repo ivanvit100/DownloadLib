@@ -1,22 +1,39 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 
+vi.mock('../../core/BrowserApi.js', async () => (await import('../helpers/globalBridge.js'))
+    .globalBridge('extensionApi', 'browserEnv', 'NoServiceTabError'));
+vi.mock('../../core/DownloadManager.js', async () => (await import('../helpers/globalBridge.js'))
+    .globalBridge('fetchPageImage', 'loadImageOrDefer'));
+vi.mock('../../core/ImageCompressor.js', async () => (await import('../helpers/globalBridge.js')).globalBridge('ImageCompressor'));
+vi.mock('../../exporters/BaseExporter.js', async () => (await import('../helpers/globalBridge.js')).globalBridge('BaseExporter'));
+vi.mock('../../exporters/ExporterRegistry.js', async () => (await import('../helpers/globalBridge.js')).globalBridge('ExporterRegistry'));
+vi.mock('../../services/BaseService.js', async () => (await import('../helpers/globalBridge.js')).globalBridge('BaseService'));
+vi.mock('../../services/ServiceRegistry.js', async () => (await import('../helpers/globalBridge.js')).globalBridge('serviceRegistry'));
+
 let PluginManager;
+
+class MockBaseService {
+    constructor(config) { this.config = config; this.extensionApi = null; }
+    extractPages(content) { return content || []; }
+}
 
 async function loadModule() {
     vi.resetModules();
-    await import('../../core/PluginManager.js');
-    PluginManager = globalThis.PluginManager;
+    ({ PluginManager } = await import('../../core/PluginManager.js'));
 }
 
+// Vite фиксирует базовый класс `extends` при загрузке модуля,
+// поэтому заглушки BaseService/BaseExporter задаются до импорта.
 beforeEach(async () => {
-    delete globalThis.getExtensionApi;
-    delete globalThis.browser;
-    delete globalThis.chrome;
-    delete globalThis.BaseService;
-    delete globalThis.BaseExporter;
+    delete globalThis.extensionApi;
+    globalThis.BaseService = MockBaseService;
+    globalThis.BaseExporter = class {};
     delete globalThis.ExporterRegistry;
     delete globalThis.serviceRegistry;
-    delete globalThis.ImageCompressor;
+    globalThis.browserEnv = { isFirefox: false };
+    globalThis.NoServiceTabError = class NoServiceTabError extends Error {};
+    globalThis.loadImageOrDefer = (label, load) => load();
+    globalThis.ImageCompressor = { compress: vi.fn(async (base64, contentType) => ({ base64, contentType })) };
     await loadModule();
 });
 
@@ -82,39 +99,24 @@ describe('generateId', () => {
     });
 });
 
-describe('list() / _getApi / _storageGet', () => {
-    it('returns [] when no browser/chrome/getExtensionApi', async () => {
+describe('list() / _storageGet', () => {
+    it('returns [] when the extension api is unavailable', async () => {
         expect(await PluginManager.list()).toEqual([]);
     });
 
-    it('uses getExtensionApi() when it is a function', async () => {
-        const mockGet = vi.fn().mockResolvedValue({ custom_plugins: [{ id: '1' }] });
-        globalThis.getExtensionApi = () => ({ storage: { local: { get: mockGet } } });
-        const result = await PluginManager.list();
-        expect(result).toEqual([{ id: '1' }]);
-        delete globalThis.getExtensionApi;
-    });
-
-    it('uses browser API', async () => {
-        globalThis.browser = { storage: { local: { get: vi.fn().mockResolvedValue({ custom_plugins: [{ id: '2' }] }) } } };
+    it('reads plugins from storage.local of the extension api', async () => {
+        globalThis.extensionApi = { storage: { local: { get: vi.fn().mockResolvedValue({ custom_plugins: [{ id: '2' }] }) } } };
         expect(await PluginManager.list()).toEqual([{ id: '2' }]);
     });
 
-    it('uses chrome API when browser is absent', async () => {
-        delete globalThis.browser;
-        globalThis.chrome = { storage: { local: { get: vi.fn().mockResolvedValue({ custom_plugins: [{ id: '3' }] }) } } };
-        expect(await PluginManager.list()).toEqual([{ id: '3' }]);
-        delete globalThis.chrome;
-    });
-
     it('returns [] when storage.local.get result has no custom_plugins key', async () => {
-        globalThis.browser = { storage: { local: { get: vi.fn().mockResolvedValue({}) } } };
+        globalThis.extensionApi = { storage: { local: { get: vi.fn().mockResolvedValue({}) } } };
         expect(await PluginManager.list()).toEqual([]);
     });
 
     it('returns [] and warns when storage.local.get throws', async () => {
         const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
-        globalThis.browser = { storage: { local: { get: vi.fn().mockRejectedValue(new Error('fail')) } } };
+        globalThis.extensionApi = { storage: { local: { get: vi.fn().mockRejectedValue(new Error('fail')) } } };
         expect(await PluginManager.list()).toEqual([]);
         expect(warn).toHaveBeenCalled();
         warn.mockRestore();
@@ -126,7 +128,7 @@ describe('save() — format branch', () => {
     beforeEach(() => {
         mockGet = vi.fn().mockResolvedValue({});
         mockSet = vi.fn().mockResolvedValue();
-        globalThis.browser = { storage: { local: { get: mockGet, set: mockSet } } };
+        globalThis.extensionApi = { storage: { local: { get: mockGet, set: mockSet } } };
     });
 
     it('extracts format metadata and stores plugin', async () => {
@@ -246,7 +248,7 @@ describe('remove()', () => {
     beforeEach(() => {
         mockGet = vi.fn().mockResolvedValue({ custom_plugins: [{ id: 'a' }, { id: 'b' }] });
         mockSet = vi.fn().mockResolvedValue();
-        globalThis.browser = { storage: { local: { get: mockGet, set: mockSet } } };
+        globalThis.extensionApi = { storage: { local: { get: mockGet, set: mockSet } } };
     });
 
     it('removes plugin with matching id', async () => {
@@ -260,7 +262,7 @@ describe('remove()', () => {
     });
 
     it('_storageSet returns early when no api.storage.local', async () => {
-        globalThis.browser = { runtime: {} };
+        globalThis.extensionApi = { runtime: {} };
         await PluginManager.remove('a');
         expect(mockSet).not.toHaveBeenCalled();
     });
@@ -271,7 +273,7 @@ describe('toggle()', () => {
     beforeEach(() => {
         mockGet = vi.fn().mockResolvedValue({ custom_plugins: [{ id: 'a', enabled: true }] });
         mockSet = vi.fn().mockResolvedValue();
-        globalThis.browser = { storage: { local: { get: mockGet, set: mockSet } } };
+        globalThis.extensionApi = { storage: { local: { get: mockGet, set: mockSet } } };
     });
 
     it('sets enabled=false when toggled off', async () => {
@@ -287,7 +289,7 @@ describe('toggle()', () => {
 
 describe('getFormats()', () => {
     it('returns enabled format plugins as {value, label}', async () => {
-        globalThis.browser = {
+        globalThis.extensionApi = {
             storage: { local: { get: vi.fn().mockResolvedValue({ custom_plugins: [
                 { format: 'fb2', label: 'FB2', enabled: true },
                 { format: 'epub', enabled: false },
@@ -299,7 +301,7 @@ describe('getFormats()', () => {
     });
 
     it('uses format.toUpperCase() as label when label absent', async () => {
-        globalThis.browser = {
+        globalThis.extensionApi = {
             storage: { local: { get: vi.fn().mockResolvedValue({ custom_plugins: [{ format: 'pdf' }] }) } }
         };
         const fmts = await PluginManager.getFormats();
@@ -405,7 +407,7 @@ describe('_loadViaSW()', () => {
         expect(console.error).toHaveBeenCalledWith(expect.stringContaining('All load methods failed'));
     });
 
-    it('registers sandbox proxy when injectScript/blob fail and format+BaseExporter+ExporterRegistry exist', async () => {
+    it('registers sandbox proxy when injectScript/blob fail for a format plugin', async () => {
         makeScriptInjector(false);
         const mockRegister = vi.fn();
         globalThis.BaseExporter = class { };
@@ -429,11 +431,6 @@ describe('_loadViaSW()', () => {
 });
 
 function setupBaseService() {
-    class MockBaseService {
-        constructor(config) { this.config = config; this.extensionApi = null; }
-        extractPages(content) { return content || []; }
-    }
-    globalThis.BaseService = MockBaseService;
     let capturedClass;
     globalThis.serviceRegistry = { register: cls => { capturedClass = cls; } };
     return () => capturedClass;
@@ -445,12 +442,6 @@ describe('_loadServiceProxy()', () => {
         delete globalThis.serviceRegistry;
         delete globalThis.ImageCompressor;
         vi.restoreAllMocks();
-    });
-
-    it('warns and returns when BaseService is absent', () => {
-        const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
-        PluginManager._loadServiceProxy({ service: 'svc' });
-        expect(warn).toHaveBeenCalledWith(expect.stringContaining('BaseService/serviceRegistry not available'));
     });
 
     it('registers PluginServiceProxy with serviceRegistry', () => {
@@ -561,7 +552,7 @@ describe('_loadServiceProxy()', () => {
         expect(await inst.loadPageAsBase64(null)).toBeNull();
     });
 
-    it('PluginServiceProxy.loadPageAsBase64: does not depend on instance.extensionApi (goes through global.fetchPageImage)', async () => {
+    it('PluginServiceProxy.loadPageAsBase64: does not depend on instance.extensionApi (goes through fetchPageImage)', async () => {
         const getClass = setupBaseService();
         PluginManager._loadServiceProxy({ service: 'svc', hosts: [] });
         const inst = new (getClass())();
@@ -582,13 +573,15 @@ describe('_loadServiceProxy()', () => {
         delete globalThis.fetchPageImage;
     });
 
-    it('PluginServiceProxy.loadPageAsBase64: returns {base64, contentType} when no ImageCompressor', async () => {
+    it('PluginServiceProxy.loadPageAsBase64: compresses to JPEG 0.92 by default', async () => {
         const getClass = setupBaseService();
         PluginManager._loadServiceProxy({ service: 'svc', hosts: [] });
         const inst = new (getClass())();
-        globalThis.fetchPageImage = vi.fn().mockResolvedValue({ ok: true, base64: 'b64', contentType: 'image/jpeg' });
+        globalThis.fetchPageImage = vi.fn().mockResolvedValue({ ok: true, base64: 'b64', contentType: 'image/png' });
         const result = await inst.loadPageAsBase64('https://cdn.ex.com/img.jpg');
-        expect(result).toEqual({ base64: 'b64', contentType: 'image/jpeg' });
+        expect(result).toEqual({ base64: 'b64', contentType: 'image/png' });
+        expect(globalThis.ImageCompressor.compress)
+            .toHaveBeenCalledWith('b64', 'image/png', { format: 'image/jpeg', quality: 0.92 });
         delete globalThis.fetchPageImage;
     });
 
@@ -722,7 +715,6 @@ describe('_loadServiceProxy()', () => {
         const getClass = setupBaseService();
         PluginManager._loadServiceProxy({ service: 'svc', hosts: [] });
         const inst = new (getClass())();
-        delete globalThis.ImageCompressor;
         const placeholder = { type: 'text', text: 'pending 2' };
         globalThis.loadImageOrDefer = vi.fn(async (label, load) => (label === 2 ? [placeholder] : load()));
         globalThis.fetchPageImage = vi.fn()
@@ -779,7 +771,7 @@ describe('loadAll()', () => {
     let mockGet;
     beforeEach(() => {
         mockGet = vi.fn().mockResolvedValue({});
-        globalThis.browser = {
+        globalThis.extensionApi = {
             storage: { local: { get: mockGet } },
             runtime: { sendMessage: vi.fn().mockResolvedValue({ ok: true }) },
             tabs: { getCurrent: vi.fn().mockResolvedValue({ id: 5 }) }
@@ -803,7 +795,7 @@ describe('loadAll()', () => {
 
     it('logs error when no api.runtime.sendMessage', async () => {
         mockGet.mockResolvedValue({ custom_plugins: [{ format: 'fb2', enabled: true }] });
-        globalThis.browser = { storage: { local: { get: mockGet } } };
+        globalThis.extensionApi = { storage: { local: { get: mockGet } } };
         await PluginManager.loadAll();
         expect(console.error).toHaveBeenCalledWith(expect.stringContaining('No runtime.sendMessage'));
     });
@@ -817,7 +809,7 @@ describe('loadAll()', () => {
 
     it('warns and sets ownTabId=null when tabs.getCurrent throws', async () => {
         mockGet.mockResolvedValue({ custom_plugins: [{ format: 'fb2', enabled: true }] });
-        globalThis.browser.tabs.getCurrent = vi.fn().mockRejectedValue(new Error('no tab'));
+        globalThis.extensionApi.tabs.getCurrent = vi.fn().mockRejectedValue(new Error('no tab'));
         const loadViaSW = vi.spyOn(PluginManager, '_loadViaSW').mockResolvedValue();
         await PluginManager.loadAll();
         expect(console.warn).toHaveBeenCalledWith(expect.stringContaining('Failed to get current tab ID'));
@@ -826,7 +818,7 @@ describe('loadAll()', () => {
 
     it('skips scripting exec when ownTabId is null (tab.id absent)', async () => {
         mockGet.mockResolvedValue({ custom_plugins: [{ format: 'fb2', enabled: true }] });
-        globalThis.browser.tabs.getCurrent = vi.fn().mockResolvedValue(null);
+        globalThis.extensionApi.tabs.getCurrent = vi.fn().mockResolvedValue(null);
         const loadViaSW = vi.spyOn(PluginManager, '_loadViaSW').mockResolvedValue();
         const scriptingExec = vi.spyOn(PluginManager, '_tryScriptingExec');
         await PluginManager.loadAll();
@@ -905,7 +897,7 @@ describe('FormatSandboxProxy.export() + _createSandbox', () => {
         const mockRegister = vi.fn((_fmt, Cls) => { CapturedProxy = Cls; });
         globalThis.BaseExporter = class {};
         globalThis.ExporterRegistry = { register: mockRegister };
-        globalThis.browser = {
+        globalThis.extensionApi = {
             runtime: {
                 sendMessage: vi.fn().mockResolvedValue({ ok: true }),
                 getURL: vi.fn(p => `chrome-extension://abc/${p}`)
@@ -916,7 +908,7 @@ describe('FormatSandboxProxy.export() + _createSandbox', () => {
             Promise.resolve().then(() => el.onerror?.());
         });
 
-        await PluginManager._loadViaSW(globalThis.browser, { format: 'fb2', code: 'const x=1;', label: 'FB2' });
+        await PluginManager._loadViaSW(globalThis.extensionApi, { format: 'fb2', code: 'const x=1;', label: 'FB2' });
     });
 
     afterEach(() => {
@@ -934,18 +926,18 @@ describe('FormatSandboxProxy.export() + _createSandbox', () => {
         expect(result.blob).toBeInstanceOf(Blob);
     });
 
-    it('_createSandbox: builds Firefox iframe.srcdoc when getBrowserEnv().isFirefox is true', async () => {
-        globalThis.getBrowserEnv = () => ({ isFirefox: true });
+    it('_createSandbox: builds Firefox iframe.srcdoc when browserEnv.isFirefox is true', async () => {
+        globalThis.browserEnv = { isFirefox: true };
         const inst = new CapturedProxy();
         const result = await inst.export({}, [], null);
         expect(result.filename).toBe('out.fb2');
         expect(fakeIframe.srcdoc).toContain('window.addEventListener("message"');
         expect(fakeIframe.srcdoc).toContain('ExporterRegistry');
-        delete globalThis.getBrowserEnv;
+        delete globalThis.browserEnv;
     });
 
     it('export() calls sandbox.exec(jsZipCode) when runtimeApi.getURL and fetch succeed', async () => {
-        globalThis.browser.runtime.getURL = vi.fn(() => 'chrome-ext://abc/lib/jszip.min.js');
+        globalThis.extensionApi.runtime.getURL = vi.fn(() => 'chrome-ext://abc/lib/jszip.min.js');
         globalThis.fetch = vi.fn().mockResolvedValue({ ok: true, text: async () => 'jszip-code' });
         const execCalls = [];
         fakeContentWindow.postMessage.mockImplementation(msg => {
@@ -984,7 +976,7 @@ describe('FormatSandboxProxy.export() + _createSandbox', () => {
     });
 
     it('export() covers resp.ok=false branch (jszip not loaded)', async () => {
-        globalThis.browser.runtime.getURL = vi.fn(() => 'chrome-ext://abc/lib/jszip.min.js');
+        globalThis.extensionApi.runtime.getURL = vi.fn(() => 'chrome-ext://abc/lib/jszip.min.js');
         globalThis.fetch = vi.fn().mockResolvedValue({ ok: false });
         const execCalls = [];
         fakeContentWindow.postMessage.mockImplementation(msg => {
@@ -1004,9 +996,9 @@ describe('FormatSandboxProxy.export() + _createSandbox', () => {
         delete globalThis.fetch;
     });
 
-    it('export() skips jszip fetch entirely when _getApi() has no runtime.getURL', async () => {
-        globalThis.getBrowserEnv = () => ({ isFirefox: true });
-        globalThis.browser = { runtime: { sendMessage: vi.fn().mockResolvedValue({ ok: true }) } };
+    it('export() skips jszip fetch entirely when the extension api has no runtime.getURL', async () => {
+        globalThis.browserEnv = { isFirefox: true };
+        globalThis.extensionApi = { runtime: { sendMessage: vi.fn().mockResolvedValue({ ok: true }) } };
         const fetchSpy = vi.fn();
         globalThis.fetch = fetchSpy;
         fakeContentWindow.postMessage.mockImplementation(msg => {
@@ -1024,11 +1016,11 @@ describe('FormatSandboxProxy.export() + _createSandbox', () => {
         expect(fetchSpy).not.toHaveBeenCalled();
         expect(result.filename).toBe('out.fb2');
         delete globalThis.fetch;
-        delete globalThis.getBrowserEnv;
+        delete globalThis.browserEnv;
     });
 
     it('export() covers fetch throw branch', async () => {
-        globalThis.browser.runtime.getURL = vi.fn(() => 'chrome-ext://abc/lib/jszip.min.js');
+        globalThis.extensionApi.runtime.getURL = vi.fn(() => 'chrome-ext://abc/lib/jszip.min.js');
         globalThis.fetch = vi.fn().mockRejectedValue(new Error('network'));
         const inst = new CapturedProxy();
         await inst.export({}, [], null);
@@ -1164,11 +1156,11 @@ describe('FormatSandboxProxy.export() + _createSandbox', () => {
     });
 
     it('_createSandbox: rejects when sandbox URL cannot be resolved', async () => {
-        const origGetURL = globalThis.browser.runtime.getURL;
-        globalThis.browser.runtime.getURL = vi.fn(() => undefined);
+        const origGetURL = globalThis.extensionApi.runtime.getURL;
+        globalThis.extensionApi.runtime.getURL = vi.fn(() => undefined);
         const inst = new CapturedProxy();
         await expect(inst.export({}, [], null)).rejects.toThrow('Cannot resolve sandbox URL');
-        globalThis.browser.runtime.getURL = origGetURL;
+        globalThis.extensionApi.runtime.getURL = origGetURL;
     });
 
     it('destroy() removes message listener and removes iframe', async () => {

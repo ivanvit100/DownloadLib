@@ -1,12 +1,11 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 
 let ServiceRegistry;
+let serviceRegistry;
 
 beforeEach(async () => {
-    const path = require.resolve('../../services/ServiceRegistry.js');
-    delete require.cache[path];
-    await import('../../services/ServiceRegistry.js');
-    ServiceRegistry = global.ServiceRegistry;
+    vi.resetModules();
+    ({ ServiceRegistry, serviceRegistry } = await import('../../services/ServiceRegistry.js'));
 });
 
 describe('ServiceRegistry', () => {
@@ -90,8 +89,8 @@ describe('ServiceRegistry', () => {
         expect(all.some(s => s instanceof S2)).toBe(true);
     });
 
-    it('Global serviceRegistry is defined', () => {
-        expect(global.serviceRegistry).toBeInstanceOf(ServiceRegistry);
+    it('Shared serviceRegistry instance is exported', () => {
+        expect(serviceRegistry).toBeInstanceOf(ServiceRegistry);
     });
 
     it('createService returns new instance by name', () => {
@@ -137,28 +136,5 @@ describe('ServiceRegistry', () => {
         expect(registry.createService('Bad')).toBeNull();
         expect(errorSpy).toHaveBeenCalled();
         errorSpy.mockRestore();
-    });
-
-    it('Сalls importScripts in service worker context', async () => {
-        vi.resetModules();
-        const importScriptsMock = vi.fn();
-        global.importScripts = importScriptsMock;
-        await import('../../services/ServiceRegistry.js');
-        expect(importScriptsMock).toHaveBeenCalled();
-        delete global.importScripts;
-    });
-
-    it('Сalls document.write in browser page context', async () => {
-        vi.resetModules();
-        delete global.importScripts;
-        const writeMock = vi.spyOn(document, 'write').mockImplementation(() => {});
-        Object.defineProperty(document, 'currentScript', {
-            get: () => document.createElement('script'),
-            configurable: true
-        });
-        await import('../../services/ServiceRegistry.js');
-        expect(writeMock).toHaveBeenCalled();
-        writeMock.mockRestore();
-        delete document.currentScript;
     });
 });

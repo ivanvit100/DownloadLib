@@ -10,8 +10,7 @@ class DummySimple {}
 
 beforeEach(async () => {
     vi.resetModules();
-    await import('../../exporters/ExporterRegistry.js');
-    ExporterRegistry = global.ExporterRegistry;
+    ({ ExporterRegistry } = await import('../../exporters/ExporterRegistry.js'));
     ExporterRegistry.register('fb2', DummyFB2, { label: 'FB2' });
     ExporterRegistry.register('epub', DummyEPUB, { label: 'EPUB' });
     ExporterRegistry.register('pdf', DummyPDF, { label: 'PDF' });
@@ -78,36 +77,5 @@ describe('ExporterRegistry', () => {
         expect(ExporterRegistry.getSupportedFormats()).toEqual(['x']);
         const formats = ExporterRegistry.getFormats();
         expect(formats).toEqual([{ value: 'x', label: 'X' }]);
-    });
-
-    it('Calls importScripts when importScripts is defined as a function', async () => {
-        vi.resetModules();
-        const called = [];
-        globalThis.importScripts = (...scripts) => { called.push(...scripts); };
-        await import('../../exporters/ExporterRegistry.js');
-        ExporterRegistry = global.ExporterRegistry;
-        expect(called.some(s => s.includes('BaseExporter.js'))).toBe(true);
-        delete globalThis.importScripts;
-        ExporterRegistry._reset();
-    });
-
-    it('Calls document.write when document.currentScript is not null', async () => {
-        vi.resetModules();
-        const written = [];
-        const origWrite = document.write?.bind(document);
-        document.write = (str) => { written.push(str); };
-        Object.defineProperty(document, 'currentScript', {
-            get: () => ({ tagName: 'SCRIPT' }),
-            configurable: true
-        });
-        await import('../../exporters/ExporterRegistry.js');
-        ExporterRegistry = global.ExporterRegistry;
-        expect(written.some(s => s.includes('BaseExporter.js'))).toBe(true);
-        if (origWrite) document.write = origWrite;
-        Object.defineProperty(document, 'currentScript', {
-            get: () => null,
-            configurable: true
-        });
-        ExporterRegistry._reset();
     });
 });
