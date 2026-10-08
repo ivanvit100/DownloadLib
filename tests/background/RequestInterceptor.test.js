@@ -89,40 +89,17 @@ describe('RequestInterceptor', () => {
             await loadModule();
         });
 
-        it('Registers webRequest listener with blocking mode', () => {
+        it('Registers webRequest listener with blocking mode for the service config URLs', async () => {
+            const { webRequestUrls } = await import('../../services/hosts.js');
             expect(mockAddListenerBeforeSendHeaders).toHaveBeenCalledWith(
                 expect.any(Function),
-                {
-                    urls: [
-                        'https://api.cdnlibs.org/*',
-                        'https://cover.cdnlibs.org/*',
-                        'https://img1.cdnlibs.org/*',
-                        'https://img2.cdnlibs.org/*',
-                        'https://img3.cdnlibs.org/*',
-                        'https://*.mixlib.me/*',
-                        'https://*.imglib.info/*',
-                        'https://*.imgslib.link/*',
-                        'https://ranobelib.me/*',
-                        'https://*.ranobelib.me/*',
-                        'https://*.mangalib.me/*',
-                        'https://*.mangalib.org/*'
-                    ]
-                },
+                { urls: webRequestUrls() },
                 ['blocking', 'requestHeaders'],
             );
         });
 
-        it('Registers onBeforeRequest listener', () => {
-            expect(mockAddListenerOnBeforeRequest).toHaveBeenCalledWith(
-                expect.any(Function),
-                {
-                    urls: [
-                        'https://mangalib.me/uploads/slider_items/*',
-                        'https://yandex.ru/*'
-                    ]
-                },
-                ['blocking'],
-            );
+        it('Does not register a webRequest ad blocker (ads are blocked by DNR rules)', () => {
+            expect(mockAddListenerOnBeforeRequest).not.toHaveBeenCalled();
         });
 
         it('Registers onHeadersReceived listener', () => {
@@ -218,14 +195,14 @@ describe('RequestInterceptor', () => {
             expect(mockTrackRequest).toHaveBeenCalledWith('mangalib');
         });
 
-        it('Detects mangalib by imglib.info url', async () => {
+        it('Detects ranobelib by imglib.info url', async () => {
             await capturedBeforeSendHeadersCb({
                 tabId: -1,
                 frameId: 0,
                 url: 'https://cdn.imglib.info/image.jpg',
                 requestHeaders: [{ name: 'X-Extension-Request', value: 'true' }],
             });
-            expect(mockTrackRequest).toHaveBeenCalledWith('mangalib');
+            expect(mockTrackRequest).toHaveBeenCalledWith('ranobelib');
         });
 
         it('Detects mangalib by imgslib.link url', async () => {
@@ -566,20 +543,11 @@ describe('RequestInterceptor', () => {
             await loadModule();
         });
 
-        it('Registers webRequest listener without blocking', () => {
+        it('Registers webRequest listener without blocking for the service config URLs', async () => {
+            const { webRequestUrls } = await import('../../services/hosts.js');
             expect(mockAddListenerBeforeSendHeaders).toHaveBeenCalledWith(
                 expect.any(Function),
-                {
-                    urls: [
-                        'https://api.cdnlibs.org/*',
-                        'https://*.mixlib.me/*',
-                        'https://*.imglib.info/*',
-                        'https://*.imgslib.link/*',
-                        'https://*.ranobelib.me/*',
-                        'https://*.mangalib.me/*',
-                        'https://*.mangalib.org/*'
-                    ]
-                },
+                { urls: webRequestUrls() },
                 ['requestHeaders'],
             );
         });
@@ -633,102 +601,10 @@ describe('RequestInterceptor', () => {
         });
     });
 
-    describe('onBeforeRequest ad blocking', () => {
-        beforeEach(async () => {
-            setupGlobals('firefox');
-            await loadModule();
-        });
-
-        it('Blocks slider items from mangalib page', () => {
-            const result = capturedOnBeforeRequestCb({
-                documentUrl: 'https://mangalib.me/some-manga',
-                url: 'https://mangalib.me/uploads/slider_items/banner.jpg',
-            });
-            expect(result).toEqual({ cancel: true });
-        });
-
-        it('Blocks yandex from mangalib page', () => {
-            const result = capturedOnBeforeRequestCb({
-                documentUrl: 'https://mangalib.me/some-manga',
-                url: 'https://yandex.ru/metrika/watch.js',
-            });
-            expect(result).toEqual({ cancel: true });
-        });
-
-        it('Blocks requests from mangalib.org page', () => {
-            const result = capturedOnBeforeRequestCb({
-                documentUrl: 'https://mangalib.org/some-manga',
-                url: 'https://yandex.ru/some-script.js',
-            });
-            expect(result).toEqual({ cancel: true });
-        });
-
-        it('Blocks requests from ranobelib page', () => {
-            const result = capturedOnBeforeRequestCb({
-                documentUrl: 'https://ranobelib.me/some-ranobe',
-                url: 'https://yandex.ru/ads.js',
-            });
-            expect(result).toEqual({ cancel: true });
-        });
-
-        it('Does not block non-matching urls from service page', () => {
-            const result = capturedOnBeforeRequestCb({
-                documentUrl: 'https://mangalib.me/some-manga',
-                url: 'https://cdn.mangalib.me/chapter-image.jpg',
-            });
-            expect(result).toBeUndefined();
-        });
-
-        it('Does not block matching urls from non-service page', () => {
-            const result = capturedOnBeforeRequestCb({
-                documentUrl: 'https://example.com/page',
-                url: 'https://yandex.ru/metrika/watch.js',
-            });
-            expect(result).toBeUndefined();
-        });
-
-        it('Handles missing documentUrl gracefully', () => {
-            const result = capturedOnBeforeRequestCb({
-                url: 'https://yandex.ru/metrika/watch.js',
-            });
-            expect(result).toBeUndefined();
-        });
-
-        it('Uses initiator field as fallback', () => {
-            const result = capturedOnBeforeRequestCb({
-                initiator: 'https://mangalib.me',
-                url: 'https://yandex.ru/ads.js',
-            });
-            expect(result).toEqual({ cancel: true });
-        });
-
-        it('Uses originUrl field as fallback', () => {
-            const result = capturedOnBeforeRequestCb({
-                originUrl: 'https://ranobelib.me/page',
-                url: 'https://mangalib.me/uploads/slider_items/item.jpg',
-            });
-            expect(result).toEqual({ cancel: true });
-        });
-    });
-
     describe('Helper functions', () => {
         beforeEach(async () => {
             setupGlobals('firefox');
             await loadModule();
-        });
-
-        it('Exports detectServiceByUrl', () => {
-            const { detectServiceByUrl } = RequestInterceptor;
-            expect(detectServiceByUrl('https://ranobelib.me/book/slug')).toBe('ranobelib');
-            expect(detectServiceByUrl('https://mangalib.me/manga/slug')).toBe('mangalib');
-            expect(detectServiceByUrl('https://example.com')).toBeNull();
-            expect(globalThis.detectServiceByUrl).toBeUndefined();
-        });
-
-        it('detectServiceByUrl returns mangalib for cdnlibs.org URL', () => {
-            const { detectServiceByUrl } = RequestInterceptor;
-            expect(detectServiceByUrl('https://img3.cdnlibs.org/image.jpg')).toBe('mangalib');
-            expect(detectServiceByUrl('https://cover.cdnlibs.org/cover.jpg')).toBe('mangalib');
         });
 
         it('Stores a captured token in the exported authTokens', async () => {

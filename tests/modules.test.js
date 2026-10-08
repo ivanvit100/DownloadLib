@@ -34,21 +34,32 @@ describe('ES module graph', () => {
         LEGACY_GLOBALS.forEach(name => expect(globalThis[name], name).toBeUndefined());
     });
 
-    it('Evaluates the background entry point and installs its listeners', async () => {
+    it('Evaluates the background entry point and installs its listeners and rules', async () => {
         globalThis.chrome = {
-            runtime: { id: 'ext', onMessage: { addListener: vi.fn() }, onConnect: { addListener: vi.fn() } },
+            runtime: {
+                id: 'ext',
+                onMessage: { addListener: vi.fn() },
+                onConnect: { addListener: vi.fn() },
+                onStartup: { addListener: vi.fn() }
+            },
             webRequest: {
                 onBeforeSendHeaders: { addListener: vi.fn() },
                 onBeforeRequest: { addListener: vi.fn() }
             },
-            declarativeNetRequest: {}
+            declarativeNetRequest: {
+                getSessionRules: vi.fn().mockResolvedValue([]),
+                updateSessionRules: vi.fn().mockResolvedValue()
+            }
         };
 
         await import('../background/main.js');
+        await vi.waitFor(() => expect(globalThis.chrome.declarativeNetRequest.updateSessionRules).toHaveBeenCalled());
 
         expect(globalThis.chrome.runtime.onMessage.addListener).toHaveBeenCalledTimes(1);
         expect(globalThis.chrome.runtime.onConnect.addListener).toHaveBeenCalledTimes(1);
+        expect(globalThis.chrome.runtime.onStartup.addListener).toHaveBeenCalledTimes(1);
         expect(globalThis.chrome.webRequest.onBeforeSendHeaders.addListener).toHaveBeenCalledTimes(1);
+        expect(globalThis.chrome.webRequest.onBeforeRequest.addListener).not.toHaveBeenCalled();
         LEGACY_GLOBALS.forEach(name => expect(globalThis[name], name).toBeUndefined());
     });
 });

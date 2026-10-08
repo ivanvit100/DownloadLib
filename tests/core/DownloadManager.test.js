@@ -100,11 +100,13 @@ describe('DownloadManager', () => {
         expect(sorted[2].volume).toBe('2');
     });
 
-    it('Extract slug', () => {
+    it('Takes the slug from the url when no slug is given', () => {
         const dm = new DownloadManager();
-        expect(dm.extractSlug('https://site/manga/abc-def')).toBe('abc-def');
-        expect(dm.extractSlug('https://site/book/xyz')).toBe('xyz');
-        expect(dm.extractSlug('https://site/other/123')).toBeNull();
+        const service = { name: 'mangalib' };
+        expect(dm._createDownloadState({ url: 'https://site/manga/abc-def#comments' }, service).slug).toBe('abc-def');
+        expect(dm._createDownloadState({ url: 'https://site/book/xyz?section=info' }, service).slug).toBe('xyz');
+        expect(dm._createDownloadState({ slug: 'given', url: 'https://site/manga/other' }, service).slug).toBe('given');
+        expect(dm._createDownloadState({}, service).slug).toBeNull();
     });
 
     it('Create controller', async () => {
@@ -316,8 +318,9 @@ describe('DownloadManager', () => {
     });
 
     it('Start download with unknown service', async () => {
+        globalThis.serviceRegistry.createService = vi.fn(() => null);
         const dm = new DownloadManager();
-        await expect(dm.startDownload({ serviceKey: 'unknown' })).rejects.toThrow();
+        await expect(dm.startDownload({ serviceKey: 'unknown' })).rejects.toThrow('Unknown service: unknown');
     });
 
     it('Start download no service', async () => {

@@ -1,7 +1,7 @@
 /**
  * DownloadLib background module
- * Intercepts network requests: injects headers, captures auth tokens, enforces rate limits,
- * fixes CORS for image CDNs, and blocks ad network requests
+ * Intercepts network requests: injects headers, captures auth tokens, enforces rate limits
+ * and fixes CORS for image CDNs
  * @module background/RequestInterceptor
  * @license MIT
  * @author ivanvit
@@ -10,6 +10,9 @@
 
 import { browserEnv, extensionApi } from '../core/BrowserApi.js';
 import { globalRateLimiter } from '../core/RateLimiter.js';
+import {
+    isApiUrl, isImageHost, serviceConfig, serviceKeyForSiteId, serviceKeyForUrl, serviceOrigins, webRequestUrls
+} from '../services/hosts.js';
 
 console.log('[RequestInterceptor] Script loading...');
 
@@ -25,33 +28,20 @@ console.log('[RequestInterceptor] Detected browser:', isFirefox ? 'Firefox' : 'C
 export const authTokens = {};
 
 /**
- * Определяет сервис (mangalib/ranobelib) по хосту URL.
- * @param {string} url - Проверяемый URL запроса.
- * @returns {string|null} Ключ сервиса ('mangalib'/'ranobelib') или null, если сервис не распознан.
- */
-export function detectServiceByUrl(url) {
-    if (url.includes('ranobelib.me')) return 'ranobelib';
-    if (url.includes('mangalib.me') || url.includes('mangalib.org')) return 'mangalib';
-    if (url.includes('mixlib.me') || url.includes('imglib.info') || url.includes('imgslib.link')) return 'mangalib';
-    if (url.includes('cdnlibs.org')) return 'mangalib';
-    return null;
-}
-
-/**
- * Перехватывает Bearer-токен из заголовка Authorization запроса к api.cdnlibs.org
+ * Перехватывает Bearer-токен из заголовка Authorization запроса к API сервиса
  * и сохраняет его в хранилище токенов, если он изменился.
  * @param {object} details - Данные запроса из webRequest (requestHeaders, originUrl, documentUrl и т.д.).
  * @param {string} [serviceName] - Заранее известный ключ сервиса; если не передан,
- * определяется по origin/document URL.
+ * определяется по origin/document URL (по умолчанию — mangalib).
  * @returns {void}
  */
 function captureAuthToken(details, serviceName) {
-    if (details.url.startsWith('https://api.cdnlibs.org/')) {
+    if (isApiUrl(details.url)) {
         const authHeader = details.requestHeaders?.find(h => h.name.toLowerCase() === 'authorization');
         if (authHeader?.value?.startsWith('Bearer ')) {
             const svc = serviceName || (() => {
                 const tabUrl = [details.originUrl, details.documentUrl].find(u => u?.startsWith('https://'));
-                return tabUrl?.includes('ranobelib.me') ? 'ranobelib' : 'mangalib';
+                return serviceKeyForUrl(tabUrl) || 'mangalib';
             })();
             const newToken = authHeader.value.substring(7);
             if (authTokens[svc] !== newToken) {
@@ -64,14 +54,14 @@ function captureAuthToken(details, serviceName) {
 
 /**
  * Подставляет сохранённый Bearer-токен сервиса в заголовок Authorization исходящего
- * запроса к api.cdnlibs.org, заменяя существующее значение или добавляя новый заголовок.
+ * запроса к API сервиса, заменяя существующее значение или добавляя новый заголовок.
  * @param {Array<{name: string, value: string}>} headers - Список заголовков запроса (мутируется на месте).
  * @param {string} serviceName - Ключ сервиса, для которого нужно подставить токен.
  * @param {string} url - URL запроса, к которому относятся заголовки.
  * @returns {void}
  */
 function injectAuthToken(headers, serviceName, url) {
-    if (serviceName && authTokens[serviceName] && url.startsWith('https://api.cdnlibs.org/')) {
+    if (serviceName && authTokens[serviceName] && isApiUrl(url)) {
         const authIdx = headers.findIndex(h => h.name.toLowerCase() === 'authorization');
         const authValue = `Bearer ${authTokens[serviceName]}`;
         if (authIdx !== -1) headers[authIdx].value = authValue;
@@ -80,52 +70,36 @@ function injectAuthToken(headers, serviceName, url) {
 }
 
 /**
- * Проверяет, относится ли URL к запросу изображения (CDN обложек/страниц манги).
+ * Проверяет, относится ли URL к запросу изображения: CDN изображений сервиса
+ * или путь обложек/загрузок на сайте.
  * @param {string} url - Проверяемый URL запроса.
  * @returns {boolean} true, если URL соответствует одному из известных хостов/путей изображений.
  */
 function isImageRequest(url) {
-    return url.includes('mixlib.me') ||
-        url.includes('imglib.info') ||
-        url.includes('imgslib.link') ||
-        url.includes('img1.cdnlibs.org') ||
-        url.includes('img2.cdnlibs.org') ||
-        url.includes('img3.cdnlibs.org') ||
-        url.includes('cover.cdnlibs.org') ||
-        url.includes('/covers/') ||
-        url.includes('/uploads/');
+    return isImageHost(url) || url.includes('/covers/') || url.includes('/uploads/');
 }
 
 /**
  * Определяет сервис запроса по служебным заголовкам (x-dl-service, site-id, Referer),
  * а для запросов изображений — по хосту URL.
  * @param {object} details - Данные запроса из webRequest, включая requestHeaders.
- * @returns {string|null} Ключ сервиса ('mangalib'/'ranobelib') или null, если определить не удалось.
+ * @returns {string|null} Ключ встроенного сервиса или null, если определить не удалось.
  */
 function detectServiceByReferer(details) {
     const headers = details.requestHeaders || [];
-    const serviceHeader = headers.find(h => h.name.toLowerCase() === 'x-dl-service');
-    if (serviceHeader) {
-        const serviceValue = String(serviceHeader.value || '').toLowerCase();
-        if (serviceValue === 'mangalib') return 'mangalib';
-        else if (serviceValue === 'ranobelib') return 'ranobelib';
-    }
+    const headerValue = name => headers.find(h => h.name.toLowerCase() === name)?.value;
 
-    const siteIdHeader = headers.find(h => h.name.toLowerCase() === 'site-id');
-    if (siteIdHeader) {
-        const siteId = String(siteIdHeader.value || '').trim();
-        if (siteId === '1') return 'mangalib';
-        else if (siteId === '3') return 'ranobelib';
-    }
+    const declared = String(headerValue('x-dl-service') || '').toLowerCase();
+    if (serviceConfig(declared)) return declared;
 
-    const refererHeader = headers.find(h => h.name.toLowerCase() === 'referer');
-    const referer = refererHeader ? refererHeader.value : '';
+    const bySiteId = serviceKeyForSiteId(headerValue('site-id'));
+    if (bySiteId) return bySiteId;
 
-    if (referer.includes('ranobelib.me')) return 'ranobelib';
-    if (referer.includes('mangalib.me') || referer.includes('mangalib.org')) return 'mangalib';
+    const byReferer = serviceKeyForUrl(headerValue('referer'));
+    if (byReferer) return byReferer;
 
     if (isImageRequest(details.url))
-        return detectServiceByUrl(details.url);
+        return serviceKeyForUrl(details.url);
 
     return null;
 }
@@ -153,20 +127,7 @@ function isFromExtension(details) {
 
 const pendingOrigins = new Map();
 
-const FIREFOX_WEBREQUEST_URLS = [
-    'https://api.cdnlibs.org/*',
-    'https://cover.cdnlibs.org/*',
-    'https://img1.cdnlibs.org/*',
-    'https://img2.cdnlibs.org/*',
-    'https://img3.cdnlibs.org/*',
-    'https://*.mixlib.me/*',
-    'https://*.imglib.info/*',
-    'https://*.imgslib.link/*',
-    'https://ranobelib.me/*',
-    'https://*.ranobelib.me/*',
-    'https://*.mangalib.me/*',
-    'https://*.mangalib.org/*'
-];
+const WEBREQUEST_URLS = webRequestUrls();
 
 /**
  * Регистрирует блокирующие обработчики webRequest для Firefox: подстановку/захват
@@ -212,7 +173,7 @@ function setupFirefoxListeners() {
 
             return { requestHeaders: headers };
         },
-        { urls: FIREFOX_WEBREQUEST_URLS },
+        { urls: WEBREQUEST_URLS },
         ['blocking', 'requestHeaders']
     );
 
@@ -240,8 +201,7 @@ function setupFirefoxListeners() {
                     headers.push({ name: 'Access-Control-Allow-Origin', value: `moz-extension://${extensionApi.runtime.id}` });
                     headers.push({ name: 'Access-Control-Allow-Credentials', value: 'true' });
                 } else {
-                    const svc = detectServiceByUrl(details.url);
-                    const acao = svc === 'ranobelib' ? 'https://ranobelib.me' : 'https://mangalib.me';
+                    const acao = serviceOrigins(serviceKeyForUrl(details.url))[0] ?? serviceOrigins()[0];
                     headers.push({ name: 'Access-Control-Allow-Origin', value: acao });
                     headers.push({ name: 'Access-Control-Allow-Credentials', value: 'true' });
                 }
@@ -250,7 +210,7 @@ function setupFirefoxListeners() {
             pendingOrigins.delete(details.requestId);
             return { responseHeaders: headers };
         },
-        { urls: FIREFOX_WEBREQUEST_URLS },
+        { urls: WEBREQUEST_URLS },
         ['blocking', 'responseHeaders']
     );
 
@@ -285,69 +245,14 @@ function setupChromeRateLimiter() {
             else if (serviceName)
                 await globalRateLimiter.trackRequest(serviceName);
         },
-        {
-            urls: [
-                'https://api.cdnlibs.org/*',
-                'https://*.mixlib.me/*',
-                'https://*.imglib.info/*',
-                'https://*.imgslib.link/*',
-                'https://*.ranobelib.me/*',
-                'https://*.mangalib.me/*',
-                'https://*.mangalib.org/*'
-            ]
-        },
+        { urls: WEBREQUEST_URLS },
         ['requestHeaders']
     );
 
     console.log('[RequestInterceptor] Chrome: Rate limiter installed');
 }
 
-/**
- * Регистрирует блокирующий обработчик webRequest, отменяющий запросы к рекламным/
- * баннерным ресурсам (слайдер mangalib, яндекс-редиректы) на страницах сервисов.
- * @returns {void}
- */
-function setupAdBlocker() {
-    if (!extensionApi?.webRequest?.onBeforeRequest) return;
-
-    /**
-     * Обработчик onBeforeRequest: отменяет запрос, если он сделан со страницы
-     * одного из сервисов и ведёт на известный рекламный ресурс.
-     * @param {object} details - Данные запроса из webRequest.
-     * @returns {{cancel: boolean}|undefined} Объект отмены запроса или undefined, если запрос не блокируется.
-     */
-    extensionApi.webRequest.onBeforeRequest.addListener(
-        (details) => {
-            let isService = false;
-            try {
-                const tabUrl = details.documentUrl || details.initiator || details.originUrl || '';
-                if (
-                    tabUrl.includes('mangalib.me') ||
-                    tabUrl.includes('mangalib.org') ||
-                    tabUrl.includes('ranobelib.me')
-                ) isService = true;
-            } catch (e) {}
-
-            if (
-                isService &&
-                (
-                    details.url.startsWith('https://mangalib.me/uploads/slider_items/') ||
-                    details.url.startsWith('https://yandex.ru')
-                )
-            ) return { cancel: true };
-        },
-        {
-            urls: [
-                'https://mangalib.me/uploads/slider_items/*',
-                'https://yandex.ru/*'
-            ]
-        },
-        ['blocking']
-    );
-}
-
 setupFirefoxListeners();
 setupChromeRateLimiter();
-setupAdBlocker();
 
 console.log('[RequestInterceptor] Script loaded');

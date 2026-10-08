@@ -9,14 +9,11 @@
 
 import { extensionApi } from '../core/BrowserApi.js';
 import { DownloadHistory } from '../core/DownloadHistory.js';
+import { buildTitleUrl } from '../services/hosts.js';
 import { serviceRegistry } from '../services/ServiceRegistry.js';
 
 const FORMAT_LABELS = { epub: 'EPUB', fb2: 'FB2', pdf: 'PDF', mobi: 'MOBI' };
 const DEFAULT_COLOR = '#ff9100';
-const SERVICE_URLS = {
-    mangalib: slug => `https://mangalib.me/ru/manga/${slug}`,
-    ranobelib: slug => `https://ranobelib.me/ru/book/${slug}`
-};
 
 /**
  * Возвращает фирменный цвет сервиса для оформления карточки истории.
@@ -96,11 +93,11 @@ export const HistoryController = {
         titleRow.className = 'history-card-title';
         titleRow.textContent = entry.title || entry.slug;
 
-        const urlBuilder = SERVICE_URLS[entry.service];
-        if (urlBuilder && extensionApi?.tabs) {
+        const titleUrl = buildTitleUrl(serviceRegistry.getService(entry.service)?.config?.titleUrl, entry.slug);
+        if (titleUrl && extensionApi?.tabs) {
             titleRow.classList.add('history-card-title--link');
             titleRow.style.setProperty('--entry-color', color);
-            titleRow.addEventListener('click', () => extensionApi.tabs.create({ url: urlBuilder(entry.slug) }));
+            titleRow.addEventListener('click', () => extensionApi.tabs.create({ url: titleUrl }));
         }
 
         const meta = document.createElement('div');

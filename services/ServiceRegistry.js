@@ -36,7 +36,7 @@ export class ServiceRegistry {
             this.services.set(instance.name, {
                 class: ServiceClass,
                 instance: instance,
-                matcher: ServiceClass.matches
+                matcher: url => ServiceClass.matches(url)
             });
             console.log(`[ServiceRegistry] Registered: ${instance.name}`);
         } catch (e) {

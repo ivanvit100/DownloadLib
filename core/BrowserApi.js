@@ -7,6 +7,8 @@
  * @version 1.1.0
  */
 
+import { tabPatterns } from '../services/hosts.js';
+
 /**
  * Promise-based API расширения текущего браузера: нативный browser (Firefox) либо
  * chrome (в MV3 методы chrome.* без колбэка сами возвращают промисы, поэтому
@@ -83,15 +85,15 @@ async function _resolvePluginHosts(serviceKey) {
 }
 
 /**
- * Строит список match-паттернов вкладок для поиска открытой вкладки сервиса.
- * @param {string} [serviceKey] - Ключ сервиса ('ranobelib', 'mangalib' или ключ плагина).
+ * Строит список match-паттернов вкладок для поиска открытой вкладки сервиса:
+ * для встроенного сервиса — по его конфигу, для плагина — по хостам из storage.
+ * @param {string} [serviceKey] - Ключ встроенного сервиса или плагина.
  * @returns {Promise<string[]>} Список match-паттернов вида '*://host/*'.
  */
 async function _getTabPatterns(serviceKey) {
-    if (serviceKey === 'ranobelib') return ['*://ranobelib.me/*'];
-    if (!serviceKey || serviceKey === 'mangalib') return ['*://mangalib.me/*', '*://mangalib.org/*'];
-    const hosts = await _resolvePluginHosts(serviceKey);
-    return hosts.map(h => `*://${h}/*`);
+    const builtin = tabPatterns(serviceKey);
+    if (builtin.length || !serviceKey) return builtin;
+    return tabPatterns(serviceKey, { [serviceKey]: await _resolvePluginHosts(serviceKey) });
 }
 
 /**

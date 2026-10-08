@@ -91,8 +91,9 @@ DownloadLib/
 │   ├── main.js              # Общая точка входа фона: импортирует RequestInterceptor и MessageRouter
 │   ├── service-worker.js    # Chrome: модульный service worker, импортирует main.js
 │   ├── background.html      # Firefox: фоновая страница, подключает main.js как модуль
-│   ├── RequestInterceptor.js# Перехват HTTP-запросов, заголовки, авторизация, блокировка рекламы
-│   └── MessageRouter.js     # Маршрутизация runtime.onMessage (fetchImage, fetchWithRateLimit, …)
+│   ├── RequestInterceptor.js# Перехват HTTP-запросов, заголовки, авторизация
+│   ├── netRules.js          # Правила declarativeNetRequest из конфигов (блокировка рекламы)
+│   └── MessageRouter.js     # Маршрутизация runtime.onMessage, регистрация content scripts
 ├── content/                 # Контент-скрипты (исполняются на страницах сайтов)
 │   ├── AdCleaner.js         # Удаляет рекламные элементы
 │   ├── DownloadButton.js    # Инжектирует кнопку «Скачать» на странице тайтла
@@ -112,7 +113,7 @@ DownloadLib/
 ├── ui/                      # UI-контроллеры попапа
 ├── templates/               # HTML-фрагменты (подгружаются динамически)
 ├── exporters/               # Экспортёры форматов (FB2, EPUB, MOBI, PDF, TXT, JPEG)
-├── services/                # Адаптеры для конкретных сайтов (MangaLib, RanobeLib)
+├── services/                # Адаптеры сайтов (MangaLib, RanobeLib)
 ├── css/                     # Стили интерфейса
 ├── lib/                     # Сторонние библиотеки (jszip, html2pdf)
 ├── plugins/                 # Официальные плагины (пример для пользователей)

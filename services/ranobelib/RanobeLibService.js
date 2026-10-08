@@ -11,7 +11,7 @@ import { fetchPageImage, loadImageOrDefer } from '../../core/DownloadManager.js'
 import { BaseService } from '../BaseService.js';
 import { ImageCompressor } from '../../core/ImageCompressor.js';
 import { NoServiceTabError } from '../../core/BrowserApi.js';
-import { ranolibConfig } from './config.js';
+import { ranobelibConfig } from './config.js';
 
 console.log('[RanobeLibService] Loading...');
 
@@ -25,26 +25,15 @@ const IMAGE_CONCURRENCY = 5;
  * с сохранением базового инлайнового форматирования (жирный, курсив и т.д.).
  */
 export class RanobeLibService extends BaseService {
+    /** Конфиг сервиса; по его `hosts` работает унаследованный `matches`. */
+    static config = ranobelibConfig;
+
     /**
      * Создаёт сервис с конфигурацией RanobeLib.
      */
     constructor() {
-        super(ranolibConfig);
+        super(ranobelibConfig);
         console.log('[RanobeLibService] Instance created');
-    }
-
-    /**
-     * Проверяет, относится ли URL к хосту RanobeLib.
-     * @param {string} url - Проверяемый URL.
-     * @returns {boolean} true, если хост URL — ranobelib.me.
-     */
-    static matches(url) {
-        try {
-            const { hostname } = new URL(url);
-            return /ranobelib\.me$/i.test(hostname);
-        } catch {
-            return false;
-        }
     }
 
     /**
@@ -324,8 +313,8 @@ export class RanobeLibService extends BaseService {
 
     /**
      * Строит базовый URL изображения (без расширения) из ссылки: полного URL,
-     * абсолютного пути на ranobelib.me, либо UUID, разрешаемого в путь uploads
-     * конкретного тайтла/главы.
+     * абсолютного пути на сайте сервиса (config.siteUrl), либо UUID, разрешаемого
+     * в путь uploads конкретного тайтла/главы.
      * @param {string} src - Ссылка на изображение из содержимого главы.
      * @param {*} mangaId - id тайтла (для построения пути uploads).
      * @param {*} chapterId - id главы (для построения пути uploads).
@@ -334,8 +323,8 @@ export class RanobeLibService extends BaseService {
     _resolveBaseUrl(src, mangaId, chapterId) {
         const srcWithoutExt = src.replace(/\.(jpg|jpeg|png|webp|gif)$/i, '');
         if (/^https?:\/\//i.test(src)) return srcWithoutExt;
-        if (/^(?:\/\/|\/)/.test(src)) return new URL(srcWithoutExt, 'https://ranobelib.me').toString();
-        return `https://ranobelib.me/uploads/ranobe/${mangaId}/chapters/${chapterId}/${srcWithoutExt}`;
+        if (/^(?:\/\/|\/)/.test(src)) return new URL(srcWithoutExt, this.config.siteUrl).toString();
+        return `${this.config.siteUrl}/uploads/ranobe/${mangaId}/chapters/${chapterId}/${srcWithoutExt}`;
     }
 
     /**

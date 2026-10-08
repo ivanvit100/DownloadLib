@@ -1,4 +1,6 @@
 import { describe, it, expect, beforeEach, vi } from 'vitest';
+import { mangalibConfig } from '../../services/mangalib/config.js';
+import { ranobelibConfig } from '../../services/ranobelib/config.js';
 
 vi.mock('../../core/BrowserApi.js', async () => (await import('../helpers/globalBridge.js')).globalBridge('extensionApi'));
 vi.mock('../../core/DownloadHistory.js', async () => (await import('../helpers/globalBridge.js')).globalBridge('DownloadHistory'));
@@ -21,7 +23,8 @@ beforeEach(async () => {
     setupDOM();
     global.extensionApi = { tabs: { create: vi.fn() } };
     global.DownloadHistory = { getAll: vi.fn(() => []), clear: vi.fn() };
-    global.serviceRegistry = { getService: vi.fn(() => null) };
+    const configs = { mangalib: mangalibConfig, ranobelib: ranobelibConfig };
+    global.serviceRegistry = { getService: vi.fn(key => (configs[key] ? { config: configs[key] } : null)) };
     ({ HistoryController } = await import('../../ui/HistoryController.js'));
 });
 
@@ -112,6 +115,26 @@ describe('HistoryController', () => {
             HistoryController.init();
             document.querySelector('.history-card-title').click();
             expect(global.extensionApi.tabs.create).toHaveBeenCalledWith({ url: 'https://mangalib.me/ru/manga/manga-slug' });
+        });
+
+        it('encodes the slug in the title URL', () => {
+            global.DownloadHistory.getAll = vi.fn(() => [{
+                title: 'Manga', slug: 'a b/c', service: 'mangalib',
+                format: 'fb2', downloadedAt: Date.now()
+            }]);
+            HistoryController.init();
+            document.querySelector('.history-card-title').click();
+            expect(global.extensionApi.tabs.create).toHaveBeenCalledWith({ url: 'https://mangalib.me/ru/manga/a%20b%2Fc' });
+        });
+
+        it('does not link the title of a service without titleUrl', () => {
+            global.serviceRegistry.getService = vi.fn(() => ({ config: { name: 'plugin' } }));
+            global.DownloadHistory.getAll = vi.fn(() => [{
+                title: 'T', slug: 's', service: 'plugin', format: 'fb2', downloadedAt: Date.now()
+            }]);
+            HistoryController.init();
+            const titleEl = document.querySelector('.history-card-title');
+            expect(titleEl.classList.contains('history-card-title--link')).toBe(false);
         });
 
         it('does not add click handler when the extension api has no tabs', () => {

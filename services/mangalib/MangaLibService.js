@@ -21,6 +21,9 @@ console.log('[MangaLibService] Loading...');
  * разбиваются на части по соотношению сторон A4 перед сжатием.
  */
 export class MangaLibService extends BaseService {
+    /** Конфиг сервиса; по его `hosts` работает унаследованный `matches`. */
+    static config = mangalibConfig;
+
     /**
      * Создаёт сервис с конфигурацией MangaLib и пустым кэшем загруженных изображений.
      */
@@ -28,22 +31,6 @@ export class MangaLibService extends BaseService {
         super(mangalibConfig);
         this._imageCache = new Map();
         console.log('[MangaLibService] Instance created');
-    }
-
-    /**
-     * Проверяет, относится ли URL к хостам MangaLib.
-     * @param {string} url - Проверяемый URL.
-     * @returns {boolean} true, если хост URL принадлежит MangaLib.
-     */
-    static matches(url) {
-        try {
-            const { hostname } = new URL(url);
-            return /mangalib\.me$/i.test(hostname) ||
-                /imgslib\.link$/i.test(hostname) ||
-                /mangalib\.org$/i.test(hostname);
-        } catch {
-            return false;
-        }
     }
 
     /**

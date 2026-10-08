@@ -7,7 +7,7 @@ vi.mock('../../../core/DownloadManager.js', async () =>
 vi.mock('../../../core/ImageCompressor.js', async () =>
     (await import('../../helpers/globalBridge.js')).globalBridge('ImageCompressor'));
 vi.mock('../../../services/ranobelib/config.js', async () =>
-    (await import('../../helpers/globalBridge.js')).globalBridge('ranolibConfig'));
+    (await import('../../helpers/globalBridge.js')).globalBridge('ranobelibConfig'));
 
 let RanobeLibService;
 
@@ -24,9 +24,11 @@ beforeEach(async () => {
     global.loadImageOrDefer = (label, load) => load();
     global.ImageCompressor = { compress: vi.fn(async (base64, contentType) => ({ base64, contentType })) };
 
-    global.ranolibConfig = {
+    global.ranobelibConfig = {
         name: 'RanobeLib',
         baseUrl: 'https://ranobelib.me',
+        siteUrl: 'https://ranobelib.me',
+        hosts: ['ranobelib.me'],
         headers: { 'X-Test': '1' },
         fields: ['id', 'title']
     };
@@ -101,7 +103,7 @@ describe('RanobeLibService', () => {
     });
 
     it('Fetch manga metadata uses base url without fields when fields are empty', async () => {
-        global.ranolibConfig.fields = [];
+        global.ranobelibConfig.fields = [];
         const svc = new RanobeLibService();
         global.requestViaTab = vi.fn().mockResolvedValue({ ok: true, text: JSON.stringify({ id: 123 }) });
         const result = await svc.fetchMangaMetadata('slug');

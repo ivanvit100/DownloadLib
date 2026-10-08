@@ -41,8 +41,18 @@ describe('BaseService', () => {
         expect(svc.extractPages({ pages: [] })).toEqual([]);
     });
 
-    it('Static matches throws error', () => {
-        expect(() => BaseService.matches('url')).toThrow('matches must be implemented');
+    it('Static matches returns false without a static config', () => {
+        expect(BaseService.matches('https://mangalib.me/')).toBe(false);
+    });
+
+    it('Static matches uses the hosts of the subclass static config', () => {
+        class SiteService extends BaseService {
+            static config = { name: 'site', hosts: ['site.example'] };
+        }
+        expect(SiteService.matches('https://site.example/manga/x')).toBe(true);
+        expect(SiteService.matches('https://cdn.site.example/a.jpg')).toBe(true);
+        expect(SiteService.matches('https://othersite.example/')).toBe(false);
+        expect(SiteService.matches('not a url')).toBe(false);
     });
 
     it('extensionApi returns the shared BrowserApi instance', () => {

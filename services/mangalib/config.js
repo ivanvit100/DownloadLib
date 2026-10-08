@@ -30,6 +30,14 @@ export const mangalibConfig = {
     splitLongImages: true,
     maxImageHeight: 1800,
 
+    hosts: ['mangalib.me', 'mangalib.org'],
+    imageHosts: [
+        'cover.cdnlibs.org', 'img1.cdnlibs.org', 'img2.cdnlibs.org', 'img3.cdnlibs.org',
+        'mixlib.me', 'imgslib.link'
+    ],
+    titleUrl: 'https://mangalib.me/ru/manga/{slug}',
+    adBlock: ['|https://mangalib.me/uploads/slider_items/', '|https://yandex.ru/'],
+
     label: 'MangaLib',
     siteUrl: 'https://mangalib.me',
     primaryColor: '#ff9100',

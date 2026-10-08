@@ -1,4 +1,4 @@
-export const ranolibConfig = {
+export const ranobelibConfig = {
     name: 'ranobelib',
     baseUrl: 'https://api.cdnlibs.org',
     imagesDomain: 'https://cover.imglib.info',
@@ -26,6 +26,11 @@ export const ranolibConfig = {
         'Accept': 'image/avif,image/webp,image/png,image/svg+xml,image/*;q=0.8,*/*;q=0.5',
         'Accept-Language': 'ru,en-US;q=0.9,en;q=0.8'
     },
+
+    hosts: ['ranobelib.me'],
+    imageHosts: ['imglib.info'],
+    titleUrl: 'https://ranobelib.me/ru/book/{slug}',
+    adBlock: ['|https://yandex.ru/'],
 
     label: 'RanobeLib',
     siteUrl: 'https://ranobelib.me',

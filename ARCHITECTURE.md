@@ -209,13 +209,33 @@ PopupController.startDownload()
 - `fetchChaptersList(slug)` — `GET /api/manga/{slug}/chapters`
 - `fetchChapter(slug, number, volume, branchId)` — `GET /api/manga/{slug}/chapter?number=...`
 
-Абстрактный метод `static matches(url)` — обязателен в подклассе.
+`static matches(url)` по умолчанию проверяет хост URL по `hosts` статического конфига класса (`static config = mangalibConfig`): совпадение или поддомен. Подкласс без статического конфига должен переопределить метод.
 
 ---
 
 ### `services/*/config.js`
 
-Экспортируемый объект конфигурации сервиса (`mangalibConfig`, `ranolibConfig`). Содержит: `name`, `baseUrl`, `imagesDomain`, `siteId`, `fields[]`, `headers`, `imageHeaders`, опциональные `splitLongImages` и `maxImageHeight`. Класс сервиса импортирует его и передаёт в `super(config)`.
+Экспортируемый объект конфигурации сервиса (`mangalibConfig`, `ranobelibConfig`) — единственный источник доменов сервиса. Содержит:
+- `name`, `baseUrl` (хост API), `imagesDomain`, `siteId` (значение заголовка `Site-Id`), `fields[]`, `headers`, `imageHeaders`, опциональные `splitLongImages` и `maxImageHeight`;
+- `hosts` — сайты сервиса. По ним определяется сервис вкладки, ищутся вкладки сервиса и регистрируются content scripts;
+- `imageHosts` — CDN изображений;
+- `titleUrl` — шаблон адреса страницы тайтла с плейсхолдером `{slug}` (ссылки в истории загрузок);
+- `adBlock` — фильтры рекламных запросов в синтаксисе `urlFilter` declarativeNetRequest;
+- оформление: `label`, `siteUrl`, `primaryColor`, `secondaryColor`, `logo`.
+
+Хост в `hosts` и `imageHosts` покрывает и свои поддомены. Класс сервиса импортирует конфиг и передаёт его в `super(config)`.
+
+---
+
+### `services/hosts.js`
+
+Чистые функции над конфигами встроенных сервисов (`serviceConfigs`) и хостами плагинов. Ни один модуль не держит собственных списков доменов.
+- `serviceKeyForUrl(url, pluginHosts?)` — сервис сайта или CDN по имени хоста (не по подстроке URL);
+- `isServiceHost`, `isImageHost`, `isApiUrl`, `serviceKeyForSiteId`;
+- `tabPatterns(serviceKey, pluginHosts?)` — паттерны поиска вкладки сервиса;
+- `webRequestUrls()` — фильтр слушателей `webRequest`;
+- `serviceOrigins(serviceKey?)`, `buildTitleUrl(template, slug)`;
+- `extractSlug(url)` — slug из адреса страницы тайтла (до `?` и `#`).
 
 ---
 
@@ -268,11 +288,17 @@ Content script. Слушает сообщение `{ action: 'fetchImageFromTab'
 
 **Firefox** (`webRequest.onBeforeSendHeaders` в режиме `blocking`): подменяет заголовки запросов от расширения на нужные из конфига сервиса, захватывает JWT-токены из запросов страницы (`captureAuthToken`), добавляет `Access-Control-Allow-Origin` к ответам изображений (`onHeadersReceived`).
 
-**Chrome**: только rate-limiting и перехват токенов без изменения заголовков (управляются через `rules.json` и `declarativeNetRequest`).
+**Chrome**: только rate-limiting и перехват токенов без изменения заголовков.
 
-В обоих браузерах блокирует запросы к рекламным URL через `webRequest.onBeforeRequest`.
+Фильтр URL слушателей и распознавание сервиса (по `Site-Id`, Referer, хосту изображения) берутся из `services/hosts.js`.
 
-Экспортирует `detectServiceByUrl` — функцию определения сервиса по URL — и хранилище токенов `authTokens`. Оба импортирует `MessageRouter`.
+Экспортирует хранилище токенов `authTokens`, которое импортирует `MessageRouter`.
+
+---
+
+### `background/netRules.js`
+
+Строит сессионные правила declarativeNetRequest из `config.adBlock`: правило `block` для каждого фильтра, только для запросов со страниц сайтов сервиса (`initiatorDomains` = `config.hosts`). `installAdBlockRules()` заменяет ранее установленные правила своего диапазона id одним `updateSessionRules`. `background/main.js` вызывает её при загрузке фона и на `runtime.onStartup`, потому что сессионные правила живут до закрытия браузера.
 
 ---
 
@@ -283,9 +309,10 @@ Content script. Слушает сообщение `{ action: 'fetchImageFromTab'
 Хендлеры (`Map<action, handler>`):
 - `getAuthToken` / `cacheAuthToken` — чтение и запись токенов в `authTokens` из `RequestInterceptor`.
 - `setRateLimit` / `getRateLimiterStats` — управление rate limiter background-процесса.
-- `fetchImage` — находит открытую вкладку нужного сервиса, отправляет ей `fetchImageFromTab`, прокидывает ответ обратно в popup.
 - `fetchWithRateLimit` — делает fetch с rate limiting и retry при 429, возвращает тело и заголовки.
 - `openDownloadWindow` / `openWindowWithUrl` — открывает popup.html с нужными параметрами в новом окне или вкладке.
+
+Регистрирует content scripts (`scripting.registerContentScripts`): для встроенных сервисов — по `hosts` их конфигов, для включённых плагинов — по их хостам. Статических `content_scripts` в манифестах нет. При старте фона и при изменении списка плагинов регистрации сверяются с нужными: неизменённые не трогаются, устаревшие снимаются, новые добавляются по одной.
 
 ---
 
@@ -382,7 +409,12 @@ export const newsiteConfig = {
         'X-DL-Service': 'newsite',
         'Referer': 'https://newsite.example/'
     },
-    imageHeaders: { 'Referer': 'https://newsite.example/' }
+    imageHeaders: { 'Referer': 'https://newsite.example/' },
+
+    hosts: ['newsite.example'],
+    imageHosts: ['img.newsite.example'],
+    titleUrl: 'https://newsite.example/manga/{slug}',
+    adBlock: []
 };
 ```
 
@@ -394,12 +426,10 @@ import { BaseService } from '../BaseService.js';
 import { newsiteConfig } from './config.js';
 
 export class NewSiteService extends BaseService {
-    constructor() { super(newsiteConfig); }
+    // По hosts этого конфига работает унаследованный static matches(url).
+    static config = newsiteConfig;
 
-    static matches(url) {
-        try { return /newsite\.example$/i.test(new URL(url).hostname); }
-        catch { return false; }
-    }
+    constructor() { super(newsiteConfig); }
 
     extractText(content) {
         // Разобрать content (формат зависит от API сервиса)
@@ -428,15 +458,4 @@ export class NewSiteService extends BaseService {
 
 3. Импортировать класс в `services/index.js` и вызвать `serviceRegistry.register(NewSiteService)`.
 
-4. В `manifest.json`: добавить домен в `host_permissions` и `content_scripts.matches`.
-
-5. В `background/RequestInterceptor.js`:
-   - Добавить домен в `FIREFOX_WEBREQUEST_URLS`.
-   - Добавить обнаружение в `detectServiceByUrl()` и `detectServiceByReferer()`.
-   - Добавить конфиг в `ServiceConfigs`:
-     ```js
-     if (typeof newsiteConfig !== 'undefined')
-         ServiceConfigs.newsite = newsiteConfig;
-     ```
-
-6. В `background/MessageRouter.js`: обновить массив `patterns` в хендлере `fetchImage` для новых URL-паттернов поиска вкладки.
+4. Добавить конфиг в массив `serviceConfigs` в `services/hosts.js`. Отсюда фон берёт фильтры `webRequest`, паттерны поиска вкладки, регистрацию content scripts и правила блокировки рекламы. Правки манифестов, `RequestInterceptor` и `MessageRouter` не нужны: `host_permissions` (`https://*/*`) уже покрывает любой сайт.

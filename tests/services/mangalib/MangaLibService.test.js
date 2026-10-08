@@ -29,7 +29,9 @@ beforeEach(async () => {
         baseUrl: 'https://mangalib.me',
         headers: { 'X-Test': '1' },
         fields: ['id', 'title'],
-        imagesDomain: 'https://imgslib.link'
+        imagesDomain: 'https://imgslib.link',
+        hosts: ['mangalib.me', 'mangalib.org'],
+        imageHosts: ['imgslib.link']
     };
     ({ MangaLibService } = await import('../../../services/mangalib/MangaLibService.js'));
 });
@@ -53,9 +55,18 @@ describe('MangaLibService', () => {
         logSpy.mockRestore();
     });
 
-    it('Matches returns true for mangalib.me and imgslib.link', () => {
+    it('Matches the site hosts from the config, including subdomains', () => {
         expect(MangaLibService.matches('https://mangalib.me/book')).toBe(true);
-        expect(MangaLibService.matches('https://imgslib.link/')).toBe(true);
+        expect(MangaLibService.matches('https://mangalib.org/ru/manga/x')).toBe(true);
+        expect(MangaLibService.matches('https://test-front.mangalib.me/')).toBe(true);
+    });
+
+    it('Does not match image CDN hosts — they are not service sites', () => {
+        expect(MangaLibService.matches('https://imgslib.link/')).toBe(false);
+    });
+
+    it('Does not match hosts that only end with the service domain', () => {
+        expect(MangaLibService.matches('https://notmangalib.me/')).toBe(false);
     });
 
     it('Matches returns false for other urls or invalid', () => {

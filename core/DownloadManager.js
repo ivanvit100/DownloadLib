@@ -14,6 +14,7 @@ import { MangaPatcher } from './MangaPatcher.js';
 import { PluginManager } from './PluginManager.js';
 import { globalRateLimiter } from './RateLimiter.js';
 import { ExporterRegistry } from '../exporters/ExporterRegistry.js';
+import { extractSlug } from '../services/hosts.js';
 import { serviceRegistry } from '../services/ServiceRegistry.js';
 
 console.log('[DownloadManager] Loading...');
@@ -581,7 +582,7 @@ export class DownloadManager {
             id: downloadId,
             service: service.name,
             serviceKey,
-            slug: slug || this.extractSlug(url),
+            slug: slug || extractSlug(url),
             format,
             maxSizeMB,
             splitPages,
@@ -1255,16 +1256,6 @@ export class DownloadManager {
             if (volA !== volB) return volA - volB;
             return (parseFloat(a.number) || 0) - (parseFloat(b.number) || 0);
         });
-    }
-
-    /**
-     * Извлекает slug тайтла из URL страницы манги/книги.
-     * @param {string} url - URL страницы тайтла.
-     * @returns {?string} Slug тайтла, либо null, если URL не соответствует ожидаемому формату.
-     */
-    extractSlug(url) {
-        const match = url.match(/\/(?:manga|book)\/([^/?]+)/);
-        return match ? match[1] : null;
     }
 
     /**

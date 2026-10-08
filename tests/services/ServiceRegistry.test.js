@@ -59,6 +59,17 @@ describe('ServiceRegistry', () => {
         expect(registry.getServiceByUrl('http://none.com')).toBeNull();
     });
 
+    it('Calls matches with the service class as this', () => {
+        class ConfigService {
+            static config = { hosts: ['config.example'] };
+            constructor() { this.name = 'Config'; }
+            static matches(url) { return url.includes(this.config.hosts[0]); }
+        }
+        const registry = new ServiceRegistry();
+        registry.register(ConfigService);
+        expect(registry.getServiceByUrl('https://config.example/manga/x')).toBeInstanceOf(ConfigService);
+    });
+
     it('Handles matcher errors in getServiceByUrl', () => {
         const errorSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
         class BadMatcherService {

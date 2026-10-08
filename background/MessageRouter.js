@@ -9,7 +9,8 @@
 
 import { browserEnv, extensionApi } from '../core/BrowserApi.js';
 import { globalRateLimiter } from '../core/RateLimiter.js';
-import { authTokens, detectServiceByUrl } from './RequestInterceptor.js';
+import { extractSlug, serviceConfigs, serviceKeyForUrl } from '../services/hosts.js';
+import { authTokens } from './RequestInterceptor.js';
 
 console.log('[MessageRouter] Script loading...');
 
@@ -21,65 +22,6 @@ const isFirefox = !!browserEnv.isFirefox;
  * @type {Object<string, string[]>}
  */
 let pluginServiceHosts = {};
-
-const CDN_IMAGE_HOSTS = [
-    'img3.mixlib.me', 'img2.imgslib.link', 'cover.cdnlibs.org', 'cover.imglib.info'
-];
-
-/**
- * Проверяет, относится ли URL к одному из известных CDN-хостов изображений,
- * которые можно безопасно загрузить напрямую из background-контекста.
- * @param {string} url - Проверяемый URL изображения.
- * @returns {boolean} true, если хост URL входит в список CDN_IMAGE_HOSTS.
- */
-function isCdnImageUrl(url) {
-    try {
-        return CDN_IMAGE_HOSTS.includes(new URL(url).hostname);
-    } catch {
-        return false;
-    }
-}
-
-/**
- * Строит список match-паттернов вкладок для поиска открытой вкладки сервиса.
- * @param {string} [serviceKey] - Ключ сервиса.
- * @returns {string[]} Список match-паттернов вида '*://host/*'.
- */
-function _getTabPatterns(serviceKey) {
-    if (serviceKey === 'ranobelib')
-        return ['*://ranobelib.me/*'];
-    if (!serviceKey || serviceKey === 'mangalib')
-        return ['*://mangalib.me/*', '*://mangalib.org/*'];
-    const pluginHosts = pluginServiceHosts[serviceKey] || [];
-    return pluginHosts.map(h => `*://${h}/*`);
-}
-
-/**
- * Загружает изображение напрямую из background-контекста и кодирует его в base64.
- * @param {string} url - URL изображения.
- * @returns {Promise<{ok: true, base64: string, contentType: string}|{ok: false, error: string}>}
- * Результат загрузки: base64-содержимое и MIME-тип при успехе, либо описание ошибки.
- */
-async function fetchImageFromBackground(url) {
-    try {
-        const response = await fetch(url, { credentials: 'omit' });
-        if (!response.ok)
-            return { ok: false, error: `HTTP ${response.status}` };
-        const blob = await response.blob();
-        return new Promise((resolve) => {
-            const reader = new FileReader();
-            reader.onloadend = () => resolve({
-                ok: true,
-                base64: reader.result.split(',')[1],
-                contentType: blob.type || 'image/jpeg'
-            });
-            reader.onerror = () => resolve({ ok: false, error: 'FileReader error' });
-            reader.readAsDataURL(blob);
-        });
-    } catch (e) {
-        return { ok: false, error: String(e) };
-    }
-}
 
 /**
  * Открывает всплывающее окно расширения по заданному URL, используя windows API
@@ -164,90 +106,6 @@ const handlers = new Map([
     }],
 
     /**
-     * Загружает изображение по URL: напрямую либо через
-     * найденную вкладку сервиса — сначала пробуя scripting.executeScript,
-     * затем сообщение content script'у как запасной вариант.
-     * @param {{url: string, serviceKey?: string}} msg - Сообщение с URL изображения и опциональным ключом сервиса.
-     * @param {object} _sender - Отправитель сообщения (не используется).
-     * @param {function({ok: boolean, base64?: string, contentType?: string, error?: string}): void} respond
-     * Функция отправки ответа.
-     * @returns {true}
-     */
-    ['fetchImage', (msg, _sender, respond) => {
-        (async () => {
-            try {
-                const { url } = msg;
-                const serviceKey = msg.serviceKey || detectServiceByUrl(url);
-
-                if (serviceKey) await globalRateLimiter.trackRequest(serviceKey);
-
-                if (isCdnImageUrl(url)) {
-                    const bgResult = await fetchImageFromBackground(url);
-                    respond(bgResult);
-                    return;
-                }
-
-                const patterns = _getTabPatterns(serviceKey);
-
-                if (!patterns.length) {
-                    respond({ ok: false, error: `No tab patterns for service: ${serviceKey}` });
-                    return;
-                }
-
-                const tabs = await extensionApi.tabs.query({ url: patterns });
-                const tabId = tabs?.[0]?.id ?? null;
-
-                if (!tabId) {
-                    respond({ ok: false, error: 'No service tab found' });
-                    return;
-                }
-
-                if (extensionApi.scripting?.executeScript) {
-                    const injectResults = await extensionApi.scripting.executeScript({
-                        target: { tabId },
-                        func: async (imageUrl) => {
-                            try {
-                                const r = await fetch(imageUrl);
-                                if (!r.ok) return null;
-                                const blob = await r.blob();
-                                const contentType = blob.type || 'image/jpeg';
-                                return await new Promise(resolve => {
-                                    const reader = new FileReader();
-                                    reader.onloadend = () => resolve({
-                                        ok: true,
-                                        base64: reader.result.split(',')[1],
-                                        contentType
-                                    });
-                                    reader.readAsDataURL(blob);
-                                });
-                            } catch { return null; }
-                        },
-                        args: [url]
-                    });
-                    const injected = injectResults?.[0]?.result;
-                    if (injected?.ok) {
-                        respond({ ok: true, base64: injected.base64, contentType: injected.contentType });
-                        return;
-                    }
-                }
-
-                const result = await extensionApi.tabs.sendMessage(tabId, {
-                    action: 'fetchImageFromTab',
-                    url
-                });
-
-                if (result?.ok)
-                    respond({ ok: true, base64: result.base64, contentType: result.contentType });
-                else
-                    respond({ ok: false, error: result?.error || 'Content script returned no data' });
-            } catch (err) {
-                respond({ ok: false, error: String(err) });
-            }
-        })();
-        return true;
-    }],
-
-    /**
      * Выполняет fetch с учётом rate limiter'а сервиса, автоматически повторяя запрос
      * с 30-секундной блокировкой при получении статуса 429 (до MAX_RETRIES попыток).
      * @param {{url: string, options?: object}} msg - Сообщение с URL и опциями fetch.
@@ -268,7 +126,7 @@ const handlers = new Map([
                 const MAX_RETRIES = 4;
                 let response;
                 for (let attempt = 0; attempt < MAX_RETRIES; attempt++) {
-                    const service = detectServiceByUrl(url);
+                    const service = serviceKeyForUrl(url);
                     if (service) await globalRateLimiter.trackRequest(service);
                     response = await fetch(url, fetchOptions);
                     if (response.status !== 429) break;
@@ -306,15 +164,8 @@ const handlers = new Map([
                 const tabUrl = sender.tab && sender.tab.url;
                 if (!tabUrl) { respond({ ok: false, error: 'No tab URL' }); return; }
 
-                const slugMatch = tabUrl.match(/\/(?:manga|book)\/([^/?#]+)/);
-                const slug = slugMatch ? slugMatch[1] : null;
-                let serviceKey = detectServiceByUrl(tabUrl);
-                if (!serviceKey) {
-                    const { hostname } = new URL(tabUrl);
-                    const h = hostname.toLowerCase();
-                    serviceKey = Object.entries(pluginServiceHosts)
-                        .find(([, hosts]) => hosts.some(ph => h === ph || h.endsWith(`.${ph}`)))?.[0] ?? null;
-                }
+                const slug = extractSlug(tabUrl);
+                const serviceKey = serviceKeyForUrl(tabUrl, pluginServiceHosts);
 
                 if (!slug || !serviceKey) {
                     respond({ ok: false, error: 'Cannot detect slug or service' });
@@ -501,11 +352,12 @@ function _installKeepAliveListener() {
 
 _installKeepAliveListener();
 
-const PLUGIN_CONTENT_SCRIPTS = [
+const CONTENT_SCRIPTS = [
     '/content/AdCleaner.js',
     '/content/DownloadButton.js',
     '/content/ImageFetcher.js'
 ];
+const SERVICE_SCRIPT_ID_PREFIX = 'dl-service-';
 const PLUGIN_SCRIPT_ID_PREFIX = 'dl-plugin-';
 
 /**
@@ -528,41 +380,75 @@ async function _syncPluginServiceHosts() {
 }
 
 /**
- * Синхронизирует зарегистрированные content scripts плагинов с текущим списком
- * пользовательских плагинов: удаляет старые регистрации и регистрирует заново
- * PLUGIN_CONTENT_SCRIPTS для хостов каждого включённого плагина.
+ * Описывает регистрацию CONTENT_SCRIPTS на сайтах с указанными хостами.
+ * @param {string} id - id регистрации.
+ * @param {string[]} hosts - Хосты сайтов.
+ * @returns {{id: string, matches: string[], js: string[], runAt: string}} Описание для registerContentScripts.
+ */
+function _contentScript(id, hosts) {
+    return { id, matches: hosts.map(h => `https://${h}/*`), js: CONTENT_SCRIPTS, runAt: 'document_idle' };
+}
+
+/**
+ * Приводит описание регистрации к виду, по которому две регистрации можно сравнить:
+ * браузер может вернуть пути скриптов без ведущего слэша и матчи в другом порядке.
+ * @param {{matches?: string[], js?: string[], runAt?: string}} script - Описание регистрации.
+ * @returns {string} Строковый ключ регистрации.
+ */
+function _contentScriptKey(script) {
+    return JSON.stringify({
+        matches: [...(script.matches || [])].sort(),
+        js: (script.js || []).map(path => path.replace(/^\//, '')),
+        runAt: script.runAt || 'document_idle'
+    });
+}
+
+/**
+ * Синхронизирует зарегистрированные content scripts со встроенными сервисами
+ * (по `hosts` их конфигов) и включёнными плагинами. Неизменённые регистрации
+ * не трогает, поэтому на сайтах сервисов нет момента без скриптов; устаревшие
+ * снимает, новые и изменённые регистрирует по одной, чтобы ошибка в хостах
+ * одного плагина не мешала остальным. Если список плагинов прочитать не удалось,
+ * регистрации плагинов остаются как есть.
  * @returns {Promise<void>}
  */
-async function _syncPluginContentScripts() {
-    let plugins;
+async function _syncContentScripts() {
+    let plugins = null;
     try {
         plugins = await _syncPluginServiceHosts();
     } catch (e) {
         console.warn('[MessageRouter] Failed to read custom plugins:', e.message);
-        return;
     }
 
     if (!extensionApi?.scripting?.registerContentScripts) return;
-    try {
-        const existing = await extensionApi.scripting.getRegisteredContentScripts();
-        const oldIds = existing
-            .filter(s => s.id.startsWith(PLUGIN_SCRIPT_ID_PREFIX))
-            .map(s => s.id);
-        if (oldIds.length) await extensionApi.scripting.unregisterContentScripts({ ids: oldIds });
 
-        for (const p of plugins) {
-            const key = p.service || p.format;
-            if (!key) continue;
-            await extensionApi.scripting.registerContentScripts([{
-                id: `${PLUGIN_SCRIPT_ID_PREFIX}${key}`,
-                matches: p.hosts.map(h => `https://${h}/*`),
-                js: PLUGIN_CONTENT_SCRIPTS,
-                runAt: 'document_idle'
-            }]);
-            console.log(`[MessageRouter] Registered content scripts for plugin: ${key}`);
+    const desired = serviceConfigs.map(config => _contentScript(`${SERVICE_SCRIPT_ID_PREFIX}${config.name}`, config.hosts));
+    for (const p of plugins || []) {
+        const key = p.service || p.format;
+        if (key) desired.push(_contentScript(`${PLUGIN_SCRIPT_ID_PREFIX}${key}`, p.hosts));
+    }
+
+    try {
+        const managed = (await extensionApi.scripting.getRegisteredContentScripts()).filter(s =>
+            s.id.startsWith(SERVICE_SCRIPT_ID_PREFIX) || (plugins && s.id.startsWith(PLUGIN_SCRIPT_ID_PREFIX)));
+        const desiredKeys = new Map(desired.map(s => [s.id, _contentScriptKey(s)]));
+        const upToDate = new Set(managed
+            .filter(s => desiredKeys.get(s.id) === _contentScriptKey(s))
+            .map(s => s.id));
+        const staleIds = managed.map(s => s.id).filter(id => !upToDate.has(id));
+        if (staleIds.length) await extensionApi.scripting.unregisterContentScripts({ ids: staleIds });
+
+        for (const script of desired) {
+            if (upToDate.has(script.id)) continue;
+            try {
+                await extensionApi.scripting.registerContentScripts([script]);
+                console.log(`[MessageRouter] Registered content scripts: ${script.id}`);
+            } catch (e) {
+                console.warn(`[MessageRouter] Failed to register content scripts ${script.id}:`, e.message);
+            }
         }
     } catch (e) {
-        console.warn('[MessageRouter] Failed to sync plugin content scripts:', e.message);
+        console.warn('[MessageRouter] Failed to sync content scripts:', e.message);
     }
 }
 
@@ -575,10 +461,10 @@ if (extensionApi?.storage?.onChanged) {
      * @returns {void}
      */
     extensionApi.storage.onChanged.addListener((changes, area) => {
-        if (area === 'local' && changes.custom_plugins) _syncPluginContentScripts();
+        if (area === 'local' && changes.custom_plugins) _syncContentScripts();
     });
 }
 
-_syncPluginContentScripts();
+_syncContentScripts();
 
 console.log('[MessageRouter] Script loaded');

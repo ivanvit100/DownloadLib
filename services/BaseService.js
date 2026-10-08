@@ -9,6 +9,7 @@
 
 import { extensionApi, requestViaTab } from '../core/BrowserApi.js';
 import { globalRateLimiter } from '../core/RateLimiter.js';
+import { matchesHosts } from './hosts.js';
 
 /**
  * Базовый класс сервиса-парсера сайта: реализует общий контракт получения
@@ -290,12 +291,13 @@ export class BaseService {
     }
 
     /**
-     * Проверяет, относится ли URL к этому сервису. Должен быть переопределён в подклассе.
-     * @param {string} _url - Проверяемый URL.
-     * @throws {Error} Всегда — метод абстрактный.
-     * @returns {boolean}
+     * Проверяет, относится ли URL к сайту сервиса: его хост совпадает с одним из
+     * `hosts` статического конфига класса (`static config`) или является поддоменом.
+     * Подкласс без статического конфига должен переопределить метод.
+     * @param {string} url - Проверяемый URL.
+     * @returns {boolean} true, если URL относится к сайту сервиса.
      */
-    static matches(_url) {
-        throw new Error(`matches must be implemented for check ${_url}`);
+    static matches(url) {
+        return matchesHosts(url, this.config?.hosts);
     }
 }

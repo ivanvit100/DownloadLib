@@ -14,6 +14,7 @@ import { DownloadManager } from '../core/DownloadManager.js';
 import { MangaPatcher } from '../core/MangaPatcher.js';
 import { PluginManager } from '../core/PluginManager.js';
 import { ExporterRegistry } from '../exporters/ExporterRegistry.js';
+import { extractSlug } from '../services/hosts.js';
 import { MangaLibService } from '../services/mangalib/MangaLibService.js';
 import { RanobeLibService } from '../services/ranobelib/RanobeLibService.js';
 import { serviceRegistry } from '../services/ServiceRegistry.js';
@@ -502,8 +503,7 @@ export class PopupController {
         const activeTabId = tabs[0].id;
         console.log('[PopupController] Current URL:', currentUrl);
 
-        const match = currentUrl.match(/\/(?:manga|book)\/([^/?]+)/);
-        const slug = match ? match[1] : null;
+        const slug = extractSlug(currentUrl);
 
         const service = serviceRegistry.getServiceByUrl(currentUrl);
         if (!service) {

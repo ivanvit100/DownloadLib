@@ -13,7 +13,7 @@
     "browser_specific_settings": {
         "gecko": {
             "id": "@downloadlib",
-            "strict_min_version": "109.0"
+            "strict_min_version": "115.0"
         }
     },
 
@@ -39,27 +39,8 @@
     ],
 
     "host_permissions": [
-        "https://mangalib.me/*",
-        "https://mangalib.org/*",
-        "https://ranobelib.me/*",
-        "https://api.cdnlibs.org/*",
-        "https://cover.cdnlibs.org/*",
-        "https://img1.cdnlibs.org/*",
-        "https://img2.cdnlibs.org/*",
-        "https://img3.cdnlibs.org/*",
-        "https://img3.mixlib.me/*",
-        "https://img2.imgslib.link/*",
-        "https://cover.imglib.info/*",
         "https://*/*"
     ],
-
-    "declarative_net_request": {
-        "rule_resources": [{
-            "id": "manga_headers",
-            "enabled": true,
-            "path": "rules.firefox.json"
-        }]
-    },
 
     "content_security_policy": {
         "extension_pages": "script-src 'self' 'wasm-unsafe-eval' blob:; object-src 'self'"
@@ -69,21 +50,5 @@
         "16": "icons/icon16.png",
         "48": "icons/icon48.png",
         "128": "icons/icon128.png"
-    },
-
-    "content_scripts": [
-        {
-            "matches": [
-                "https://mangalib.me/*",
-                "https://mangalib.org/*",
-                "https://ranobelib.me/*"
-            ],
-            "js": [
-                "content/AdCleaner.js",
-                "content/DownloadButton.js",
-                "content/ImageFetcher.js"
-            ],
-            "run_at": "document_idle"
-        }
-    ]
+    }
 }

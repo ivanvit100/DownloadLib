@@ -13,6 +13,7 @@ import { ImageCompressor } from './ImageCompressor.js';
 import { BaseExporter } from '../exporters/BaseExporter.js';
 import { ExporterRegistry } from '../exporters/ExporterRegistry.js';
 import { BaseService } from '../services/BaseService.js';
+import { matchesHosts } from '../services/hosts.js';
 import { serviceRegistry } from '../services/ServiceRegistry.js';
 
 console.log('[PluginManager] Loading...');
@@ -524,7 +525,7 @@ export class PluginManager {
      */
     static _loadServiceProxy(plugin) {
         const config = plugin.serviceConfig || { name: plugin.service };
-        const hosts = new Set((plugin.hosts || []).map(h => h.toLowerCase()));
+        const hosts = plugin.hosts || [];
         const serviceName = plugin.service;
 
         /**
@@ -545,10 +546,7 @@ export class PluginManager {
              * (точное совпадение или поддомен).
              */
             static matches(url) {
-                try {
-                    const h = new URL(url).hostname.toLowerCase();
-                    return hosts.has(h) || [...hosts].some(ph => h.endsWith(`.${ph}`));
-                } catch { return false; }
+                return matchesHosts(url, hosts);
             }
 
             /**
