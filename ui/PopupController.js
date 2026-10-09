@@ -12,7 +12,10 @@ import { browserEnv, extensionApi, fetchViaTab, setServiceTab } from '../core/Br
 import { DownloadHistory } from '../core/DownloadHistory.js';
 import { DownloadManager } from '../core/DownloadManager.js';
 import { MangaPatcher } from '../core/MangaPatcher.js';
+import { MSG } from '../core/messages.js';
 import { PluginManager } from '../core/PluginManager.js';
+import { DEFAULT_RATE_LIMIT } from '../core/RateLimiter.js';
+import { RateLimitClient } from '../core/RateLimitClient.js';
 import { ExporterRegistry } from '../exporters/ExporterRegistry.js';
 import { extractSlug } from '../services/hosts.js';
 import { MangaLibService } from '../services/mangalib/MangaLibService.js';
@@ -289,7 +292,7 @@ export class PopupController {
      */
     async openInNewContext(url) {
         if (!browserEnv.isFirefox) {
-            extensionApi.runtime.sendMessage({ action: 'openWindowWithUrl', url }).catch(() => {});
+            extensionApi.runtime.sendMessage({ action: MSG.OPEN_WINDOW_WITH_URL, url }).catch(() => {});
             return;
         }
         if (extensionApi.windows) {
@@ -742,10 +745,11 @@ export class PopupController {
      * (формат, переводчик, разбиение страниц, диапазон), показывает прогресс-бар
      * и панель с параметрами текущей загрузки, обновляет статус.
      * @param {{btn: HTMLButtonElement, progress: ?HTMLElement, controls: ?HTMLElement,
-     * chapterRangeContainer: ?HTMLElement, status: ?HTMLElement}} elements - Элементы формы загрузки.
+     * chapterRangeContainer: ?HTMLElement, status: ?HTMLElement, rateLimit?: number}} elements -
+     * Элементы формы загрузки и лимит запросов в минуту из настроек.
      * @returns {void}
      */
-    _setDownloadingUIState({ btn, progress, controls, chapterRangeContainer, status }) {
+    _setDownloadingUIState({ btn, progress, controls, chapterRangeContainer, status, rateLimit = DEFAULT_RATE_LIMIT }) {
         btn.disabled = true;
         btn.style.display = 'none';
         this._setVisibility('formatContainer', 'none');
@@ -761,7 +765,6 @@ export class PopupController {
             const formatLabel = formatSelector
                 ? (formatSelector.options[formatSelector.selectedIndex]?.text || formatSelector.value)
                 : '';
-            const rateLimit = localStorage.getItem('downloadlib_default_rate_limit') || '85';
             const maxSizeMBDisplay = localStorage.getItem('manga_parser_max_size_mb') || '200';
             downloadInfoPanel.innerHTML =
                 `<div class="info-row"><span class="info-label">Формат</span><span class="info-value">${formatLabel}</span></div>` +
@@ -790,7 +793,7 @@ export class PopupController {
             controls, chapterRangeContainer, fromSelect, toSelect } = this._getDownloadElements();
 
         try {
-            const { chapterRange, branchId, historyParams } = await this._prepareDownload({
+            const { rateLimit, chapterRange, branchId, historyParams } = await this._prepareDownload({
                 fromSelect, toSelect, chapterRangeContainer
             });
 
@@ -799,7 +802,7 @@ export class PopupController {
             this.shouldStop = false;
 
             this._setDownloadingUIState({
-                btn, progress, controls, chapterRangeContainer, status
+                btn, progress, controls, chapterRangeContainer, status, rateLimit
             });
 
             const format = formatSelector?.value || 'fb2';
@@ -856,18 +859,17 @@ export class PopupController {
     }
 
     /**
-     * Применяет сохранённый лимит запросов в минуту на стороне background-скрипта
-     * и собирает параметры предстоящей загрузки: диапазон глав, ветку перевода
-     * и текстовые значения для записи в историю.
+     * Собирает параметры предстоящей загрузки: лимит запросов в минуту из настроек
+     * (для панели параметров; сам лимит применяет фон), диапазон глав, ветку
+     * перевода и текстовые значения для записи в историю.
      * @param {{fromSelect: ?HTMLSelectElement, toSelect: ?HTMLSelectElement,
      * chapterRangeContainer: ?HTMLElement}} params - Элементы выбора диапазона глав.
-     * @returns {Promise<{chapterRange: ?{from: number, to: number}, branchId: ?number,
+     * @returns {Promise<{rateLimit: number, chapterRange: ?{from: number, to: number}, branchId: ?number,
      * historyParams: {chapterFrom: ?string, chapterTo: ?string, translator: ?string}}>}
      * Параметры для запуска загрузки и записи в историю.
      */
     async _prepareDownload({ fromSelect, toSelect, chapterRangeContainer }) {
-        const limit = parseInt(localStorage.getItem('downloadlib_default_rate_limit')) || 85;
-        await extensionApi.runtime.sendMessage({ action: 'setRateLimit', limit });
+        const rateLimit = await RateLimitClient.getLimit();
 
         const chapterRange = this._buildChapterRange(fromSelect, toSelect, chapterRangeContainer);
 
@@ -878,6 +880,7 @@ export class PopupController {
         const branchId = translatorVisible ? parseInt(translatorSelect.value) : null;
 
         return {
+            rateLimit,
             chapterRange,
             branchId,
             historyParams: {

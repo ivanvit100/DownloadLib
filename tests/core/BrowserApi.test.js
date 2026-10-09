@@ -489,3 +489,35 @@ describe('BrowserApi', () => {
         });
     });
 });
+
+describe('extensionOrigin / isExtensionUrl', () => {
+    beforeEach(() => {
+        clearBrowserGlobals();
+    });
+
+    it.each([
+        ['moz-extension://uuid/', 'moz-extension://uuid'],
+        ['chrome-extension://abcdef/', 'chrome-extension://abcdef']
+    ])('Takes the origin from runtime.getURL(%s) without URL.origin', async (base, origin) => {
+        global.browser = { runtime: { getURL: path => `${base}${path}` } };
+        const { extensionOrigin } = await loadBrowserApi();
+        expect(extensionOrigin()).toBe(origin);
+    });
+
+    it('Returns null without a runtime', async () => {
+        const { extensionOrigin, isExtensionUrl } = await loadBrowserApi();
+        expect(extensionOrigin()).toBeNull();
+        expect(isExtensionUrl('moz-extension://uuid/popup.html')).toBe(false);
+    });
+
+    it('Accepts only pages of this extension', async () => {
+        global.browser = { runtime: { getURL: path => `moz-extension://uuid/${path}` } };
+        const { isExtensionUrl } = await loadBrowserApi();
+        expect(isExtensionUrl('moz-extension://uuid/popup.html?download=true')).toBe(true);
+        expect(isExtensionUrl('moz-extension://uuid.evil/popup.html')).toBe(false);
+        expect(isExtensionUrl('moz-extension://other/popup.html')).toBe(false);
+        expect(isExtensionUrl('https://mangalib.me/')).toBe(false);
+        expect(isExtensionUrl('null')).toBe(false);
+        expect(isExtensionUrl(undefined)).toBe(false);
+    });
+});

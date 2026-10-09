@@ -6,7 +6,7 @@ vi.mock('../../core/EventBus.js', async () => (await import('../helpers/globalBr
 vi.mock('../../core/ImageCompressor.js', async () => (await import('../helpers/globalBridge.js')).globalBridge('ImageCompressor'));
 vi.mock('../../core/MangaPatcher.js', async () => (await import('../helpers/globalBridge.js')).globalBridge('MangaPatcher'));
 vi.mock('../../core/PluginManager.js', async () => (await import('../helpers/globalBridge.js')).globalBridge('PluginManager'));
-vi.mock('../../core/RateLimiter.js', async () => (await import('../helpers/globalBridge.js')).globalBridge('globalRateLimiter'));
+vi.mock('../../core/RateLimitClient.js', async () => (await import('../helpers/globalBridge.js')).globalBridge('RateLimitClient'));
 vi.mock('../../exporters/ExporterRegistry.js', async () => (await import('../helpers/globalBridge.js')).globalBridge('ExporterRegistry'));
 vi.mock('../../services/ServiceRegistry.js', async () => (await import('../helpers/globalBridge.js')).globalBridge('serviceRegistry'));
 
@@ -67,9 +67,10 @@ beforeEach(async () => {
     globalThis.NoServiceTabError = class NoServiceTabError extends Error {};
     globalThis.PluginManager = { loadAll: vi.fn(async () => {}) };
     globalThis.ImageCompressor = { compress: vi.fn(async (base64, contentType) => ({ base64, contentType })) };
-    globalThis.globalRateLimiter = {
-        trackRequest: vi.fn(async () => {}),
-        getStats: vi.fn(() => ({ queueSize: 0, throttled: false }))
+    globalThis.RateLimitClient = {
+        acquire: vi.fn(async () => {}),
+        isHeldBack: vi.fn(() => false),
+        throttle: vi.fn()
     };
 
     ({ DownloadManager, fetchPageImage, loadImageOrDefer, DeferredQueue, deferredLoadSettings } =
@@ -1270,13 +1271,16 @@ describe('DownloadManager', () => {
             delete globalThis.hasServiceTab;
         });
 
-        it('tracks the request through globalRateLimiter', async () => {
-            globalThis.fetchViaTab = vi.fn().mockResolvedValue({ ok: true, base64: 'b64' });
-            const trackRequest = vi.fn().mockResolvedValue();
-            globalThis.globalRateLimiter = { trackRequest };
+        it('waits for the background rate limiter before fetching', async () => {
+            const order = [];
+            globalThis.RateLimitClient.acquire = vi.fn(async () => { order.push('acquire'); });
+            globalThis.fetchViaTab = vi.fn(async () => {
+                order.push('fetch');
+                return { ok: true, base64: 'b64' };
+            });
             await fetchPageImage('https://img.example.com/a.jpg', 'ranobelib');
-            expect(trackRequest).toHaveBeenCalledWith('ranobelib');
-            delete globalThis.globalRateLimiter;
+            expect(globalThis.RateLimitClient.acquire).toHaveBeenCalledWith('ranobelib');
+            expect(order).toEqual(['acquire', 'fetch']);
         });
 
         it('throws NoServiceTabError when the service tab is missing', async () => {
@@ -1288,11 +1292,8 @@ describe('DownloadManager', () => {
 
         it('defaults the rate limiter source to "image" when no serviceKey is given', async () => {
             globalThis.fetchViaTab = vi.fn().mockResolvedValue({ ok: true, base64: 'b64' });
-            const trackRequest = vi.fn().mockResolvedValue();
-            globalThis.globalRateLimiter = { trackRequest };
             await fetchPageImage('https://img.example.com/a.jpg');
-            expect(trackRequest).toHaveBeenCalledWith('image');
-            delete globalThis.globalRateLimiter;
+            expect(globalThis.RateLimitClient.acquire).toHaveBeenCalledWith('image');
         });
     });
 
@@ -1328,7 +1329,7 @@ describe('DownloadManager', () => {
 
         afterEach(() => {
             Object.assign(settings, saved);
-            delete globalThis.globalRateLimiter;
+            delete globalThis.RateLimitClient;
             vi.restoreAllMocks();
         });
 
@@ -1358,17 +1359,15 @@ describe('DownloadManager', () => {
             it('does not count time spent in the rate limiter queue or under 429 throttling', async () => {
                 const run = deferred();
                 const blocks = [image()];
-                globalThis.globalRateLimiter = {
-                    getStats: vi.fn()
-                        .mockReturnValueOnce({ queueSize: 2 })
-                        .mockImplementationOnce(() => {
-                            run.resolve(blocks);
-                            return { queueSize: 0, throttled: true };
-                        })
-                        .mockReturnValue({ queueSize: 0, throttled: false })
-                };
+                globalThis.RateLimitClient.isHeldBack = vi.fn()
+                    .mockReturnValueOnce(true)
+                    .mockImplementationOnce(() => {
+                        run.resolve(blocks);
+                        return true;
+                    })
+                    .mockReturnValue(false);
                 expect(await loadImageOrDefer(1, () => run.promise)).toBe(blocks);
-                expect(globalThis.globalRateLimiter.getStats).toHaveBeenCalledTimes(2);
+                expect(globalThis.RateLimitClient.isHeldBack).toHaveBeenCalledTimes(2);
             });
         });
 
@@ -1511,14 +1510,12 @@ describe('DownloadManager', () => {
             });
 
             it('does not start another attempt while the download is held back by the rate limiter', async () => {
-                globalThis.globalRateLimiter = {
-                    getStats: vi.fn().mockReturnValueOnce({ queueSize: 2 }).mockReturnValue({ queueSize: 0 })
-                };
+                globalThis.RateLimitClient.isHeldBack = vi.fn().mockReturnValueOnce(true).mockReturnValue(false);
                 const queue = new DeferredQueue();
                 const load = vi.fn(never);
                 queue.observe({ content: [placeholder(1, never(), load)] });
                 await tick(90);
-                expect(globalThis.globalRateLimiter.getStats).toHaveBeenCalled();
+                expect(globalThis.RateLimitClient.isHeldBack).toHaveBeenCalled();
                 expect(load).not.toHaveBeenCalled();
                 await vi.waitFor(() => expect(load).toHaveBeenCalledTimes(1));
                 queue.dispose();

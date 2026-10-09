@@ -1,7 +1,7 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 
 vi.mock('../../core/PluginManager.js', async () => (await import('../helpers/globalBridge.js')).globalBridge('PluginManager'));
-vi.mock('../../core/RateLimiter.js', async () => (await import('../helpers/globalBridge.js')).globalBridge('globalRateLimiter'));
+vi.mock('../../core/RateLimitClient.js', async () => (await import('../helpers/globalBridge.js')).globalBridge('RateLimitClient'));
 
 let SettingsController;
 
@@ -31,7 +31,10 @@ async function loadModule() {
         save: vi.fn().mockResolvedValue(),
         generateId: vi.fn(() => 'plugin_id')
     };
-    globalThis.globalRateLimiter = { setLimit: vi.fn() };
+    globalThis.RateLimitClient = {
+        getLimit: vi.fn(async () => 85),
+        setLimit: vi.fn(async value => Number(value))
+    };
     ({ SettingsController } = await import('../../ui/SettingsController.js'));
 }
 
@@ -56,20 +59,22 @@ describe('init()', () => {
 });
 
 describe('_renderRateLimit()', () => {
-    it('returns early when element absent', () => {
+    it('returns early when element absent', async () => {
         document.getElementById('settingsRateLimit').remove();
-        expect(() => SettingsController._renderRateLimit()).not.toThrow();
+        await expect(SettingsController._renderRateLimit()).resolves.toBeUndefined();
+        expect(globalThis.RateLimitClient.getLimit).not.toHaveBeenCalled();
     });
 
-    it('uses default 85 when localStorage empty', () => {
-        SettingsController._renderRateLimit();
-        expect(document.getElementById('settingsRateLimit').value).toBe('85');
-    });
-
-    it('uses stored value from localStorage', () => {
-        localStorage.setItem('downloadlib_default_rate_limit', '50');
-        SettingsController._renderRateLimit();
+    it('shows the limit from the settings', async () => {
+        globalThis.RateLimitClient.getLimit = vi.fn(async () => 50);
+        await SettingsController._renderRateLimit();
         expect(document.getElementById('settingsRateLimit').value).toBe('50');
+    });
+
+    it('does not read the limit from localStorage directly', async () => {
+        localStorage.setItem('downloadlib_default_rate_limit', '50');
+        await SettingsController._renderRateLimit();
+        expect(document.getElementById('settingsRateLimit').value).toBe('85');
     });
 });
 
@@ -283,7 +288,7 @@ describe('_bindEvents() saveRateLimitBtn', () => {
         input.value = 'abc';
         document.getElementById('saveRateLimitBtn').click();
         expect(input.value).toBe('2');
-        expect(localStorage.getItem('downloadlib_default_rate_limit')).toBe('2');
+        expect(globalThis.RateLimitClient.setLimit).toHaveBeenCalledWith(2);
     });
 
     it('clamps val to 2 when below 2', () => {
@@ -300,12 +305,12 @@ describe('_bindEvents() saveRateLimitBtn', () => {
         expect(document.getElementById('settingsRateLimit').value).toBe('200');
     });
 
-    it('saves valid val and calls globalRateLimiter.setLimit', () => {
+    it('saves a valid value to the settings, not to localStorage', () => {
         SettingsController._bindEvents();
         document.getElementById('settingsRateLimit').value = '50';
         document.getElementById('saveRateLimitBtn').click();
-        expect(localStorage.getItem('downloadlib_default_rate_limit')).toBe('50');
-        expect(globalThis.globalRateLimiter.setLimit).toHaveBeenCalledWith(50);
+        expect(globalThis.RateLimitClient.setLimit).toHaveBeenCalledWith(50);
+        expect(localStorage.getItem('downloadlib_default_rate_limit')).toBeNull();
     });
 
     it('saveBtn shows confirmation then restores after timeout', () => {

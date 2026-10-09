@@ -9,145 +9,106 @@
 
 console.log('[RateLimiter] Loading...');
 
+/** Ключ storage.local с лимитом запросов в минуту из настроек. */
+export const RATE_LIMIT_STORAGE_KEY = 'downloadlib_default_rate_limit';
+
+/** Лимит запросов в минуту по умолчанию. */
+export const DEFAULT_RATE_LIMIT = 85;
+
+const MIN_RATE_LIMIT = 2;
+const MAX_RATE_LIMIT = 200;
+const WINDOW_MS = 60000;
+
 /**
- * Ограничитель частоты запросов со скользящим окном в минуту, очередью
- * ожидающих запросов и поддержкой временной блокировки при 429.
+ * Приводит значение лимита к целому числу в допустимых границах.
+ * @param {*} value - Значение лимита (число или строка).
+ * @returns {number} Лимит от 2 до 200; для нечислового значения — DEFAULT_RATE_LIMIT.
+ */
+export function normalizeRateLimit(value) {
+    const limit = parseInt(value, 10);
+    if (Number.isNaN(limit)) return DEFAULT_RATE_LIMIT;
+    return Math.min(MAX_RATE_LIMIT, Math.max(MIN_RATE_LIMIT, limit));
+}
+
+/**
+ * Ограничитель частоты запросов со скользящим окном в минуту: хранит метки
+ * времени выданных разрешений и очередь ожидающих запросов. Один таймер ждёт
+ * ближайшего свободного слота (или конца блокировки после 429), опроса нет.
  */
 export class RateLimiter {
     /**
-     * Создаёт ограничитель с заданным лимитом запросов в минуту.
-     * @param {{maxRequestsPerMinute?: number}} [options] - Максимальное число
-     * запросов в минуту (по умолчанию 85).
+     * Создаёт ограничитель.
+     * @param {{maxRequestsPerMinute?: number, onChange?: function(): void}} [options] -
+     * Лимит запросов в минуту (по умолчанию 85) и колбэк, вызываемый при изменении
+     * состояния (для сохранения снимка).
      */
     constructor(options = {}) {
-        this._requestsInLastMinute = 0;
-        this._maxRequestsPerMinute = options.maxRequestsPerMinute || 85;
-        this._requestTimestamps = [];
-        this._pendingQueue = [];
-        this._isProcessing = false;
-        this._throttled = false;
-        this._throttleTimer = null;
-
-        console.log(`[RateLimiter] Initialized with limit: ${this._maxRequestsPerMinute} requests/minute`);
+        this._limit = normalizeRateLimit(options.maxRequestsPerMinute ?? DEFAULT_RATE_LIMIT);
+        this._timestamps = [];
+        this._queue = [];
+        this._blockedUntil = 0;
+        this._timer = null;
+        this._onChange = options.onChange || null;
+        console.log(`[RateLimiter] Initialized with limit: ${this._limit} requests/minute`);
     }
 
     /**
-     * Устанавливает новый лимит запросов в минуту (с запасом в 1 запрос от указанного значения).
-     * @param {number|string} limit - Новый лимит; при некорректном значении используется минимум 2.
+     * Устанавливает лимит запросов в минуту (2..200) и сразу пропускает
+     * ожидающие запросы, если лимит вырос.
+     * @param {number|string} limit - Новый лимит.
      * @returns {void}
      */
     setLimit(limit) {
-        let lmt = parseInt(limit);
-        if (isNaN(lmt) || lmt < 2) lmt = 2;
-        this._maxRequestsPerMinute = Math.max(2, Math.floor(lmt)) - 1;
-        console.log(`[RateLimiter] Rate limit set to: ${this._maxRequestsPerMinute} requests/minute`);
+        this._limit = normalizeRateLimit(limit);
+        console.log(`[RateLimiter] Rate limit set to: ${this._limit} requests/minute`);
+        this._changed();
+        this._drain();
     }
 
     /**
-     * Полностью блокирует выполнение запросов на заданную длительность
-     * (реакция на HTTP 429), после чего возобновляет обработку очереди.
-     * Повторный вызов во время активной блокировки игнорируется.
+     * Блокирует выдачу разрешений на заданное время (реакция на HTTP 429).
+     * Повторный вызов продлевает блокировку, если новый срок позже текущего.
      * @param {number} [duration=30000] - Длительность блокировки в миллисекундах.
-     * @returns {void}
+     * @returns {number} Момент окончания блокировки (мс с эпохи).
      */
     throttle(duration = 30000) {
-        if (this._throttled) {
-            console.warn(`[RateLimiter] Already throttled, ignoring duplicate`);
-            return;
+        const until = Date.now() + Math.max(0, Number(duration) || 0);
+        if (until > this._blockedUntil) {
+            this._blockedUntil = until;
+            console.warn(`[RateLimiter] 429 detected: blocking all requests for ${duration}ms`);
+            this._changed();
         }
-        this._throttled = true;
-        console.warn(`[RateLimiter] 429 detected: blocking ALL requests for ${duration}ms`);
-        if (this._throttleTimer) clearTimeout(this._throttleTimer);
-        this._throttleTimer = setTimeout(() => {
-            this._throttled = false;
-            this._throttleTimer = null;
-            console.log(`[RateLimiter] Throttle lifted, resuming queue`);
-            this._processQueue();
-        }, duration);
-    }
-
-    /**
-     * Обрабатывает очередь ожидающих запросов, разрешая их промисы по мере
-     * освобождения окна лимита (или снятия блокировки throttle), и планирует
-     * освобождение слота лимита через минуту после каждого выполненного запроса.
-     * @returns {Promise<void>}
-     */
-    async _processQueue() {
-        if (this._isProcessing) return;
-        this._isProcessing = true;
-
-        while (this._pendingQueue.length > 0) {
-            while (this._throttled || this._requestsInLastMinute >= this._maxRequestsPerMinute) {
-                if (this._throttled) console.debug(`[RateLimiter] Throttled (429). Queue size: ${this._pendingQueue.length}. Waiting...`);
-                else console.debug(`[RateLimiter] Rate limit reached: ${this._requestsInLastMinute}/${this._maxRequestsPerMinute}. Queue size: ${this._pendingQueue.length}. Waiting...`);
-                await new Promise(resolve => setTimeout(resolve, 500));
-            }
-
-            const request = this._pendingQueue.shift();
-            if (!request) continue;
-
-            this._requestsInLastMinute += 1;
-            const timestamp = Date.now();
-            this._requestTimestamps.push(timestamp);
-
-            request.resolve();
-
-            setTimeout(() => {
-                this._requestsInLastMinute -= 1;
-                this._requestTimestamps.shift();
-                console.debug(`[RateLimiter] Request expired: ${this._requestsInLastMinute}/${this._maxRequestsPerMinute} used`);
-            }, 60000);
-        }
-
-        this._isProcessing = false;
+        this._drain();
+        return this._blockedUntil;
     }
 
     /**
      * Ставит запрос в очередь и возвращает промис, который разрешится, когда
-     * запросу будет позволено выполниться в рамках текущего лимита.
+     * запросу будет позволено выполниться в рамках лимита.
      * @param {string} [source='unknown'] - Метка источника запроса (для логирования).
-     * @returns {Promise<void>} Промис, разрешающийся при разрешении на выполнение запроса.
+     * @returns {Promise<void>} Промис разрешения; отклоняется при reset().
      */
     trackRequest(source = 'unknown') {
-        return new Promise((resolve) => {
-            this._pendingQueue.push({ source, resolve });
-            this._processQueue();
+        return new Promise((resolve, reject) => {
+            this._queue.push({ source, resolve, reject });
+            this._drain();
         });
     }
 
     /**
-     * Учитывает уже выполненный вне очереди запрос в текущем окне лимита,
-     * без ожидания разрешения (используется для запросов, перехваченных webRequest).
-     * Если лимит уже исчерпан, запрос не учитывается.
-     * @param {string} [source='unknown'] - Метка источника запроса (для логирования).
-     * @returns {void}
-     */
-    recordRequest(source = 'unknown') {
-        if (this._requestsInLastMinute >= this._maxRequestsPerMinute) return;
-        this._requestsInLastMinute += 1;
-        this._requestTimestamps.push(Date.now());
-        console.debug(`[RateLimiter] Recorded external request (${source}): ${this._requestsInLastMinute}/${this._maxRequestsPerMinute}`);
-        setTimeout(() => {
-            this._requestsInLastMinute -= 1;
-            this._requestTimestamps.shift();
-        }, 60000);
-    }
-
-    /**
-     * Алиас trackRequest для более читаемого вызова в местах, семантически
-     * означающих "получить разрешение" перед действием.
-     * @param {string} [serviceName='default'] - Метка источника запроса (для логирования).
-     * @returns {Promise<void>} Промис, разрешающийся при разрешении на выполнение запроса.
+     * Синоним trackRequest — «получить разрешение» перед запросом.
+     * @param {string} [serviceName='default'] - Метка источника запроса.
+     * @returns {Promise<void>} Промис разрешения.
      */
     acquire(serviceName = 'default') {
         return this.trackRequest(serviceName);
     }
 
     /**
-     * Дожидается разрешения лимита и затем выполняет переданную функцию.
-     * @param {string} serviceName - Метка источника запроса (для логирования).
-     * @param {function(): *} fn - Функция, которую нужно выполнить в рамках лимита.
-     * @returns {Promise<*>} Результат выполнения fn.
+     * Дожидается разрешения и затем выполняет функцию.
+     * @param {string} serviceName - Метка источника запроса.
+     * @param {function(): *} fn - Функция, выполняемая в рамках лимита.
+     * @returns {Promise<*>} Результат fn.
      */
     async execute(serviceName, fn) {
         await this.trackRequest(serviceName);
@@ -155,42 +116,129 @@ export class RateLimiter {
     }
 
     /**
+     * Учитывает уже выполненный запрос без ожидания разрешения. Запрос
+     * учитывается всегда, даже если лимит исчерпан.
+     * @param {string} [source='unknown'] - Метка источника запроса (для логирования).
+     * @returns {void}
+     */
+    recordRequest(source = 'unknown') {
+        this._timestamps.push(Date.now());
+        console.debug(`[RateLimiter] Recorded request (${source})`);
+        this._changed();
+        this._drain();
+    }
+
+    /**
+     * Синоним recordRequest.
+     * @param {string} [source] - Метка источника запроса.
+     * @returns {void}
+     */
+    record(source) {
+        this.recordRequest(source);
+    }
+
+    /**
      * Возвращает текущую статистику ограничителя.
-     * @returns {{requestsInLastMinute: number, maxRequestsPerMinute: number,
-     * queueSize: number, throttled: boolean, timestamps: number[]}} Снимок текущего состояния лимита.
+     * @returns {{requestsInLastMinute: number, maxRequestsPerMinute: number, queueSize: number,
+     * throttled: boolean, blockedUntil: number, timestamps: number[]}} Снимок состояния.
      */
     getStats() {
+        const now = Date.now();
+        this._prune(now);
         return {
-            requestsInLastMinute: this._requestsInLastMinute,
-            maxRequestsPerMinute: this._maxRequestsPerMinute,
-            queueSize: this._pendingQueue.length,
-            throttled: this._throttled,
-            timestamps: this._requestTimestamps.slice()
+            requestsInLastMinute: this._timestamps.length,
+            maxRequestsPerMinute: this._limit,
+            queueSize: this._queue.length,
+            throttled: now < this._blockedUntil,
+            blockedUntil: this._blockedUntil,
+            timestamps: this._timestamps.slice()
         };
     }
 
     /**
-     * Полностью сбрасывает состояние ограничителя: счётчики, очередь и блокировку throttle.
+     * Сбрасывает состояние: снимает блокировку, очищает окно и отклоняет
+     * все ожидающие запросы.
      * @returns {void}
      */
     reset() {
-        this._requestsInLastMinute = 0;
-        this._requestTimestamps = [];
-        this._pendingQueue = [];
-        this._isProcessing = false;
-        this._throttled = false;
-        if (this._throttleTimer) {
-            clearTimeout(this._throttleTimer);
-            this._throttleTimer = null;
-        }
+        clearTimeout(this._timer);
+        this._timer = null;
+        const pending = this._queue;
+        this._queue = [];
+        this._timestamps = [];
+        this._blockedUntil = 0;
+        pending.forEach(request => request.reject(new Error('Rate limiter reset')));
         console.log('[RateLimiter] Reset completed');
+        this._changed();
+    }
+
+    /**
+     * Возвращает сериализуемый снимок состояния (для storage.session).
+     * @returns {{timestamps: number[], blockedUntil: number}} Снимок.
+     */
+    snapshot() {
+        this._prune(Date.now());
+        return { timestamps: this._timestamps.slice(), blockedUntil: this._blockedUntil };
+    }
+
+    /**
+     * Восстанавливает состояние из снимка, отбрасывая устаревшие метки.
+     * @param {?{timestamps?: number[], blockedUntil?: number}} state - Снимок из snapshot().
+     * @returns {void}
+     */
+    restore(state) {
+        if (!state) return;
+        const timestamps = Array.isArray(state.timestamps) ? state.timestamps.filter(Number.isFinite) : [];
+        this._timestamps = [...timestamps, ...this._timestamps].sort((a, b) => a - b);
+        this._blockedUntil = Math.max(this._blockedUntil, Number(state.blockedUntil) || 0);
+        this._prune(Date.now());
+        this._drain();
+    }
+
+    /**
+     * Убирает метки, вышедшие из окна.
+     * @param {number} now - Текущее время.
+     * @returns {void}
+     */
+    _prune(now) {
+        while (this._timestamps.length && this._timestamps[0] <= now - WINDOW_MS)
+            this._timestamps.shift();
+    }
+
+    /**
+     * Выдаёт разрешения ожидающим запросам, пока позволяют лимит и блокировка,
+     * и заводит один таймер до ближайшего момента, когда появится свободный слот.
+     * @returns {void}
+     */
+    _drain() {
+        clearTimeout(this._timer);
+        this._timer = null;
+        const now = Date.now();
+        this._prune(now);
+
+        let granted = false;
+        while (this._queue.length && now >= this._blockedUntil && this._timestamps.length < this._limit) {
+            this._timestamps.push(now);
+            this._queue.shift().resolve();
+            granted = true;
+        }
+        if (granted) this._changed();
+        if (!this._queue.length) return;
+
+        const slotFreeAt = this._timestamps.length >= this._limit
+            ? this._timestamps[this._timestamps.length - this._limit] + WINDOW_MS
+            : now;
+        const wakeAt = Math.max(slotFreeAt, this._blockedUntil);
+        this._timer = setTimeout(() => this._drain(), Math.max(0, wakeAt - now));
+    }
+
+    /**
+     * Сообщает подписчику об изменении состояния.
+     * @returns {void}
+     */
+    _changed() {
+        if (this._onChange) this._onChange();
     }
 }
-
-/**
- * Общий экземпляр ограничителя текущего контекста (страницы расширения или фона).
- * @type {RateLimiter}
- */
-export const globalRateLimiter = new RateLimiter({ maxRequestsPerMinute: 85 });
 
 console.log('[RateLimiter] Loaded');

@@ -10,6 +10,7 @@
 import { browserEnv, extensionApi, NoServiceTabError } from './BrowserApi.js';
 import { fetchPageImage, loadImageOrDefer } from './DownloadManager.js';
 import { ImageCompressor } from './ImageCompressor.js';
+import { MSG } from './messages.js';
 import { BaseExporter } from '../exporters/BaseExporter.js';
 import { ExporterRegistry } from '../exporters/ExporterRegistry.js';
 import { BaseService } from '../services/BaseService.js';
@@ -410,7 +411,7 @@ export class PluginManager {
     static async _tryScriptingExec(api, tabId, plugin) {
         try {
             const res = await api.runtime.sendMessage({
-                action: 'plugin:exec',
+                action: MSG.PLUGIN_EXEC,
                 tabId,
                 code: plugin.code
             });
@@ -442,7 +443,7 @@ export class PluginManager {
         const name = plugin.name || plugin.serviceLabel || plugin.label || key;
         try {
             const res = await api.runtime.sendMessage({
-                action: 'plugin:cache',
+                action: MSG.PLUGIN_CACHE,
                 format: key,
                 code:   plugin.code
             });

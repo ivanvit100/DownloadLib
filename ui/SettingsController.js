@@ -7,11 +7,10 @@
  */
 
 import { PluginManager } from '../core/PluginManager.js';
-import { globalRateLimiter } from '../core/RateLimiter.js';
+import { RateLimitClient } from '../core/RateLimitClient.js';
 
 console.log('[SettingsController] Loading...');
 
-const RATE_LIMIT_KEY = 'downloadlib_default_rate_limit';
 const MAX_SIZE_KEY = 'manga_parser_max_size_mb';
 const RANGE_MODE_KEY = 'manga_parser_range_mode';
 const FIT_FB2_IMAGES_KEY = 'manga_parser_fit_fb2_images';
@@ -36,13 +35,13 @@ export const SettingsController = {
     },
 
     /**
-     * Заполняет поле лимита запросов в минуту сохранённым значением.
-     * @returns {void}
+     * Заполняет поле лимита запросов в минуту значением из настроек (storage.local).
+     * @returns {Promise<void>}
      */
-    _renderRateLimit() {
+    async _renderRateLimit() {
         const input = document.getElementById('settingsRateLimit');
         if (!input) return;
-        input.value = localStorage.getItem(RATE_LIMIT_KEY) || '85';
+        input.value = await RateLimitClient.getLimit();
     },
 
     /**
@@ -177,8 +176,7 @@ export const SettingsController = {
                 if (isNaN(val) || val < 2) val = 2;
                 if (val > 200) val = 200;
                 rateLimitInput.value = val;
-                localStorage.setItem(RATE_LIMIT_KEY, String(val));
-                globalRateLimiter.setLimit(val);
+                RateLimitClient.setLimit(val);
 
                 const original = saveBtn.textContent;
                 saveBtn.textContent = '✓ Сохранено';

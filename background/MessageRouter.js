@@ -1,27 +1,53 @@
 /**
  * DownloadLib background module
- * Routes runtime messages from content scripts and the popup to the appropriate handlers
+ * Routes runtime messages from extension pages and service tabs to their handlers
+ * and registers the content scripts of the services
  * @module background/MessageRouter
  * @license MIT
  * @author ivanvit
  * @version 1.1.0
  */
 
-import { browserEnv, extensionApi } from '../core/BrowserApi.js';
-import { globalRateLimiter } from '../core/RateLimiter.js';
-import { extractSlug, serviceConfigs, serviceKeyForUrl } from '../services/hosts.js';
-import { authTokens } from './RequestInterceptor.js';
+import { extensionApi, isExtensionUrl } from '../core/BrowserApi.js';
+import { MSG, PORT_KEEP_ALIVE } from '../core/messages.js';
+import { extractSlug, isServiceHost, serviceConfigs, serviceKeyForUrl } from '../services/hosts.js';
+import { getPluginHosts, syncPluginHosts } from './pluginHosts.js';
+import * as rateLimitService from './rateLimitService.js';
+import * as tokenStore from './tokenStore.js';
 
 console.log('[MessageRouter] Script loading...');
 
-const isFirefox = !!browserEnv.isFirefox;
+/**
+ * Проверяет, что сообщение отправлено страницей самого расширения (popup, окно
+ * загрузки, настройки), а не content script'ом.
+ * @param {object} sender - Отправитель сообщения.
+ * @returns {boolean}
+ */
+function isExtensionPage(sender) {
+    return isExtensionUrl(sender.url);
+}
 
 /**
- * Хосты сервисов из включённых пользовательских плагинов: ключ сервиса → список хостов.
- * Обновляется _syncPluginServiceHosts при старте и при изменении списка плагинов.
- * @type {Object<string, string[]>}
+ * Проверяет, что сообщение отправлено из вкладки сайта встроенного сервиса
+ * или сервисного плагина.
+ * @param {object} sender - Отправитель сообщения.
+ * @returns {boolean}
  */
-let pluginServiceHosts = {};
+function isServiceTab(sender) {
+    return !!sender.tab?.url && isServiceHost(sender.tab.url, getPluginHosts());
+}
+
+/**
+ * Проверяет, может ли отправитель вызвать обработчик: сообщение пришло от этого
+ * расширения и от разрешённого обработчику типа отправителя.
+ * @param {{allow: 'extensionPage'|'serviceTab'}} handler - Обработчик.
+ * @param {object} sender - Отправитель сообщения.
+ * @returns {boolean}
+ */
+function isAllowed(handler, sender) {
+    if (!sender || sender.id !== extensionApi.runtime.id) return false;
+    return handler.allow === 'extensionPage' ? isExtensionPage(sender) : isServiceTab(sender);
+}
 
 /**
  * Открывает всплывающее окно расширения по заданному URL, используя windows API
@@ -45,171 +71,37 @@ async function openPopupWindow(url) {
 }
 
 /**
- * Карта обработчиков runtime-сообщений: ключ — значение поля `action` сообщения,
- * значение — функция-обработчик `(msg, sender, respond) => boolean`, возвращающая true
- * для указания, что ответ будет отправлен асинхронно через `respond`.
- * @type {Map<string, function(object, object, function(*): void): boolean>}
+ * Переводит результат openPopupWindow в ответ на сообщение.
+ * @param {boolean|null} ok - Результат openPopupWindow.
+ * @param {string} failure - Текст ошибки, если окно создать не удалось.
+ * @returns {{ok: boolean, error?: string}} Ответ.
  */
-const handlers = new Map([
-    /**
-     * Возвращает сохранённый auth-токен указанного сервиса.
-     * @param {{serviceKey?: string}} msg - Сообщение с ключом сервиса.
-     * @param {object} _sender - Отправитель сообщения (не используется).
-     * @param {function({token: string|null}): void} respond - Функция отправки ответа.
-     * @returns {true}
-     */
-    ['getAuthToken', (msg, _sender, respond) => {
-        const token = msg.serviceKey ? (authTokens[msg.serviceKey] || null) : null;
-        respond({ token });
-        return true;
-    }],
+function windowResponse(ok, failure) {
+    if (ok === null) return { ok: false, error: 'No window/tab API available' };
+    return ok ? { ok: true } : { ok: false, error: failure };
+}
 
-    /**
-     * Сохраняет auth-токен сервиса в хранилище токенов.
-     * @param {{serviceKey?: string, token?: string}} msg - Сообщение с ключом сервиса и токеном.
-     * @param {object} _sender - Отправитель сообщения (не используется).
-     * @param {function({ok: true}): void} respond - Функция отправки ответа.
-     * @returns {true}
-     */
-    ['cacheAuthToken', (msg, _sender, respond) => {
-        if (msg.serviceKey && msg.token) {
-            authTokens[msg.serviceKey] = msg.token;
-            console.log(`[MessageRouter] Cached auth token for ${msg.serviceKey}`);
-        }
-        respond({ ok: true });
-        return true;
-    }],
+/**
+ * Определяет slug тайтла и сервис по URL вкладки-отправителя и открывает окно
+ * загрузки. В URL окна передаются только тайтл, сервис, формат и вкладка:
+ * остальные параметры загрузки берутся из настроек.
+ * @param {{format?: string}} msg - Сообщение с желаемым форматом экспорта.
+ * @param {object} sender - Отправитель (вкладка сервиса).
+ * @returns {Promise<{ok: boolean, error?: string}>} Ответ.
+ */
+async function openDownloadWindow(msg, sender) {
+    const tabUrl = sender.tab?.url;
+    if (!tabUrl) return { ok: false, error: 'No tab URL' };
 
-    /**
-     * Устанавливает лимит запросов в минуту для общего rate limiter.
-     * @param {{limit: number}} msg - Сообщение с новым значением лимита.
-     * @param {object} _sender - Отправитель сообщения (не используется).
-     * @param {function({ok: true}): void} respond - Функция отправки ответа.
-     * @returns {true}
-     */
-    ['setRateLimit', (msg, _sender, respond) => {
-        globalRateLimiter.setLimit(msg.limit);
-        respond({ ok: true });
-        return true;
-    }],
+    const slug = extractSlug(tabUrl);
+    const serviceKey = serviceKeyForUrl(tabUrl, getPluginHosts());
+    if (!slug || !serviceKey) return { ok: false, error: 'Cannot detect slug or service' };
 
-    /**
-     * Возвращает текущую статистику rate limiter'а.
-     * @param {object} _msg - Сообщение (не используется).
-     * @param {object} _sender - Отправитель сообщения (не используется).
-     * @param {function({ok: true, stats: object}): void} respond - Функция отправки ответа.
-     * @returns {true}
-     */
-    ['getRateLimiterStats', (_msg, _sender, respond) => {
-        respond({ ok: true, stats: globalRateLimiter.getStats() });
-        return true;
-    }],
-
-    /**
-     * Выполняет fetch с учётом rate limiter'а сервиса, автоматически повторяя запрос
-     * с 30-секундной блокировкой при получении статуса 429 (до MAX_RETRIES попыток).
-     * @param {{url: string, options?: object}} msg - Сообщение с URL и опциями fetch.
-     * @param {object} _sender - Отправитель сообщения (не используется).
-     * @param {function({ok: boolean, status?: number, statusText?: string, body?: string,
-     * contentType?: string, error?: string}): void} respond - Функция отправки ответа.
-     * @returns {true}
-     */
-    ['fetchWithRateLimit', (msg, _sender, respond) => {
-        (async () => {
-            try {
-                const { url } = msg;
-                const fetchOptions = msg.options || {};
-
-                if (!fetchOptions.credentials)
-                    fetchOptions.credentials = isFirefox ? 'include' : 'omit';
-
-                const MAX_RETRIES = 4;
-                let response;
-                for (let attempt = 0; attempt < MAX_RETRIES; attempt++) {
-                    const service = serviceKeyForUrl(url);
-                    if (service) await globalRateLimiter.trackRequest(service);
-                    response = await fetch(url, fetchOptions);
-                    if (response.status !== 429) break;
-                    console.warn(`[MessageRouter] fetchWithRateLimit 429 on attempt ${attempt + 1}, throttling 30s...`);
-                    globalRateLimiter.throttle(30000);
-                    await globalRateLimiter.trackRequest('429-retry');
-                }
-
-                if (!response.ok) {
-                    respond({ ok: false, status: response.status, statusText: response.statusText });
-                    return;
-                }
-
-                const text = await response.text();
-                respond({ ok: true, status: response.status,
-                    body: text, contentType: response.headers.get('content-type') });
-            } catch (err) {
-                respond({ ok: false, error: String(err) });
-            }
-        })();
-        return true;
-    }],
-
-    /**
-     * Определяет slug тайтла и сервис по URL вкладки-отправителя и открывает
-     * всплывающее окно загрузки (popup.html) с параметрами скачивания.
-     * @param {{format?: string}} msg - Сообщение с желаемым форматом экспорта.
-     * @param {object} sender - Отправитель сообщения; используется sender.tab.url и sender.tab.id.
-     * @param {function({ok: boolean, error?: string}): void} respond - Функция отправки ответа.
-     * @returns {true}
-     */
-    ['openDownloadWindow', (msg, sender, respond) => {
-        (async () => {
-            try {
-                const tabUrl = sender.tab && sender.tab.url;
-                if (!tabUrl) { respond({ ok: false, error: 'No tab URL' }); return; }
-
-                const slug = extractSlug(tabUrl);
-                const serviceKey = serviceKeyForUrl(tabUrl, pluginServiceHosts);
-
-                if (!slug || !serviceKey) {
-                    respond({ ok: false, error: 'Cannot detect slug or service' });
-                    return;
-                }
-
-                const tabId = sender.tab?.id ?? null;
-                const format = encodeURIComponent(msg.format || 'fb2');
-                let urlParams = `?download=true&slug=${encodeURIComponent(slug)}&service=${encodeURIComponent(serviceKey)}&format=${format}&rateLimit=85&maxSizeMB=200`;
-                if (tabId != null) urlParams += `&tabId=${tabId}`;
-                const popupUrl = extensionApi.runtime.getURL('popup.html') + urlParams;
-
-                const ok = await openPopupWindow(popupUrl);
-                if (ok === null) respond({ ok: false, error: 'No window/tab API available' });
-                else if (!ok) respond({ ok: false, error: 'window create' });
-                else respond({ ok: true });
-            } catch (e) {
-                respond({ ok: false, error: String(e) });
-            }
-        })();
-        return true;
-    }],
-
-    /**
-     * Открывает всплывающее окно расширения по произвольному URL, переданному в сообщении.
-     * @param {{url: string}} msg - Сообщение с URL, который нужно открыть.
-     * @param {object} _sender - Отправитель сообщения (не используется).
-     * @param {function({ok: boolean, error?: string}): void} respond - Функция отправки ответа.
-     * @returns {true}
-     */
-    ['openWindowWithUrl', (msg, _sender, respond) => {
-        (async () => {
-            try {
-                const ok = await openPopupWindow(msg.url);
-                if (ok === null) respond({ ok: false, error: 'No window/tab API available' });
-                else if (!ok) respond({ ok: false, error: 'tab create' });
-                else respond({ ok: true });
-            } catch (e) {
-                respond({ ok: false, error: String(e) });
-            }
-        })();
-        return true;
-    }]
-]);
+    const params = new URLSearchParams({ download: 'true', slug, service: serviceKey, format: msg.format || 'fb2' });
+    if (sender.tab.id != null) params.set('tabId', String(sender.tab.id));
+    const popupUrl = `${extensionApi.runtime.getURL('popup.html')}?${params}`;
+    return windowResponse(await openPopupWindow(popupUrl), 'window create');
+}
 
 const _inSWContext = typeof importScripts === 'function';
 
@@ -263,89 +155,135 @@ async function _getSwStatus() {
  * Сохраняет код кастомного плагина: в Cache API внутри service worker'а
  * или в IndexedDB в остальных контекстах.
  * @param {{format: string, code: string}} msg - Сообщение с ключом формата и исходным кодом плагина.
- * @param {object} _sender - Отправитель сообщения (не используется).
- * @param {function({ok: boolean, swStatus: string, error?: string}): void} respond - Функция отправки ответа.
- * @returns {true}
+ * @returns {Promise<{ok: boolean, swStatus: string, error?: string}>} Ответ.
  */
-handlers.set('plugin:cache', (msg, _sender, respond) => {
+async function cachePlugin(msg) {
     const { format, code } = msg;
-    (async () => {
-        const swStatus = await _getSwStatus();
-        try {
-            if (_inSWContext) {
-                const cache = await caches.open('dl-plugins-v1');
-                await cache.put(
-                    `/plugin-runtime/${format}.js`,
-                    new Response(code, { headers: { 'Content-Type': 'text/javascript' } })
-                );
-            } else await _storePluginInIDB(format, code);
-            console.log(`[MessageRouter] Plugin "${format}" stored (${_inSWContext ? 'Cache' : 'IDB'}), SW: ${swStatus}`);
-            respond({ ok: true, swStatus });
-        } catch (e) {
-            console.warn('[MessageRouter] Plugin storage failed:', e.message);
-            respond({ ok: false, error: e.message, swStatus });
-        }
-    })();
-    return true;
-});
+    const swStatus = await _getSwStatus();
+    try {
+        if (_inSWContext) {
+            const cache = await caches.open('dl-plugins-v1');
+            await cache.put(
+                `/plugin-runtime/${format}.js`,
+                new Response(code, { headers: { 'Content-Type': 'text/javascript' } })
+            );
+        } else await _storePluginInIDB(format, code);
+        console.log(`[MessageRouter] Plugin "${format}" stored (${_inSWContext ? 'Cache' : 'IDB'}), SW: ${swStatus}`);
+        return { ok: true, swStatus };
+    } catch (e) {
+        console.warn('[MessageRouter] Plugin storage failed:', e.message);
+        return { ok: false, error: e.message, swStatus };
+    }
+}
 
 /**
  * Выполняет код плагина в контексте указанной вкладки через scripting.executeScript.
  * @param {{tabId: number, code: string}} msg - Сообщение с id вкладки и исполняемым кодом.
- * @param {object} _sender - Отправитель сообщения (не используется).
- * @param {function({ok: boolean, error?: string}): void} respond - Функция отправки ответа.
- * @returns {true}
+ * @returns {Promise<{ok: boolean, error?: string}>} Ответ.
  */
-handlers.set('plugin:exec', (msg, _sender, respond) => {
+async function execPlugin(msg) {
     const { tabId, code } = msg;
-    (async () => {
-        try {
-            if (!extensionApi.scripting?.executeScript)
-                throw new Error('scripting.executeScript not available');
-            if (!tabId)
-                throw new Error('No tabId provided');
-            await extensionApi.scripting.executeScript({
-                target: { tabId },
-                func: pluginCode => { (0, eval)(pluginCode); }, // eslint-disable-line no-eval
-                args:  [code]
-            });
-            respond({ ok: true });
-        } catch (e) {
-            console.warn('[MessageRouter] plugin:exec failed:', e.message);
-            respond({ ok: false, error: e.message });
+    try {
+        if (!extensionApi.scripting?.executeScript)
+            throw new Error('scripting.executeScript not available');
+        if (!tabId)
+            throw new Error('No tabId provided');
+        await extensionApi.scripting.executeScript({
+            target: { tabId },
+            func: pluginCode => { (0, eval)(pluginCode); }, // eslint-disable-line no-eval
+            args:  [code]
+        });
+        return { ok: true };
+    } catch (e) {
+        console.warn('[MessageRouter] plugin:exec failed:', e.message);
+        return { ok: false, error: e.message };
+    }
+}
+
+/**
+ * Обработчики runtime-сообщений по значению поля `action`. `allow` задаёт, кто
+ * может вызвать обработчик: 'extensionPage' — страницы расширения, 'serviceTab' —
+ * content script'ы на сайтах сервисов и сервисных плагинов. `handle` возвращает
+ * ответ (или промис ответа).
+ * @type {Object<string, {allow: 'extensionPage'|'serviceTab', handle: function(object, object): *}>}
+ */
+const handlers = {
+    [MSG.GET_AUTH_TOKEN]: {
+        allow: 'extensionPage',
+        handle: async msg => ({ token: msg.serviceKey ? await tokenStore.getToken(msg.serviceKey) : null })
+    },
+    [MSG.CACHE_AUTH_TOKEN]: {
+        allow: 'extensionPage',
+        handle: async msg => {
+            if (msg.serviceKey && msg.token && await tokenStore.setToken(msg.serviceKey, msg.token))
+                console.log(`[MessageRouter] Cached auth token for ${msg.serviceKey}`);
+            return { ok: true };
         }
-    })();
+    },
+    [MSG.AUTH_INVALIDATE]: {
+        allow: 'extensionPage',
+        handle: async msg => {
+            if (msg.serviceKey) await tokenStore.invalidate(msg.serviceKey);
+            return { ok: true };
+        }
+    },
+    [MSG.RATE_ACQUIRE]: {
+        allow: 'extensionPage',
+        handle: async msg => {
+            await rateLimitService.acquire(msg.serviceKey);
+            return { ok: true };
+        }
+    },
+    [MSG.RATE_THROTTLE]: {
+        allow: 'extensionPage',
+        handle: async msg => ({ ok: true, ...await rateLimitService.throttle(msg.ms) })
+    },
+    [MSG.OPEN_DOWNLOAD_WINDOW]: { allow: 'serviceTab', handle: openDownloadWindow },
+    [MSG.OPEN_WINDOW_WITH_URL]: {
+        allow: 'extensionPage',
+        handle: async msg => windowResponse(await openPopupWindow(msg.url), 'tab create')
+    },
+    [MSG.PLUGIN_CACHE]: { allow: 'extensionPage', handle: cachePlugin },
+    [MSG.PLUGIN_EXEC]: { allow: 'extensionPage', handle: execPlugin }
+};
+
+/**
+ * Передаёт сообщение обработчику, если отправителю он разрешён, и отправляет
+ * ответ асинхронно. Ошибка обработчика превращается в ответ {ok: false, error}.
+ * @param {{action: string}} message - Входящее сообщение.
+ * @param {object} sender - Отправитель сообщения.
+ * @param {function(*): void} sendResponse - Функция отправки ответа отправителю.
+ * @returns {boolean} true, если ответ будет отправлен асинхронно.
+ */
+function onMessage(message, sender, sendResponse) {
+    const handler = Object.hasOwn(handlers, message?.action) ? handlers[message.action] : null;
+    if (!handler) return false;
+    if (!isAllowed(handler, sender)) {
+        console.warn(`[MessageRouter] Rejected "${message.action}" from`, sender?.url);
+        sendResponse({ ok: false, error: 'forbidden' });
+        return false;
+    }
+
+    Promise.resolve()
+        .then(() => handler.handle(message, sender))
+        .then(sendResponse, e => sendResponse({ ok: false, error: e?.message || String(e) }));
     return true;
-});
+}
 
 if (extensionApi?.runtime?.onMessage) {
-    /**
-     * Диспетчеризует входящее runtime-сообщение обработчику из карты `handlers`
-     * по значению поля `message.action`.
-     * @param {{action: string}} message - Входящее сообщение.
-     * @param {object} sender - Отправитель сообщения.
-     * @param {function(*): void} sendResponse - Функция отправки ответа отправителю.
-     * @returns {boolean} Результат вызова найденного обработчика (true — асинхронный ответ),
-     * либо false, если обработчик для данного action не зарегистрирован.
-     */
-    extensionApi.runtime.onMessage.addListener((message, sender, sendResponse) => {
-        const handler = handlers.get(message.action);
-        if (handler) return handler(message, sender, sendResponse);
-        return false;
-    });
-
+    extensionApi.runtime.onMessage.addListener(onMessage);
     console.log('[MessageRouter] Message listener installed');
 }
 
 /**
- * Устанавливает слушатель long-lived подключений с именем 'downloadKeepAlive',
- * которые popup держит открытыми во время загрузки, чтобы service worker не выгружался.
+ * Устанавливает слушатель long-lived подключений PORT_KEEP_ALIVE,
+ * которые окно загрузки держит открытыми, чтобы service worker не выгружался.
  * @returns {void}
  */
 function _installKeepAliveListener() {
     if (!extensionApi?.runtime?.onConnect) return;
     extensionApi.runtime.onConnect.addListener(port => {
-        if (port.name !== 'downloadKeepAlive') return;
+        if (port.name !== PORT_KEEP_ALIVE) return;
         port.onMessage.addListener(() => {});
     });
 }
@@ -354,30 +292,10 @@ _installKeepAliveListener();
 
 const CONTENT_SCRIPTS = [
     '/content/AdCleaner.js',
-    '/content/DownloadButton.js',
-    '/content/ImageFetcher.js'
+    '/content/DownloadButton.js'
 ];
 const SERVICE_SCRIPT_ID_PREFIX = 'dl-service-';
 const PLUGIN_SCRIPT_ID_PREFIX = 'dl-plugin-';
-
-/**
- * Читает включённые пользовательские плагины из storage.local и обновляет
- * карту pluginServiceHosts (сервис -> список хостов).
- * @returns {Promise<object[]>} Список включённых плагинов с непустым списком hosts.
- */
-async function _syncPluginServiceHosts() {
-    if (!extensionApi?.storage?.local) return [];
-    const result = await extensionApi.storage.local.get('custom_plugins');
-    const plugins = (result?.custom_plugins || []).filter(
-        p => p.enabled !== false && Array.isArray(p.hosts) && p.hosts.length
-    );
-
-    pluginServiceHosts = {};
-    for (const p of plugins)
-        if (p.service) pluginServiceHosts[p.service] = p.hosts;
-
-    return plugins;
-}
 
 /**
  * Описывает регистрацию CONTENT_SCRIPTS на сайтах с указанными хостами.
@@ -415,7 +333,7 @@ function _contentScriptKey(script) {
 async function _syncContentScripts() {
     let plugins = null;
     try {
-        plugins = await _syncPluginServiceHosts();
+        plugins = await syncPluginHosts();
     } catch (e) {
         console.warn('[MessageRouter] Failed to read custom plugins:', e.message);
     }

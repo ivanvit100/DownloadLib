@@ -8,7 +8,7 @@
  */
 
 import { extensionApi, requestViaTab } from '../core/BrowserApi.js';
-import { globalRateLimiter } from '../core/RateLimiter.js';
+import { RateLimitClient } from '../core/RateLimitClient.js';
 import { matchesHosts } from './hosts.js';
 
 /**
@@ -258,7 +258,7 @@ export class BaseService {
                 const waitMs = (retryAfter && retryAfter > 0) ? retryAfter * 1000 : 30000;
                 console.warn(`[${this.name}] 429 Too Many Requests (attempt ${attempt + 1}/${maxRetries}), waiting ${waitMs}ms...`);
                 if (this._on429) this._on429(waitMs);
-                globalRateLimiter.throttle(waitMs);
+                RateLimitClient.throttle(waitMs);
                 await this.interruptibleDelay(waitMs);
                 continue;
             }

@@ -1,35 +1,33 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 
-vi.mock('../../core/RateLimiter.js', async () => (await import('../helpers/globalBridge.js')).globalBridge('globalRateLimiter'));
-vi.mock('../../background/RequestInterceptor.js', async () => (await import('../helpers/globalBridge.js'))
-    .globalBridge({ authTokens: 'authTokenStore' }));
+vi.mock('../../background/tokenStore.js', async () => (await import('../helpers/globalBridge.js'))
+    .globalBridge({ getToken: 'tsGetToken', setToken: 'tsSetToken', invalidate: 'tsInvalidate' }));
+vi.mock('../../background/rateLimitService.js', async () => (await import('../helpers/globalBridge.js'))
+    .globalBridge({ acquire: 'rlAcquire', throttle: 'rlThrottle', getStats: 'rlGetStats' }));
 
-let mockTrackRequest;
-let mockSetLimit;
-let mockGetStats;
-let mockThrottle;
+const EXT_ID = 'test-ext-id';
+const PAGE = { id: EXT_ID, url: 'moz-extension://test-id/popup.html' };
+
+/**
+ * Отправитель — вкладка сайта с content script'ом расширения.
+ * @param {string} url - URL вкладки.
+ * @param {number} [id] - id вкладки.
+ * @returns {object} Отправитель.
+ */
+const tabSender = (url, id) => ({ id: EXT_ID, url, tab: { url, id } });
+
 let mockAddListenerOnMessage;
 let capturedMessageCb;
 let mockAddListenerOnConnect;
 let capturedConnectCb;
-let isFirefoxMode;
 
 function setupGlobals(mode) {
-    isFirefoxMode = mode === 'firefox';
-
-    mockTrackRequest = vi.fn().mockResolvedValue();
-    mockSetLimit = vi.fn();
-    mockGetStats = vi.fn().mockReturnValue({ rpm: 10 });
-    mockThrottle = vi.fn();
-
-    globalThis.globalRateLimiter = {
-        trackRequest: mockTrackRequest,
-        setLimit: mockSetLimit,
-        getStats: mockGetStats,
-        throttle: mockThrottle,
-    };
-
-    globalThis.authTokenStore = {};
+    globalThis.tsGetToken = vi.fn().mockResolvedValue(null);
+    globalThis.tsSetToken = vi.fn().mockResolvedValue(true);
+    globalThis.tsInvalidate = vi.fn().mockResolvedValue();
+    globalThis.rlAcquire = vi.fn().mockResolvedValue();
+    globalThis.rlThrottle = vi.fn(async ms => ({ blockedUntil: 1000 + ms }));
+    globalThis.rlGetStats = vi.fn().mockResolvedValue({});
 
     capturedMessageCb = null;
     mockAddListenerOnMessage = vi.fn((cb) => { capturedMessageCb = cb; });
@@ -38,15 +36,11 @@ function setupGlobals(mode) {
     mockAddListenerOnConnect = vi.fn((cb) => { capturedConnectCb = cb; });
 
     const apiObj = {
-        webRequest: {
-            onBeforeSendHeaders: { addListener: vi.fn() },
-            onBeforeRequest: { addListener: vi.fn() },
-        },
         runtime: {
             onMessage: { addListener: mockAddListenerOnMessage },
             onConnect: { addListener: mockAddListenerOnConnect },
             getURL: vi.fn(p => `moz-extension://test-id/${p}`),
-            id: 'test-ext-id',
+            id: EXT_ID,
         },
     };
 
@@ -61,15 +55,12 @@ function setupGlobals(mode) {
         delete globalThis.browser;
     }
 
-    globalThis.fetch = vi.fn();
-
     vi.spyOn(console, 'log').mockImplementation(() => {});
     vi.spyOn(console, 'error').mockImplementation(() => {});
 }
 
 async function loadModule() {
     vi.resetModules();
-    globalThis.authTokenStore = {};
     await import('../../background/MessageRouter.js');
 }
 
@@ -82,12 +73,23 @@ async function loadWithPlugins(plugins) {
     await new Promise(resolve => setTimeout(resolve, 0));
 }
 
+/**
+ * Передаёт сообщение роутеру и дожидается ответа, если роутер обещал ответить.
+ * @param {object} message - Сообщение.
+ * @param {object} [sender=PAGE] - Отправитель.
+ * @returns {Promise<{returned: boolean, response: *, sendResponse: Function}>}
+ */
+async function send(message, sender = PAGE) {
+    const sendResponse = vi.fn();
+    const returned = capturedMessageCb(message, sender, sendResponse);
+    if (returned) await vi.waitFor(() => expect(sendResponse).toHaveBeenCalled());
+    return { returned, response: sendResponse.mock.calls[0]?.[0], sendResponse };
+}
+
 async function detectedServiceFor(url) {
     const create = vi.fn().mockResolvedValue({ id: 1 });
     globalThis.browser.windows = { create, update: vi.fn() };
-    const sendResponse = vi.fn();
-    capturedMessageCb({ action: 'openDownloadWindow' }, { tab: { url } }, sendResponse);
-    await vi.waitFor(() => expect(sendResponse).toHaveBeenCalled());
+    await send({ action: 'openDownloadWindow' }, tabSender(url));
     const popupUrl = create.mock.calls[0]?.[0]?.url;
     return popupUrl ? new URLSearchParams(popupUrl.split('?')[1]).get('service') : null;
 }
@@ -95,7 +97,8 @@ async function detectedServiceFor(url) {
 describe('MessageRouter', () => {
     afterEach(() => {
         vi.restoreAllMocks();
-        delete globalThis.authTokenStore;
+        for (const name of ['tsGetToken', 'tsSetToken', 'tsInvalidate', 'rlAcquire', 'rlThrottle', 'rlGetStats'])
+            delete globalThis[name];
     });
 
     describe('Message handler', () => {
@@ -108,490 +111,274 @@ describe('MessageRouter', () => {
             expect(mockAddListenerOnMessage).toHaveBeenCalledWith(expect.any(Function));
         });
 
-        it('Returns false for unknown message action', () => {
-            const sendResponse = vi.fn();
-            const result = capturedMessageCb({ action: 'unknownAction' }, {}, sendResponse);
-            expect(result).toBe(false);
+        it('Returns false without responding for unknown or missing actions', async () => {
+            for (const message of [{ action: 'unknownAction' }, { action: 'toString' }, {}, null]) {
+                const { returned, sendResponse } = await send(message);
+                expect(returned).toBe(false);
+                expect(sendResponse).not.toHaveBeenCalled();
+            }
         });
 
-        it('Handles setRateLimit action', () => {
-            const sendResponse = vi.fn();
-            const result = capturedMessageCb({ action: 'setRateLimit', limit: 100 }, {}, sendResponse);
-            expect(mockSetLimit).toHaveBeenCalledWith(100);
-            expect(sendResponse).toHaveBeenCalledWith({ ok: true });
-            expect(result).toBe(true);
-        });
-
-        it('Handles getRateLimiterStats action', () => {
-            const sendResponse = vi.fn();
-            const result = capturedMessageCb({ action: 'getRateLimiterStats' }, {}, sendResponse);
-            expect(sendResponse).toHaveBeenCalledWith({ ok: true, stats: { rpm: 10 } });
-            expect(result).toBe(true);
-        });
-
-        it('Handles getAuthToken returns null when no serviceKey provided', () => {
-            const sendResponse = vi.fn();
-            capturedMessageCb({ action: 'getAuthToken' }, {}, sendResponse);
-            expect(sendResponse).toHaveBeenCalledWith({ token: null });
-        });
-
-        it('Handles getAuthToken returns null for uncached service', () => {
-            const sendResponse = vi.fn();
-            capturedMessageCb({ action: 'getAuthToken', serviceKey: 'mangalib' }, {}, sendResponse);
-            expect(sendResponse).toHaveBeenCalledWith({ token: null });
-        });
-
-        it('Handles cacheAuthToken stores token and getAuthToken retrieves it', () => {
-            const cacheResp = vi.fn();
-            capturedMessageCb({ action: 'cacheAuthToken', serviceKey: 'mangalib', token: 'abc123' }, {}, cacheResp);
-            expect(cacheResp).toHaveBeenCalledWith({ ok: true });
-            const getResp = vi.fn();
-            capturedMessageCb({ action: 'getAuthToken', serviceKey: 'mangalib' }, {}, getResp);
-            expect(getResp).toHaveBeenCalledWith({ token: 'abc123' });
-        });
-
-        it('Handles cacheAuthToken skips storage when serviceKey or token missing', () => {
-            const cacheResp = vi.fn();
-            capturedMessageCb({ action: 'cacheAuthToken', serviceKey: 'mangalib' }, {}, cacheResp);
-            expect(cacheResp).toHaveBeenCalledWith({ ok: true });
-            const getResp = vi.fn();
-            capturedMessageCb({ action: 'getAuthToken', serviceKey: 'mangalib' }, {}, getResp);
-            expect(getResp).toHaveBeenCalledWith({ token: null });
-        });
-
-        it('Handles fetchWithRateLimit success', async () => {
-            globalThis.fetch = vi.fn().mockResolvedValue({
-                ok: true,
-                status: 200,
-                text: vi.fn().mockResolvedValue('{"data":1}'),
-                headers: { get: vi.fn().mockReturnValue('application/json') },
+        it.each(['setRateLimit', 'getRateLimiterStats', 'fetchWithRateLimit', 'fetchImage'])(
+            'Does not handle the removed %s action', async action => {
+                expect((await send({ action, url: 'https://x' })).returned).toBe(false);
             });
 
-            const sendResponse = vi.fn();
-            capturedMessageCb(
-                { action: 'fetchWithRateLimit', url: 'https://api.mangalib.me/data' },
-                {},
-                sendResponse,
-            );
-
-            await vi.waitFor(() => expect(sendResponse).toHaveBeenCalled());
-            expect(sendResponse).toHaveBeenCalledWith({
-                ok: true,
-                status: 200,
-                body: '{"data":1}',
-                contentType: 'application/json',
-            });
+        it('getAuthToken returns the token from the token store', async () => {
+            globalThis.tsGetToken.mockResolvedValue('jwt');
+            const { returned, response } = await send({ action: 'getAuthToken', serviceKey: 'hlib' });
+            expect(returned).toBe(true);
+            expect(response).toEqual({ token: 'jwt' });
+            expect(globalThis.tsGetToken).toHaveBeenCalledWith('hlib');
         });
 
-        it('Handles fetchWithRateLimit with custom options', async () => {
-            globalThis.fetch = vi.fn().mockResolvedValue({
-                ok: true,
-                status: 200,
-                text: vi.fn().mockResolvedValue('ok'),
-                headers: { get: vi.fn().mockReturnValue('text/plain') },
-            });
-
-            const sendResponse = vi.fn();
-            capturedMessageCb(
-                {
-                    action: 'fetchWithRateLimit',
-                    url: 'https://api.mangalib.me/data',
-                    options: { credentials: 'same-origin', headers: { 'X-Test': '1' } },
-                },
-                {},
-                sendResponse,
-            );
-
-            await vi.waitFor(() => expect(sendResponse).toHaveBeenCalled());
-            expect(globalThis.fetch).toHaveBeenCalledWith(
-                'https://api.mangalib.me/data',
-                expect.objectContaining({ credentials: 'same-origin' }),
-            );
+        it('getAuthToken returns null without a serviceKey', async () => {
+            expect((await send({ action: 'getAuthToken' })).response).toEqual({ token: null });
+            expect(globalThis.tsGetToken).not.toHaveBeenCalled();
         });
 
-        it('Handles fetchWithRateLimit uses default credentials include in firefox', async () => {
-            globalThis.fetch = vi.fn().mockResolvedValue({
-                ok: true,
-                status: 200,
-                text: vi.fn().mockResolvedValue(''),
-                headers: { get: vi.fn().mockReturnValue(null) },
-            });
-
-            const sendResponse = vi.fn();
-            capturedMessageCb(
-                { action: 'fetchWithRateLimit', url: 'https://example.com', options: {} },
-                {},
-                sendResponse,
-            );
-
-            await vi.waitFor(() => expect(sendResponse).toHaveBeenCalled());
-            expect(globalThis.fetch).toHaveBeenCalledWith(
-                'https://example.com',
-                expect.objectContaining({ credentials: 'include' }),
-            );
+        it('cacheAuthToken stores the token of the service', async () => {
+            const { response } = await send({ action: 'cacheAuthToken', serviceKey: 'mangalib', token: 'abc' });
+            expect(response).toEqual({ ok: true });
+            expect(globalThis.tsSetToken).toHaveBeenCalledWith('mangalib', 'abc');
         });
 
-        it('Handles fetchWithRateLimit http error', async () => {
-            globalThis.fetch = vi.fn().mockResolvedValue({
-                ok: false,
-                status: 500,
-                statusText: 'Internal Server Error',
-            });
-
-            const sendResponse = vi.fn();
-            capturedMessageCb(
-                { action: 'fetchWithRateLimit', url: 'https://api.mangalib.me/data' },
-                {},
-                sendResponse,
-            );
-
-            await vi.waitFor(() => expect(sendResponse).toHaveBeenCalled());
-            expect(sendResponse).toHaveBeenCalledWith({
-                ok: false,
-                status: 500,
-                statusText: 'Internal Server Error',
-            });
+        it('cacheAuthToken skips storage when serviceKey or token is missing', async () => {
+            await send({ action: 'cacheAuthToken', serviceKey: 'mangalib' });
+            await send({ action: 'cacheAuthToken', token: 'abc' });
+            expect(globalThis.tsSetToken).not.toHaveBeenCalled();
         });
 
-        it('Handles fetchWithRateLimit fetch exception', async () => {
-            globalThis.fetch = vi.fn().mockRejectedValue(new Error('timeout'));
-
-            const sendResponse = vi.fn();
-            capturedMessageCb(
-                { action: 'fetchWithRateLimit', url: 'https://api.mangalib.me/data' },
-                {},
-                sendResponse,
-            );
-
-            await vi.waitFor(() => expect(sendResponse).toHaveBeenCalled());
-            expect(sendResponse).toHaveBeenCalledWith({ ok: false, error: expect.stringContaining('timeout') });
+        it('authInvalidate drops the token of the service', async () => {
+            const { response } = await send({ action: 'authInvalidate', serviceKey: 'mangalib' });
+            expect(response).toEqual({ ok: true });
+            expect(globalThis.tsInvalidate).toHaveBeenCalledWith('mangalib');
         });
 
-        it('Handles fetchWithRateLimit tracks ranobelib service', async () => {
-            globalThis.fetch = vi.fn().mockResolvedValue({
-                ok: true, status: 200,
-                text: vi.fn().mockResolvedValue(''),
-                headers: { get: vi.fn().mockReturnValue(null) },
-            });
-
+        it('rateAcquire answers once the background limiter grants the request', async () => {
+            let grant;
+            globalThis.rlAcquire.mockReturnValue(new Promise(resolve => { grant = resolve; }));
             const sendResponse = vi.fn();
-            capturedMessageCb(
-                { action: 'fetchWithRateLimit', url: 'https://ranobelib.me/api/v2/manga' },
-                {},
-                sendResponse,
-            );
+            expect(capturedMessageCb({ action: 'rateAcquire', serviceKey: 'mangalib' }, PAGE, sendResponse)).toBe(true);
 
-            await vi.waitFor(() => expect(sendResponse).toHaveBeenCalled());
-            expect(mockTrackRequest).toHaveBeenCalledWith('ranobelib');
-        });
-
-        it('Handles fetchWithRateLimit throttles and retries on 429', async () => {
-            const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
-            globalThis.fetch = vi.fn()
-                .mockResolvedValueOnce({ ok: false, status: 429 })
-                .mockResolvedValue({
-                    ok: true, status: 200,
-                    text: vi.fn().mockResolvedValue('ok'),
-                    headers: { get: vi.fn().mockReturnValue('text/plain') },
-                });
-
-            const sendResponse = vi.fn();
-            capturedMessageCb({ action: 'fetchWithRateLimit', url: 'https://mangalib.me/api/test' }, {}, sendResponse);
-
-            await vi.waitFor(() => expect(sendResponse).toHaveBeenCalled());
-            expect(warnSpy).toHaveBeenCalledWith(expect.stringContaining('fetchWithRateLimit 429 on attempt 1'));
-            expect(mockThrottle).toHaveBeenCalledWith(30000);
-            expect(mockTrackRequest).toHaveBeenCalledWith('429-retry');
-        });
-
-        it('Does not handle the removed fetchImage action', () => {
-            const sendResponse = vi.fn();
-            expect(capturedMessageCb({ action: 'fetchImage', url: 'https://img3.mixlib.me/a.jpg' }, {}, sendResponse))
-                .toBe(false);
+            await new Promise(resolve => setTimeout(resolve, 0));
+            expect(globalThis.rlAcquire).toHaveBeenCalledWith('mangalib');
             expect(sendResponse).not.toHaveBeenCalled();
+
+            grant();
+            await vi.waitFor(() => expect(sendResponse).toHaveBeenCalledWith({ ok: true }));
         });
 
-        it('Handles openDownloadWindow with no tab URL', async () => {
-            const sendResponse = vi.fn();
-            capturedMessageCb({ action: 'openDownloadWindow', format: 'epub' }, {}, sendResponse);
-            await vi.waitFor(() => expect(sendResponse).toHaveBeenCalled());
-            expect(sendResponse).toHaveBeenCalledWith({ ok: false, error: 'No tab URL' });
+        it('rateThrottle blocks the background limiter and returns the end of the block', async () => {
+            const { response } = await send({ action: 'rateThrottle', ms: 5000 });
+            expect(globalThis.rlThrottle).toHaveBeenCalledWith(5000);
+            expect(response).toEqual({ ok: true, blockedUntil: 6000 });
         });
 
-        it('Handles openDownloadWindow when slug or service cannot be detected', async () => {
-            const sendResponse = vi.fn();
-            capturedMessageCb(
-                { action: 'openDownloadWindow', format: 'epub' },
-                { tab: { url: 'https://mangalib.me/some-page' } },
-                sendResponse,
-            );
-            await vi.waitFor(() => expect(sendResponse).toHaveBeenCalled());
-            expect(sendResponse).toHaveBeenCalledWith({ ok: false, error: 'Cannot detect slug or service' });
+        it('Turns a handler error into an error response', async () => {
+            globalThis.rlAcquire.mockRejectedValue(new Error('Rate limiter reset'));
+            expect((await send({ action: 'rateAcquire' })).response).toEqual({ ok: false, error: 'Rate limiter reset' });
         });
 
-        it('Handles openDownloadWindow success and updates window focus', async () => {
-            const mockCreate = vi.fn().mockResolvedValue({ id: 42 });
-            const mockUpdate = vi.fn().mockResolvedValue({});
-            globalThis.browser.windows = { create: mockCreate, update: mockUpdate };
-
-            const sendResponse = vi.fn();
-            capturedMessageCb(
-                { action: 'openDownloadWindow', format: 'epub' },
-                { tab: { url: 'https://mangalib.me/manga/my-manga/chapter-1' } },
-                sendResponse,
-            );
-            await vi.waitFor(() => expect(sendResponse).toHaveBeenCalled());
-            expect(sendResponse).toHaveBeenCalledWith({ ok: true });
-            expect(mockUpdate).toHaveBeenCalledWith(42, { focused: true });
+        it('openWindowWithUrl opens the URL with the windows API', async () => {
+            const create = vi.fn().mockResolvedValue({ id: 3 });
+            const update = vi.fn();
+            globalThis.browser.windows = { create, update };
+            const { response } = await send({ action: 'openWindowWithUrl', url: 'moz-extension://test-id/popup.html?x=1' });
+            expect(response).toEqual({ ok: true });
+            expect(create).toHaveBeenCalledWith(expect.objectContaining({ url: 'moz-extension://test-id/popup.html?x=1', type: 'popup' }));
+            expect(update).toHaveBeenCalledWith(3, { focused: true });
         });
 
-        it('Handles openDownloadWindow without win.id (no update call)', async () => {
-            const mockCreate = vi.fn().mockResolvedValue({});
-            const mockUpdate = vi.fn();
-            globalThis.browser.windows = { create: mockCreate, update: mockUpdate };
-
-            const sendResponse = vi.fn();
-            capturedMessageCb(
-                { action: 'openDownloadWindow', format: 'fb2' },
-                { tab: { url: 'https://ranobelib.me/book/my-ranobe' } },
-                sendResponse,
-            );
-            await vi.waitFor(() => expect(sendResponse).toHaveBeenCalled());
-            expect(sendResponse).toHaveBeenCalledWith({ ok: true });
-            expect(mockUpdate).not.toHaveBeenCalled();
+        it('openWindowWithUrl falls back to the tabs API', async () => {
+            globalThis.browser.tabs = { create: vi.fn().mockResolvedValue({ id: 2 }) };
+            expect((await send({ action: 'openWindowWithUrl', url: 'u' })).response).toEqual({ ok: true });
         });
 
-        it('Handles openDownloadWindow with default format fb2', async () => {
-            const mockCreate = vi.fn().mockResolvedValue({ id: 1 });
-            globalThis.browser.windows = { create: mockCreate, update: vi.fn() };
-
-            const sendResponse = vi.fn();
-            capturedMessageCb(
-                { action: 'openDownloadWindow' },
-                { tab: { url: 'https://mangalib.me/manga/slug' } },
-                sendResponse,
-            );
-            await vi.waitFor(() => expect(sendResponse).toHaveBeenCalled());
-            const createCall = mockCreate.mock.calls[0][0];
-            expect(createCall.url).toContain('format=fb2');
-        });
-
-        it('Handles openDownloadWindow exception', async () => {
-            globalThis.browser.windows = {
-                create: vi.fn().mockRejectedValue(new Error('window fail')),
-                update: vi.fn(),
-            };
-
-            const sendResponse = vi.fn();
-            capturedMessageCb(
-                { action: 'openDownloadWindow', format: 'epub' },
-                { tab: { url: 'https://mangalib.me/manga/my-manga' } },
-                sendResponse,
-            );
-            await vi.waitFor(() => expect(sendResponse).toHaveBeenCalled());
-            expect(sendResponse).toHaveBeenCalledWith({ ok: false, error: expect.stringContaining('window fail') });
-        });
-
-        it('Handles openDownloadWindow when windows.create returns null (ok=false)', async () => {
-            globalThis.browser.windows = {
-                create: vi.fn().mockResolvedValue(null),
-                update: vi.fn(),
-            };
-
-            const sendResponse = vi.fn();
-            capturedMessageCb(
-                { action: 'openDownloadWindow', format: 'fb2' },
-                { tab: { url: 'https://mangalib.me/manga/my-manga' } },
-                sendResponse,
-            );
-            await vi.waitFor(() => expect(sendResponse).toHaveBeenCalled());
-            expect(sendResponse).toHaveBeenCalledWith({ ok: false, error: 'window create' });
-        });
-
-        it('Handles openDownloadWindow using tabs.create when windows is unavailable', async () => {
-            globalThis.browser.tabs = { create: vi.fn().mockResolvedValue({ id: 5 }) };
-
-            const sendResponse = vi.fn();
-            capturedMessageCb(
-                { action: 'openDownloadWindow', format: 'epub' },
-                { tab: { url: 'https://mangalib.me/manga/my-manga' } },
-                sendResponse,
-            );
-            await vi.waitFor(() => expect(sendResponse).toHaveBeenCalled());
-            expect(sendResponse).toHaveBeenCalledWith({ ok: true });
-        });
-
-        it('Handles openDownloadWindow when neither windows nor tabs API is available', async () => {
-            const sendResponse = vi.fn();
-            capturedMessageCb(
-                { action: 'openDownloadWindow', format: 'epub' },
-                { tab: { url: 'https://mangalib.me/manga/my-manga' } },
-                sendResponse,
-            );
-            await vi.waitFor(() => expect(sendResponse).toHaveBeenCalled());
-            expect(sendResponse).toHaveBeenCalledWith({ ok: false, error: 'No window/tab API available' });
-        });
-
-        it('Handles openWindowWithUrl with windows API', async () => {
-            const mockCreate = vi.fn().mockResolvedValue({ id: 99 });
-            const mockUpdate = vi.fn();
-            globalThis.browser.windows = { create: mockCreate, update: mockUpdate };
-            const sendResponse = vi.fn();
-            capturedMessageCb({ action: 'openWindowWithUrl', url: 'popup.html?download=true' }, {}, sendResponse);
-            await vi.waitFor(() => expect(sendResponse).toHaveBeenCalled());
-            expect(sendResponse).toHaveBeenCalledWith({ ok: true });
-            expect(mockUpdate).toHaveBeenCalledWith(99, { focused: true });
-        });
-
-        it('Handles openWindowWithUrl with tabs API when windows unavailable', async () => {
-            globalThis.browser.tabs = { create: vi.fn().mockResolvedValue({ id: 5 }) };
-            const sendResponse = vi.fn();
-            capturedMessageCb({ action: 'openWindowWithUrl', url: 'popup.html?download=true' }, {}, sendResponse);
-            await vi.waitFor(() => expect(sendResponse).toHaveBeenCalled());
-            expect(sendResponse).toHaveBeenCalledWith({ ok: true });
-        });
-
-        it('Handles openWindowWithUrl when neither windows nor tabs API is available', async () => {
-            const sendResponse = vi.fn();
-            capturedMessageCb({ action: 'openWindowWithUrl', url: 'popup.html?download=true' }, {}, sendResponse);
-            await vi.waitFor(() => expect(sendResponse).toHaveBeenCalled());
-            expect(sendResponse).toHaveBeenCalledWith({ ok: false, error: 'No window/tab API available' });
-        });
-
-        it('Handles openWindowWithUrl when tabs.create returns null', async () => {
+        it('openWindowWithUrl reports a failed tab creation', async () => {
             globalThis.browser.tabs = { create: vi.fn().mockResolvedValue(null) };
-            const sendResponse = vi.fn();
-            capturedMessageCb({ action: 'openWindowWithUrl', url: 'popup.html?download=true' }, {}, sendResponse);
-            await vi.waitFor(() => expect(sendResponse).toHaveBeenCalled());
-            expect(sendResponse).toHaveBeenCalledWith({ ok: false, error: 'tab create' });
+            expect((await send({ action: 'openWindowWithUrl', url: 'u' })).response).toEqual({ ok: false, error: 'tab create' });
         });
 
-        it('Handles openWindowWithUrl exception', async () => {
-            globalThis.browser.windows = {
-                create: vi.fn().mockRejectedValue(new Error('create fail')),
-                update: vi.fn(),
-            };
-            const sendResponse = vi.fn();
-            capturedMessageCb({ action: 'openWindowWithUrl', url: 'popup.html?download=true' }, {}, sendResponse);
-            await vi.waitFor(() => expect(sendResponse).toHaveBeenCalled());
-            expect(sendResponse).toHaveBeenCalledWith({ ok: false, error: expect.stringContaining('create fail') });
+        it('openWindowWithUrl reports when no window or tab API is available', async () => {
+            expect((await send({ action: 'openWindowWithUrl', url: 'u' })).response)
+                .toEqual({ ok: false, error: 'No window/tab API available' });
+        });
+
+        it('openWindowWithUrl reports an exception', async () => {
+            globalThis.browser.windows = { create: vi.fn().mockRejectedValue(new Error('denied')) };
+            expect((await send({ action: 'openWindowWithUrl', url: 'u' })).response).toEqual({ ok: false, error: 'denied' });
         });
     });
 
-    describe('Chrome credentials', () => {
+    describe('Sender checks', () => {
         beforeEach(async () => {
-            setupGlobals('chrome');
+            setupGlobals('firefox');
+            globalThis.browser.scripting = { executeScript: vi.fn().mockResolvedValue() };
             await loadModule();
         });
 
-        it('Uses omit credentials for fetchWithRateLimit in chrome', async () => {
-            globalThis.fetch = vi.fn().mockResolvedValue({
-                ok: true, status: 200,
-                text: vi.fn().mockResolvedValue(''),
-                headers: { get: vi.fn().mockReturnValue(null) },
-            });
+        const EXTENSION_ACTIONS = [
+            ['getAuthToken', { serviceKey: 'mangalib' }],
+            ['cacheAuthToken', { serviceKey: 'mangalib', token: 'x' }],
+            ['authInvalidate', { serviceKey: 'mangalib' }],
+            ['rateAcquire', { serviceKey: 'mangalib' }],
+            ['rateThrottle', { ms: 1000 }],
+            ['openWindowWithUrl', { url: 'https://evil.example' }],
+            ['plugin:cache', { format: 'x', code: 'alert(1)' }],
+            ['plugin:exec', { tabId: 1, code: 'alert(1)' }]
+        ];
 
-            const sendResponse = vi.fn();
-            capturedMessageCb(
-                { action: 'fetchWithRateLimit', url: 'https://example.com', options: {} },
-                {},
-                sendResponse,
-            );
+        it.each(EXTENSION_ACTIONS)('Rejects %s from a content script on a service site', async (action, extra) => {
+            const { returned, response } = await send({ action, ...extra }, tabSender('https://mangalib.me/ru/manga/x'));
+            expect(returned).toBe(false);
+            expect(response).toEqual({ ok: false, error: 'forbidden' });
+        });
 
-            await vi.waitFor(() => expect(sendResponse).toHaveBeenCalled());
-            expect(globalThis.fetch).toHaveBeenCalledWith(
-                'https://example.com',
-                expect.objectContaining({ credentials: 'omit' }),
+        it('Rejects messages from another extension', async () => {
+            const { response } = await send({ action: 'plugin:exec', tabId: 1, code: 'x' }, { ...PAGE, id: 'other-ext' });
+            expect(response).toEqual({ ok: false, error: 'forbidden' });
+            expect(globalThis.browser.scripting.executeScript).not.toHaveBeenCalled();
+        });
+
+        it('Rejects messages without a sender or from a lookalike URL', async () => {
+            for (const sender of [undefined, null, {}]) {
+                const sendResponse = vi.fn();
+                expect(capturedMessageCb({ action: 'getAuthToken', serviceKey: 'x' }, sender, sendResponse)).toBe(false);
+                expect(sendResponse).toHaveBeenCalledWith({ ok: false, error: 'forbidden' });
+            }
+            const lookalike = { id: EXT_ID, url: 'moz-extension://test-id.evil.example/popup.html' };
+            expect((await send({ action: 'getAuthToken', serviceKey: 'x' }, lookalike)).response)
+                .toEqual({ ok: false, error: 'forbidden' });
+            expect(globalThis.tsGetToken).not.toHaveBeenCalled();
+        });
+
+        it('Accepts extension actions from extension pages', async () => {
+            const { returned } = await send({ action: 'plugin:exec', tabId: 1, code: 'x' });
+            expect(returned).toBe(true);
+            expect(globalThis.browser.scripting.executeScript).toHaveBeenCalled();
+        });
+
+        it('Rejects openDownloadWindow from extension pages', async () => {
+            expect((await send({ action: 'openDownloadWindow' })).response).toEqual({ ok: false, error: 'forbidden' });
+        });
+
+        it('Rejects openDownloadWindow from tabs of other sites', async () => {
+            const { response } = await send({ action: 'openDownloadWindow' }, tabSender('https://other.com/manga/my-slug'));
+            expect(response).toEqual({ ok: false, error: 'forbidden' });
+        });
+
+        it('Rejects openDownloadWindow from a sender without a tab', async () => {
+            const { response } = await send({ action: 'openDownloadWindow' }, { id: EXT_ID });
+            expect(response).toEqual({ ok: false, error: 'forbidden' });
+        });
+    });
+
+    describe('openDownloadWindow', () => {
+        let create;
+        let update;
+
+        beforeEach(async () => {
+            setupGlobals('firefox');
+            await loadModule();
+            create = vi.fn().mockResolvedValue({ id: 1 });
+            update = vi.fn();
+            globalThis.browser.windows = { create, update };
+        });
+
+        const popupParams = () => Object.fromEntries(new URLSearchParams(create.mock.calls[0][0].url.split('?')[1]));
+
+        it('Opens the download window with only the title, service, format and tab', async () => {
+            const { response } = await send(
+                { action: 'openDownloadWindow', format: 'epub', rateLimit: 1, maxSizeMB: 1 },
+                tabSender('https://mangalib.me/ru/manga/my-manga?section=info', 7)
             );
+            expect(response).toEqual({ ok: true });
+            expect(create.mock.calls[0][0].url.startsWith('moz-extension://test-id/popup.html?')).toBe(true);
+            expect(popupParams()).toEqual({ download: 'true', slug: 'my-manga', service: 'mangalib', format: 'epub', tabId: '7' });
+            expect(update).toHaveBeenCalledWith(1, { focused: true });
+        });
+
+        it('Uses fb2 by default and omits a missing tab id', async () => {
+            await send({ action: 'openDownloadWindow' }, tabSender('https://ranobelib.me/ru/book/my-book'));
+            expect(popupParams()).toEqual({ download: 'true', slug: 'my-book', service: 'ranobelib', format: 'fb2' });
+        });
+
+        it('Fails when the slug cannot be detected', async () => {
+            const { response } = await send({ action: 'openDownloadWindow' }, tabSender('https://mangalib.me/ru'));
+            expect(response).toEqual({ ok: false, error: 'Cannot detect slug or service' });
+            expect(create).not.toHaveBeenCalled();
+        });
+
+        it('Does not focus a window without an id', async () => {
+            create.mockResolvedValue({});
+            expect((await send({ action: 'openDownloadWindow' }, tabSender('https://mangalib.me/ru/manga/x'))).response)
+                .toEqual({ ok: true });
+            expect(update).not.toHaveBeenCalled();
+        });
+
+        it('Reports a window that could not be created', async () => {
+            create.mockResolvedValue(null);
+            expect((await send({ action: 'openDownloadWindow' }, tabSender('https://mangalib.me/ru/manga/x'))).response)
+                .toEqual({ ok: false, error: 'window create' });
+        });
+
+        it('Reports an exception', async () => {
+            create.mockRejectedValue(new Error('boom'));
+            expect((await send({ action: 'openDownloadWindow' }, tabSender('https://mangalib.me/ru/manga/x'))).response)
+                .toEqual({ ok: false, error: 'boom' });
+        });
+
+        it('Uses tabs.create when the windows API is unavailable', async () => {
+            delete globalThis.browser.windows;
+            globalThis.browser.tabs = { create: vi.fn().mockResolvedValue({ id: 5 }) };
+            expect((await send({ action: 'openDownloadWindow' }, tabSender('https://mangalib.me/ru/manga/x'))).response)
+                .toEqual({ ok: true });
+        });
+
+        it('Reports when neither windows nor tabs API is available', async () => {
+            delete globalThis.browser.windows;
+            expect((await send({ action: 'openDownloadWindow' }, tabSender('https://mangalib.me/ru/manga/x'))).response)
+                .toEqual({ ok: false, error: 'No window/tab API available' });
         });
     });
 
     describe('No browser API available', () => {
         it('Does not crash when no browser API', async () => {
             setupGlobals('none');
-            await expect(loadModule()).resolves.not.toThrow();
+            await expect(loadModule()).resolves.toBeUndefined();
         });
     });
 
-    describe('Global initialization', () => {
-        it('Shares the auth token store with RequestInterceptor', async () => {
-            setupGlobals('firefox');
-            await loadModule();
-            capturedMessageCb({ action: 'cacheAuthToken', serviceKey: 'mangalib', token: 'abc' }, {}, vi.fn());
-            expect(globalThis.authTokenStore.mangalib).toBe('abc');
-            expect(globalThis.pluginServiceHosts).toBeUndefined();
-        });
-    });
-
-    describe('openDownloadWindow plugin paths', () => {
+    describe('openDownloadWindow on plugin sites', () => {
         beforeEach(async () => {
             await loadWithPlugins([{ service: 'myplugin', hosts: ['myplugin.com'] }]);
         });
 
-        it('Detects service via pluginServiceHosts when detectServiceByUrl returns null', async () => {
-            const mockCreate = vi.fn().mockResolvedValue({ id: 1 });
-            globalThis.browser.windows = { create: mockCreate, update: vi.fn() };
-            const sendResponse = vi.fn();
-            capturedMessageCb(
-                { action: 'openDownloadWindow', format: 'epub' },
-                { tab: { url: 'https://myplugin.com/manga/my-slug' } },
-                sendResponse,
-            );
-            await vi.waitFor(() => expect(sendResponse).toHaveBeenCalled());
-            expect(sendResponse).toHaveBeenCalledWith({ ok: true });
-            const urlArg = mockCreate.mock.calls[0][0].url;
+        it('Accepts tabs of service plugin sites and detects the plugin service', async () => {
+            const create = vi.fn().mockResolvedValue({ id: 1 });
+            globalThis.browser.windows = { create, update: vi.fn() };
+            const { response } = await send(
+                { action: 'openDownloadWindow', format: 'epub' }, tabSender('https://myplugin.com/manga/my-slug'));
+            expect(response).toEqual({ ok: true });
+            const urlArg = create.mock.calls[0][0].url;
             expect(urlArg).toContain('service=myplugin');
             expect(urlArg).toContain('slug=my-slug');
         });
 
-        it('Detects service via pluginServiceHosts using subdomain match', async () => {
-            const mockCreate = vi.fn().mockResolvedValue({ id: 1 });
-            globalThis.browser.windows = { create: mockCreate, update: vi.fn() };
-            const sendResponse = vi.fn();
-            capturedMessageCb(
-                { action: 'openDownloadWindow', format: 'epub' },
-                { tab: { url: 'https://sub.myplugin.com/manga/my-slug' } },
-                sendResponse,
-            );
-            await vi.waitFor(() => expect(sendResponse).toHaveBeenCalled());
-            expect(sendResponse).toHaveBeenCalledWith({ ok: true });
+        it('Accepts subdomains of plugin hosts', async () => {
+            expect(await detectedServiceFor('https://sub.myplugin.com/manga/my-slug')).toBe('myplugin');
         });
 
-        it('Fails when hostname matches no pluginServiceHosts entry', async () => {
-            const sendResponse = vi.fn();
-            capturedMessageCb(
-                { action: 'openDownloadWindow', format: 'epub' },
-                { tab: { url: 'https://other.com/manga/my-slug' } },
-                sendResponse,
-            );
-            await vi.waitFor(() => expect(sendResponse).toHaveBeenCalled());
-            expect(sendResponse).toHaveBeenCalledWith({ ok: false, error: 'Cannot detect slug or service' });
+        it('Rejects sites that match no plugin host', async () => {
+            const { response } = await send({ action: 'openDownloadWindow' }, tabSender('https://other.com/manga/my-slug'));
+            expect(response).toEqual({ ok: false, error: 'forbidden' });
         });
 
-        it('Fails for a non-service host when no plugins are installed', async () => {
+        it('Rejects plugin sites once the plugin is removed', async () => {
             await loadWithPlugins([]);
-            const sendResponse = vi.fn();
-            capturedMessageCb(
-                { action: 'openDownloadWindow', format: 'epub' },
-                { tab: { url: 'https://other.com/manga/my-slug' } },
-                sendResponse,
-            );
-            await vi.waitFor(() => expect(sendResponse).toHaveBeenCalled());
-            expect(sendResponse).toHaveBeenCalledWith({ ok: false, error: 'Cannot detect slug or service' });
-        });
-
-        it('Includes tabId in popup URL when sender.tab.id is present', async () => {
-            const mockCreate = vi.fn().mockResolvedValue({ id: 1 });
-            globalThis.browser.windows = { create: mockCreate, update: vi.fn() };
-            const sendResponse = vi.fn();
-            capturedMessageCb(
-                { action: 'openDownloadWindow', format: 'epub' },
-                { tab: { url: 'https://mangalib.me/manga/my-manga', id: 7 } },
-                sendResponse,
-            );
-            await vi.waitFor(() => expect(sendResponse).toHaveBeenCalled());
-            const urlArg = mockCreate.mock.calls[0][0].url;
-            expect(urlArg).toContain('tabId=7');
+            const { response } = await send({ action: 'openDownloadWindow' }, tabSender('https://myplugin.com/manga/my-slug'));
+            expect(response).toEqual({ ok: false, error: 'forbidden' });
         });
     });
 
@@ -632,38 +419,23 @@ describe('MessageRouter', () => {
 
         it('Stores plugin in IDB on success', async () => {
             const { mockObjectStore } = makeMockIdb();
-            const sendResponse = vi.fn();
-            capturedMessageCb(
-                { action: 'plugin:cache', format: 'myformat', code: 'console.log(1)' },
-                {}, sendResponse,
-            );
-            await vi.waitFor(() => expect(sendResponse).toHaveBeenCalled());
-            expect(sendResponse).toHaveBeenCalledWith({ ok: true, swStatus: expect.any(String) });
+            const { response } = await send({ action: 'plugin:cache', format: 'myformat', code: 'console.log(1)' });
+            expect(response).toEqual({ ok: true, swStatus: expect.any(String) });
             expect(mockObjectStore.put).toHaveBeenCalledWith({ format: 'myformat', code: 'console.log(1)' });
         });
 
         it('Handles IDB transaction error', async () => {
             vi.spyOn(console, 'warn').mockImplementation(() => {});
             makeMockIdb({ failTx: true });
-            const sendResponse = vi.fn();
-            capturedMessageCb(
-                { action: 'plugin:cache', format: 'myformat', code: 'code' },
-                {}, sendResponse,
-            );
-            await vi.waitFor(() => expect(sendResponse).toHaveBeenCalled());
-            expect(sendResponse).toHaveBeenCalledWith({ ok: false, error: 'tx error', swStatus: expect.any(String) });
+            const { response } = await send({ action: 'plugin:cache', format: 'myformat', code: 'code' });
+            expect(response).toEqual({ ok: false, error: 'tx error', swStatus: expect.any(String) });
         });
 
         it('Handles IDB open error', async () => {
             vi.spyOn(console, 'warn').mockImplementation(() => {});
             makeMockIdb({ failOpen: true });
-            const sendResponse = vi.fn();
-            capturedMessageCb(
-                { action: 'plugin:cache', format: 'myformat', code: 'code' },
-                {}, sendResponse,
-            );
-            await vi.waitFor(() => expect(sendResponse).toHaveBeenCalled());
-            expect(sendResponse).toHaveBeenCalledWith({ ok: false, error: 'open error', swStatus: expect.any(String) });
+            const { response } = await send({ action: 'plugin:cache', format: 'myformat', code: 'code' });
+            expect(response).toEqual({ ok: false, error: 'open error', swStatus: expect.any(String) });
         });
     });
 
@@ -686,13 +458,8 @@ describe('MessageRouter', () => {
         it('Stores plugin via Cache API in SW context', async () => {
             const mockPut = vi.fn().mockResolvedValue();
             globalThis.caches = { open: vi.fn().mockResolvedValue({ put: mockPut }) };
-            const sendResponse = vi.fn();
-            capturedMessageCb(
-                { action: 'plugin:cache', format: 'sw-fmt', code: 'code here' },
-                {}, sendResponse,
-            );
-            await vi.waitFor(() => expect(sendResponse).toHaveBeenCalled());
-            expect(sendResponse).toHaveBeenCalledWith({ ok: true, swStatus: 'sw-background' });
+            const { response } = await send({ action: 'plugin:cache', format: 'sw-fmt', code: 'code here' });
+            expect(response).toEqual({ ok: true, swStatus: 'sw-background' });
             expect(globalThis.caches.open).toHaveBeenCalledWith('dl-plugins-v1');
             expect(mockPut).toHaveBeenCalledWith('/plugin-runtime/sw-fmt.js', expect.any(Object));
         });
@@ -700,13 +467,8 @@ describe('MessageRouter', () => {
         it('Handles Cache API error in SW context', async () => {
             vi.spyOn(console, 'warn').mockImplementation(() => {});
             globalThis.caches = { open: vi.fn().mockRejectedValue(new Error('cache error')) };
-            const sendResponse = vi.fn();
-            capturedMessageCb(
-                { action: 'plugin:cache', format: 'sw-fmt', code: 'code' },
-                {}, sendResponse,
-            );
-            await vi.waitFor(() => expect(sendResponse).toHaveBeenCalled());
-            expect(sendResponse).toHaveBeenCalledWith({ ok: false, error: 'cache error', swStatus: 'sw-background' });
+            const { response } = await send({ action: 'plugin:cache', format: 'sw-fmt', code: 'code' });
+            expect(response).toEqual({ ok: false, error: 'cache error', swStatus: 'sw-background' });
         });
     });
 
@@ -743,12 +505,11 @@ describe('MessageRouter', () => {
             globalThis.navigator = origNavigator;
         });
 
+        const swStatus = async () => (await send({ action: 'plugin:cache', format: 'f', code: 'c' })).response.swStatus;
+
         it('Returns not-registered when no SW registration found', async () => {
             globalThis.navigator = { serviceWorker: { getRegistration: vi.fn().mockResolvedValue(null) } };
-            const sendResponse = vi.fn();
-            capturedMessageCb({ action: 'plugin:cache', format: 'f', code: 'c' }, {}, sendResponse);
-            await vi.waitFor(() => expect(sendResponse).toHaveBeenCalled());
-            expect(sendResponse.mock.calls[0][0].swStatus).toBe('not-registered');
+            expect(await swStatus()).toBe('not-registered');
         });
 
         it('Returns registered:activated when active SW found', async () => {
@@ -757,10 +518,7 @@ describe('MessageRouter', () => {
                     getRegistration: vi.fn().mockResolvedValue({ active: { state: 'activated' }, installing: null, waiting: null }),
                 },
             };
-            const sendResponse = vi.fn();
-            capturedMessageCb({ action: 'plugin:cache', format: 'f', code: 'c' }, {}, sendResponse);
-            await vi.waitFor(() => expect(sendResponse).toHaveBeenCalled());
-            expect(sendResponse.mock.calls[0][0].swStatus).toBe('registered:activated');
+            expect(await swStatus()).toBe('registered:activated');
         });
 
         it('Returns registered:installing from installing state', async () => {
@@ -769,30 +527,17 @@ describe('MessageRouter', () => {
                     getRegistration: vi.fn().mockResolvedValue({ active: null, installing: { state: 'installing' }, waiting: null }),
                 },
             };
-            const sendResponse = vi.fn();
-            capturedMessageCb({ action: 'plugin:cache', format: 'f', code: 'c' }, {}, sendResponse);
-            await vi.waitFor(() => expect(sendResponse).toHaveBeenCalled());
-            expect(sendResponse.mock.calls[0][0].swStatus).toBe('registered:installing');
+            expect(await swStatus()).toBe('registered:installing');
         });
 
         it('Returns registered:unknown when SW has no recognizable state', async () => {
-            globalThis.navigator = {
-                serviceWorker: { getRegistration: vi.fn().mockResolvedValue({}) },
-            };
-            const sendResponse = vi.fn();
-            capturedMessageCb({ action: 'plugin:cache', format: 'f', code: 'c' }, {}, sendResponse);
-            await vi.waitFor(() => expect(sendResponse).toHaveBeenCalled());
-            expect(sendResponse.mock.calls[0][0].swStatus).toBe('registered:unknown');
+            globalThis.navigator = { serviceWorker: { getRegistration: vi.fn().mockResolvedValue({}) } };
+            expect(await swStatus()).toBe('registered:unknown');
         });
 
         it('Returns error string when getRegistration throws', async () => {
-            globalThis.navigator = {
-                serviceWorker: { getRegistration: vi.fn().mockRejectedValue(new Error('sw error')) },
-            };
-            const sendResponse = vi.fn();
-            capturedMessageCb({ action: 'plugin:cache', format: 'f', code: 'c' }, {}, sendResponse);
-            await vi.waitFor(() => expect(sendResponse).toHaveBeenCalled());
-            expect(sendResponse.mock.calls[0][0].swStatus).toBe('error:sw error');
+            globalThis.navigator = { serviceWorker: { getRegistration: vi.fn().mockRejectedValue(new Error('sw error')) } };
+            expect(await swStatus()).toBe('error:sw error');
         });
     });
 
@@ -809,13 +554,8 @@ describe('MessageRouter', () => {
         it('Executes plugin script in specified tab', async () => {
             const mockExecuteScript = vi.fn().mockResolvedValue();
             globalThis.browser.scripting = { executeScript: mockExecuteScript };
-            const sendResponse = vi.fn();
-            capturedMessageCb(
-                { action: 'plugin:exec', tabId: 42, code: 'console.log("hi")' },
-                {}, sendResponse,
-            );
-            await vi.waitFor(() => expect(sendResponse).toHaveBeenCalled());
-            expect(sendResponse).toHaveBeenCalledWith({ ok: true });
+            const { response } = await send({ action: 'plugin:exec', tabId: 42, code: 'console.log("hi")' });
+            expect(response).toEqual({ ok: true });
             expect(mockExecuteScript).toHaveBeenCalledWith({
                 target: { tabId: 42 },
                 func: expect.any(Function),
@@ -826,29 +566,23 @@ describe('MessageRouter', () => {
         });
 
         it('Responds with error when scripting.executeScript not available', async () => {
-            const sendResponse = vi.fn();
-            capturedMessageCb({ action: 'plugin:exec', tabId: 42, code: 'code' }, {}, sendResponse);
-            await vi.waitFor(() => expect(sendResponse).toHaveBeenCalled());
-            expect(sendResponse).toHaveBeenCalledWith({ ok: false, error: 'scripting.executeScript not available' });
+            vi.spyOn(console, 'warn').mockImplementation(() => {});
+            expect((await send({ action: 'plugin:exec', tabId: 42, code: 'code' })).response)
+                .toEqual({ ok: false, error: 'scripting.executeScript not available' });
         });
 
         it('Responds with error when tabId is missing', async () => {
+            vi.spyOn(console, 'warn').mockImplementation(() => {});
             globalThis.browser.scripting = { executeScript: vi.fn() };
-            const sendResponse = vi.fn();
-            capturedMessageCb({ action: 'plugin:exec', code: 'code' }, {}, sendResponse);
-            await vi.waitFor(() => expect(sendResponse).toHaveBeenCalled());
-            expect(sendResponse).toHaveBeenCalledWith({ ok: false, error: 'No tabId provided' });
+            expect((await send({ action: 'plugin:exec', code: 'code' })).response)
+                .toEqual({ ok: false, error: 'No tabId provided' });
         });
 
         it('Responds with error when executeScript throws', async () => {
             vi.spyOn(console, 'warn').mockImplementation(() => {});
-            globalThis.browser.scripting = {
-                executeScript: vi.fn().mockRejectedValue(new Error('exec error')),
-            };
-            const sendResponse = vi.fn();
-            capturedMessageCb({ action: 'plugin:exec', tabId: 10, code: 'code' }, {}, sendResponse);
-            await vi.waitFor(() => expect(sendResponse).toHaveBeenCalled());
-            expect(sendResponse).toHaveBeenCalledWith({ ok: false, error: 'exec error' });
+            globalThis.browser.scripting = { executeScript: vi.fn().mockRejectedValue(new Error('exec error')) };
+            expect((await send({ action: 'plugin:exec', tabId: 10, code: 'code' })).response)
+                .toEqual({ ok: false, error: 'exec error' });
         });
     });
 
@@ -858,7 +592,7 @@ describe('MessageRouter', () => {
         let mockUnregister;
         let capturedStorageChangeCb;
 
-        const JS = ['/content/AdCleaner.js', '/content/DownloadButton.js', '/content/ImageFetcher.js'];
+        const JS = ['/content/AdCleaner.js', '/content/DownloadButton.js'];
         const BUILTIN_SCRIPTS = [
             { id: 'dl-service-mangalib', matches: ['https://mangalib.me/*', 'https://mangalib.org/*'], js: JS, runAt: 'document_idle' },
             { id: 'dl-service-ranobelib', matches: ['https://ranobelib.me/*'], js: JS, runAt: 'document_idle' }
@@ -897,18 +631,8 @@ describe('MessageRouter', () => {
             expect(mockAddListenerOnMessage).toHaveBeenCalled();
         });
 
-        it('Still populates pluginServiceHosts when scripting.registerContentScripts is unavailable', async () => {
-            setupGlobals('firefox');
-            const storageGet = vi.fn().mockResolvedValue({
-                custom_plugins: [{ service: 'myplugin', hosts: ['myplugin.com'], enabled: true }],
-            });
-            globalThis.browser.storage = {
-                local: { get: storageGet },
-                onChanged: { addListener: vi.fn() },
-            };
-            await loadModule();
-            await vi.waitFor(() => expect(storageGet).toHaveBeenCalled());
-            await new Promise(resolve => setTimeout(resolve, 0));
+        it('Still learns plugin hosts when scripting.registerContentScripts is unavailable', async () => {
+            await loadWithPlugins([{ service: 'myplugin', hosts: ['myplugin.com'], enabled: true }]);
             expect(await detectedServiceFor('https://myplugin.com/manga/slug')).toBe('myplugin');
         });
 
@@ -936,6 +660,13 @@ describe('MessageRouter', () => {
             expect(mockRegister).not.toHaveBeenCalled();
         });
 
+        it('Re-registers registrations left from versions that injected ImageFetcher', async () => {
+            const existing = BUILTIN_SCRIPTS.map(s => ({ ...s, js: [...s.js, '/content/ImageFetcher.js'] }));
+            await setupWithScripting([], { existing });
+            expect(mockUnregister).toHaveBeenCalledWith({ ids: ['dl-service-mangalib', 'dl-service-ranobelib'] });
+            expect(registeredIds()).toEqual(['dl-service-mangalib', 'dl-service-ranobelib']);
+        });
+
         it('Re-registers a registration whose hosts changed', async () => {
             const existing = [
                 { ...BUILTIN_SCRIPTS[0], matches: ['https://old-mangalib.example/*'] },
@@ -951,7 +682,7 @@ describe('MessageRouter', () => {
             await vi.waitFor(() => expect(mockRegister).toHaveBeenCalledWith([{
                 id: 'dl-plugin-myplugin',
                 matches: ['https://myplugin.com/*'],
-                js: ['/content/AdCleaner.js', '/content/DownloadButton.js', '/content/ImageFetcher.js'],
+                js: JS,
                 runAt: 'document_idle',
             }]));
             expect(await detectedServiceFor('https://myplugin.com/manga/slug')).toBe('myplugin');

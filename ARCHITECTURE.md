@@ -14,11 +14,41 @@
 
 **Popup-контекст** (`popup.html`) — открывается браузером при клике на иконку расширения или в отдельном окне при запуске загрузки. Имеет доступ к DOM, может делать fetch, но не может напрямую перехватывать сетевые запросы.
 
-**Background-контекст** — для Firefox: `background/background.html`, для Chrome MV3: модульный service worker `background/service-worker.js`. Оба загружают один модуль `background/main.js`, который импортирует `RequestInterceptor` и `MessageRouter`. Фон перехватывает HTTP-запросы через `webRequest` и принимает сообщения от popup и контент-скриптов через `runtime.onMessage`.
+**Background-контекст** — для Firefox: `background/background.html`, для Chrome MV3: модульный service worker `background/service-worker.js`. Оба загружают один модуль `background/main.js`, который импортирует `RequestInterceptor` и `MessageRouter`. Фон тонкий: в нём живут общий ограничитель частоты запросов, хранилище токенов, захват токенов из запросов страниц сервиса, правила блокировки рекламы и маршрутизация сообщений. Экспортёры, JSZip, MangaPatcher и классы сервисов фон не загружает (это проверяет `tests/modules.test.js`).
 
-**Content scripts** (`content/`) — три скрипта, исполняемых на страницах сайтов. Не участвуют в логике загрузки (кроме `ImageFetcher.js`, который прокидывает fetch-запросы изображений через вкладку).
+**Content scripts** (`content/`) — два скрипта, исполняемых на страницах сайтов: `AdCleaner.js` и `DownloadButton.js`. В логике загрузки не участвуют.
 
 Общение между контекстами — исключительно через `runtime.sendMessage` / `runtime.onMessage`. Напрямую вызывать функции другого контекста нельзя.
+
+### Владельцы задач
+
+У каждой общей задачи один владелец, остальные обращаются к нему:
+
+| Задача | Владелец |
+|---|---|
+| Ограничение частоты запросов к сервису для всех окон | фон, `background/rateLimitService.js`; окна обращаются через `core/RateLimitClient.js` |
+| Токены авторизации | фон, `background/tokenStore.js` (`storage.session`) |
+| Сетевой запрос в контексте вкладки сервиса | `core/BrowserApi.js` (`fetchViaTab`, `requestViaTab`) |
+| Движок загрузки, экспорт, сохранение | окно загрузки (`DownloadManager`) |
+
+### Сообщения
+
+Имена действий — константы `MSG` из `core/messages.js`, имя порта keep-alive — `PORT_KEEP_ALIVE`. Content scripts не импортируют модули, поэтому `DownloadButton.js` пишет строку `'openDownloadWindow'`. Её совпадение с `MSG.OPEN_DOWNLOAD_WINDOW` проверяет тест.
+
+| Действие | Отправитель | Что делает фон |
+|---|---|---|
+| `getAuthToken`, `cacheAuthToken`, `authInvalidate` | страницы расширения (`AuthManager`) | читает, сохраняет, удаляет токен сервиса в `tokenStore` |
+| `rateAcquire` `{serviceKey}` | страницы расширения (`RateLimitClient`) | отвечает `{ok: true}`, когда общий ограничитель разрешит запрос |
+| `rateThrottle` `{ms}` | страницы расширения (`RateLimitClient`) | блокирует запросы всех окон, отвечает `{ok: true, blockedUntil}` |
+| `openWindowWithUrl` `{url}` | страницы расширения | открывает окно расширения |
+| `plugin:cache`, `plugin:exec` | страницы расширения (`PluginManager`) | кэширует код плагина, выполняет его во вкладке |
+| `openDownloadWindow` `{format}` | `DownloadButton.js` на сайте сервиса или сервисного плагина | открывает окно загрузки тайтла этой вкладки |
+
+**Проверка отправителя.** У каждого обработчика задано, кто может его вызвать. Сообщение принимается, только если `sender.id` совпадает с id расширения и:
+- для страниц расширения — `sender.url` находится в origin расширения;
+- для вкладок сервиса — `sender.tab.url` на сайте встроенного сервиса или включённого сервисного плагина.
+
+Иначе фон отвечает `{ok: false, error: 'forbidden'}`. Ошибка обработчика превращается в ответ `{ok: false, error}`.
 
 ### ES-модули
 
@@ -51,18 +81,27 @@ ExporterRegistry.register('fb2', FB2Exporter, { label: 'FB2' });
 
 ### API для плагинов
 
-Плагины остаются классическими скриптами и не могут импортировать модули расширения. Поэтому `core/pluginApi.js` публикует в `globalThis` ровно четыре объекта: `BaseExporter`, `ExporterRegistry`, `BaseService`, `serviceRegistry`. Это единственное место в расширении с намеренными глобалами. `app.js` импортирует его до `PluginManager.loadAll()`.
+Плагины остаются классическими скриптами и не могут импортировать модули расширения. Поэтому `core/pluginApi.js` публикует их API в `globalThis`. Это единственное место в расширении с намеренными глобалами. `app.js` импортирует его до `PluginManager.loadAll()`.
+
+- **Поддерживаемый API:** `BaseExporter`, `ExporterRegistry`, `BaseService`, `serviceRegistry`, а также `JSZip` и `html2pdf`. Последние два `popup.html` подключает обычными скриптами.
+- **Устаревшие, но поддерживаемые глобалы:** то, что было доступно плагинам до версии 1.1. Они не удаляются:
+  - классы и объекты: `ImageCompressor`, `MangaPatcher`, `EventBus`, `RateLimiter`, `globalRateLimiter`, `ServiceRegistry`. `globalRateLimiter` — обёртка над `RateLimitClient`: `acquire`/`trackRequest` ждут разрешения общего ограничителя фона, `throttle` блокирует запросы всех окон, `setLimit` сохраняет лимит в настройки;
+  - встроенные экспортеры и сервисы, их конфиги `mangalibConfig`, `ranolibConfig`;
+  - функции: `fetchPageImage`, `loadImageOrDefer`, `NoServiceTabError`, `getExtensionApi`/`getBrowserEnv`/`extensionApi`/`browserEnv`, `fetchViaTab`/`requestViaTab`/`hasServiceTab`/`setServiceTab`. Они опубликованы обёртками: при изменениях внутри расширения правятся обёртки, а имена и формы результатов остаются прежними.
+
+Контракт плагинов (метаданные `@dl-*`, поля `@dl-service-config`, данные `export()`, публичные методы базовых классов, API песочницы, глобалы) проверяют тесты `tests/plugins/` на настоящих файлах из `plugins/`.
 
 ### Маршрут данных при загрузке
 
 ```
 PopupController.loadMetadata()
     → AuthManager.apply(serviceKey, tabId, service)
-        → runtime.sendMessage({ action: 'getAuthToken' })       [background]
+        → runtime.sendMessage({ action: MSG.GET_AUTH_TOKEN })     [фон: tokenStore]
         ↓  если не найден:
-        → browserAPI.scripting.executeScript(tabId, …)          [localStorage scan]
-    → service.fetchMangaMetadata(slug)     [BaseService → fetchWithRateLimit]
-        → runtime.sendMessage({ action: 'fetchWithRateLimit' })  [background]
+        → scripting.executeScript(tabId, findTokenInPageStorage)  [localStorage/sessionStorage вкладки]
+        → runtime.sendMessage({ action: MSG.CACHE_AUTH_TOKEN })   [фон: tokenStore]
+    → service.fetchMangaMetadata(slug)     [BaseService → requestViaTab]
+        → scripting.executeScript(tabId, fetch)                   [вкладка сервиса]
     → MangaPatcher.patch(rawMeta)          [core]
     → ChapterController.loadAndPopulate(service, slug, …)
         → service.fetchChaptersList(slug)
@@ -72,14 +111,17 @@ PopupController.startDownload()
         → service.fetchChapter(slug, num, vol, branchId)
         → service.extractText(rawContent)
         → service.processChapterContent(extracted, …)
-            → runtime.sendMessage({ action: 'fetchImage', url })   [background]
-                ↓ (background → content script)
-            → tabs.sendMessage(tabId, { action: 'fetchImageFromTab', url })
-                ↓ (ImageFetcher content script)
-            → fetch(url) → FileReader → base64
+            → fetchPageImage(url, serviceKey)
+                → RateLimitClient.acquire(serviceKey)
+                    → runtime.sendMessage({ action: MSG.RATE_ACQUIRE })  [фон: rateLimitService]
+                → fetchViaTab(url, serviceKey)                    [вкладка сервиса: fetch → base64]
         → ExporterRegistry.create(format).export(manga, chapters, cover)
         → DownloadHistory.add(entry)
         → saveFile(blob, filename)
+
+Ответ HTTP 429 (BaseService.fetchWithRateLimitRetry)
+    → RateLimitClient.throttle(ms)
+        → runtime.sendMessage({ action: MSG.RATE_THROTTLE, ms })  [фон: блокировка для всех окон]
 ```
 
 ---
@@ -91,9 +133,16 @@ PopupController.startDownload()
 Единственная точка доступа к API браузера. Экспортирует:
 - `extensionApi` — `globalThis.browser ?? globalThis.chrome ?? null`. Обёртки над callback-API не нужны: в MV3 методы `chrome.*` сами возвращают промисы.
 - `browserEnv` — объект `{ isFirefox, isChromium, supportsDnr, nativeName }` для условной логики. Вычисляется только здесь.
+- `extensionOrigin()` и `isExtensionUrl(url)` — origin страниц расширения и проверка, что URL ведёт на них. Origin берётся из `runtime.getURL('')`, а не из `URL.origin`: по стандарту origin нестандартных схем (`moz-extension:`, `chrome-extension:`) непрозрачен (`'null'`).
 - Сетевые функции через вкладку сервиса: `setServiceTab`, `fetchViaTab`, `requestViaTab`, `hasServiceTab` и класс ошибки `NoServiceTabError`.
 
 Остальные модули импортируют `extensionApi` и `browserEnv` отсюда и не обращаются к `browser`/`chrome` напрямую.
+
+---
+
+### `core/messages.js`
+
+Протокол сообщений между окнами расширения, content scripts и фоном: замороженный объект `MSG` с именами действий и имя порта `PORT_KEEP_ALIVE`. Строки `plugin:cache` и `plugin:exec` входят в контракт плагинов и не меняются. Таблица действий — в разделе «Сообщения».
 
 ---
 
@@ -119,11 +168,13 @@ PopupController.startDownload()
 
 Управляет JWT-токенами авторизации для API cdnlibs.org.
 
-`getToken(serviceKey, tabId)` — сначала запрашивает кэшированный токен у background через `getAuthToken`. Если не найден и передан `tabId` — извлекает токен из `localStorage`/`sessionStorage` страницы через `scripting.executeScript`.
+`getToken(serviceKey, tabId)` — сначала запрашивает токен у фона (`getAuthToken`). Если его нет и передан `tabId`, ищет токен в `localStorage`/`sessionStorage` страницы через `scripting.executeScript` и сохраняет найденный в фоне (`cacheAuthToken`). При поиске принимаются только JWT с действующим `exp` (с запасом 30 с). Сначала проверяются ключи, похожие на хранилище токена (`/auth|token/i`), затем остальные.
 
 `apply(serviceKey, tabId, service)` — вызывает `getToken`, при успехе добавляет `Authorization: Bearer <token>` в `service.config.headers`.
 
-Кэш токенов — объект `authTokens`, экспортируемый `background/RequestInterceptor.js`. Его читают и пишут сообщения `getAuthToken` / `cacheAuthToken` через `MessageRouter`.
+`invalidate(serviceKey)` — просит фон удалить токен сервиса (`authInvalidate`), например после ответа 401.
+
+Токены хранит фон — `background/tokenStore.js`.
 
 ---
 
@@ -141,15 +192,27 @@ PopupController.startDownload()
 
 ### `core/RateLimiter.js`
 
-Ограничивает количество HTTP-запросов к API сервиса. Экспортирует класс `RateLimiter` и общий экземпляр `globalRateLimiter` (85 req/min по умолчанию).
+Класс `RateLimiter` — ограничитель со скользящим окном в одну минуту. Модуль также экспортирует ключ настройки `RATE_LIMIT_STORAGE_KEY`, лимит по умолчанию `DEFAULT_RATE_LIMIT` (85 в минуту) и `normalizeRateLimit(value)` (2..200, нечисловое значение — лимит по умолчанию). Общего экземпляра модуль не создаёт: единственный экземпляр живёт в `background/rateLimitService.js`.
 
-`acquire(name)` / `trackRequest(name)` — возвращает промис, который резолвится только тогда, когда счётчик запросов за последнюю минуту не превышает лимит. Запросы встают в очередь `_pendingQueue`.
+- `acquire(name)` / `trackRequest(name)` — промис, который разрешается, когда за последнюю минуту выдано меньше `limit` разрешений и нет блокировки. Ожидающие запросы стоят в очереди. Для всей очереди заводится один таймер — до момента, когда освободится ближайший слот.
+- `throttle(ms)` — блокирует выдачу разрешений до `now + ms`. Более раннюю блокировку продлевает, более позднюю не сокращает. Возвращает момент окончания блокировки.
+- `setLimit(n)` — точный лимит (без вычитания единицы) с ограничением 2..200. При повышении лимита ожидающие запросы получают разрешения сразу.
+- `recordRequest(name)` / `record(name)` — учитывает уже сделанный запрос, даже если лимит исчерпан.
+- `reset()` — отклоняет ожидающие промисы ошибкой `Rate limiter reset`, очищает окно и блокировку.
+- `snapshot()` / `restore(state)` — состояние `{timestamps, blockedUntil}` для `storage.session`.
+- `getStats()` — `{requestsInLastMinute, maxRequestsPerMinute, queueSize, throttled, blockedUntil, timestamps}`.
 
-`throttle(ms)` — принудительная пауза всех запросов на `ms` миллисекунд. Вызывается при HTTP 429 в `MessageRouter.fetchWithRateLimit`.
+---
 
-`setLimit(n)` / `getStats()` — динамическое изменение лимита и диагностика.
+### `core/RateLimitClient.js`
 
-Экземпляр присутствует как в popup, так и в background; background-копия используется для учёта реальных сетевых запросов.
+Клиент общего ограничителя для страниц расширения. Каждое окно получает разрешения у фона, поэтому лимит общий для всех окон.
+
+- `acquire(serviceKey)` — отправляет `rateAcquire` и ждёт ответа. Если фон недоступен, запрос пропускается с предупреждением, чтобы загрузка не зависла.
+- `throttle(ms)` — сразу блокирует это окно и сообщает о блокировке фону (`rateThrottle`). Если фон ответил более поздним `blockedUntil`, локальная блокировка продлевается.
+- `isHeldBack()` — синхронно: есть ожидающие `acquire` или действует блокировка. По нему `DeferredQueue` понимает, что сеть стоит, и не отсчитывает срок отложенной загрузки.
+- `getLimit()` / `setLimit(value)` — лимит в минуту из `storage.local` (ключ `downloadlib_default_rate_limit`). Фон следит за этим ключом через `storage.onChanged`. Значение, сохранённое прежними версиями в `localStorage`, при первом чтении переносится в `storage.local`.
+- `getStats()` / `reset()` — локальная статистика в прежнем формате и снятие локальной блокировки.
 
 ---
 
@@ -203,7 +266,7 @@ PopupController.startDownload()
 
 Базовый класс. Принимает объект `config` в конструктор.
 
-Реализует API-запросы к cdnlibs.org через `runtime.sendMessage({ action: 'fetchWithRateLimit' })` — все fetch-запросы идут через background, где применяются нужные заголовки и учитывается rate limit.
+Запросы к API выполняются в контексте открытой вкладки сервиса через `requestViaTab`: браузер сам подставляет cookies, Referer и Origin сайта. Если вкладки нет, бросается ошибка с просьбой открыть страницу тайтла. При ответе 429 `fetchWithRateLimitRetry` ждёт `Retry-After` (по умолчанию 30 с) и вызывает `RateLimitClient.throttle`, чтобы остановить запросы всех окон.
 
 - `fetchMangaMetadata(slug)` — `GET /api/manga/{slug}?fields[]=...`
 - `fetchChaptersList(slug)` — `GET /api/manga/{slug}/chapters`
@@ -276,23 +339,52 @@ Content script. Инжектирует кнопку «Скачать» рядо�
 
 ---
 
-### `content/ImageFetcher.js`
+### `background/RequestInterceptor.js`
 
-Content script. Слушает сообщение `{ action: 'fetchImageFromTab', url }` от background. Делает `fetch(url)` в контексте вкладки (с cookies и заголовками сайта), конвертирует в base64 через `FileReader` и возвращает `{ ok, base64, contentType }`. Это позволяет background получать изображения, не имея собственного доступа к CDN с авторизованными cookies.
+Наблюдает за сетевыми запросами к сервисам. Сам запросы не делает и не считает: учёт частоты — только через `rateAcquire`. Ничего не экспортирует.
+
+**Захват токенов (оба браузера).** Неблокирующий `webRequest.onBeforeSendHeaders`. Если страница сервиса обращается к API с заголовком `Authorization: Bearer …`, токен сохраняется в `tokenStore`. Сервис определяется:
+1. по заголовку `Site-Id` встроенного сервиса;
+2. иначе по хосту страницы, сделавшей запрос (`originUrl`/`initiator`), включая сайты сервисных плагинов.
+
+Если сервис не определён, токен не сохраняется. Поэтому токен сайта плагина не затирает токен встроенного сервиса с тем же API.
+
+**CORS изображений (только Firefox).** Блокирующий `onHeadersReceived` добавляет `Access-Control-Allow-Origin` к ответам на запросы изображений, у которых этого заголовка нет. Произвольный Origin никогда не отражается:
+- Origin сайта встроенного сервиса — разрешается с `Access-Control-Allow-Credentials: true`;
+- origin самого расширения — разрешается без credentials;
+- любой другой Origin — заголовок не добавляется;
+- запрос без Origin — origin расширения для запросов не из вкладки (`tabId -1`), иначе сайт сервиса, которому принадлежит CDN.
+
+Origin запроса запоминается в `onBeforeSendHeaders` и забывается в `onHeadersReceived`, `onCompleted` или `onErrorOccurred`, так что карта не растёт.
+
+Фильтр URL слушателей и распознавание сервиса берутся из `services/hosts.js`.
 
 ---
 
-### `background/RequestInterceptor.js`
+### `background/tokenStore.js`
 
-Перехватчик сетевых запросов. Загружается в background-контекст до `MessageRouter`.
+Единственное хранилище токенов авторизации. Токены лежат в `storage.session`: они переживают перезапуск service worker'а, но не закрытие браузера. Без `storage.session` токены хранятся только в памяти.
 
-**Firefox** (`webRequest.onBeforeSendHeaders` в режиме `blocking`): подменяет заголовки запросов от расширения на нужные из конфига сервиса, захватывает JWT-токены из запросов страницы (`captureAuthToken`), добавляет `Access-Control-Allow-Origin` к ответам изображений (`onHeadersReceived`).
+- `getToken(serviceKey)` — действующий токен сервиса; истёкший удаляется.
+- `setToken(serviceKey, token)` — сохраняет токен; истёкший или пустой не сохраняет. Возвращает `true`, если значение изменилось.
+- `invalidate(serviceKey)` — удаляет токен.
+- `jwtExpiry(token)`, `isTokenUsable(token)` — проверка `exp` в JWT с запасом 30 с. Токен без `exp` считается действующим.
 
-**Chrome**: только rate-limiting и перехват токенов без изменения заголовков.
+---
 
-Фильтр URL слушателей и распознавание сервиса (по `Site-Id`, Referer, хосту изображения) берутся из `services/hosts.js`.
+### `background/rateLimitService.js`
 
-Экспортирует хранилище токенов `authTokens`, которое импортирует `MessageRouter`.
+Единственный экземпляр `RateLimiter` на всё расширение. Обслуживает сообщения `rateAcquire` и `rateThrottle` всех окон.
+- Лимит читает из `storage.local['downloadlib_default_rate_limit']` до выдачи первого разрешения. Затем следит за этим ключом через `storage.onChanged`.
+- Состояние (окно и блокировку) сохраняет в `storage.session` не чаще раза в секунду и восстанавливает после перезапуска service worker'а.
+
+Экспортирует `acquire(serviceKey)`, `throttle(ms)` → `{blockedUntil}`, `getStats()`.
+
+---
+
+### `background/pluginHosts.js`
+
+Хосты сайтов включённых сервисных плагинов из `storage.local['custom_plugins']`. `syncPluginHosts()` перечитывает их и возвращает включённые плагины с хостами. `getPluginHosts()` отдаёт карту «ключ сервиса → хосты», по которой `RequestInterceptor` определяет сервис токена, а `MessageRouter` — сайт вкладки-отправителя.
 
 ---
 
@@ -304,13 +396,11 @@ Content script. Слушает сообщение `{ action: 'fetchImageFromTab'
 
 ### `background/MessageRouter.js`
 
-Маршрутизатор сообщений. Слушает `runtime.onMessage` и делегирует обработку зарегистрированным хендлерам.
+Маршрутизатор сообщений. Слушает `runtime.onMessage` и передаёт сообщение обработчику из таблицы `handlers` (действие → `{allow, handle}`), если отправителю он разрешён (см. «Сообщения» и «Проверка отправителя»). Обработчики асинхронные. Единая обёртка отправляет их результат через `sendResponse`, а ошибку — как `{ok: false, error}`.
 
-Хендлеры (`Map<action, handler>`):
-- `getAuthToken` / `cacheAuthToken` — чтение и запись токенов в `authTokens` из `RequestInterceptor`.
-- `setRateLimit` / `getRateLimiterStats` — управление rate limiter background-процесса.
-- `fetchWithRateLimit` — делает fetch с rate limiting и retry при 429, возвращает тело и заголовки.
-- `openDownloadWindow` / `openWindowWithUrl` — открывает popup.html с нужными параметрами в новом окне или вкладке.
+`openDownloadWindow` определяет slug и сервис по URL вкладки-отправителя. В URL окна загрузки передаются только `slug`, `service`, `format` и `tabId`. Остальные параметры загрузки, в том числе лимит запросов и максимальный размер части, окно берёт из настроек.
+
+Принимает подключения порта `downloadKeepAlive`. Окно загрузки держит его открытым, чтобы фон Chrome не выгружался посреди загрузки.
 
 Регистрирует content scripts (`scripting.registerContentScripts`): для встроенных сервисов — по `hosts` их конфигов, для включённых плагинов — по их хостам. Статических `content_scripts` в манифестах нет. При старте фона и при изменении списка плагинов регистрации сверяются с нужными: неизменённые не трогаются, устаревшие снимаются, новые добавляются по одной.
 

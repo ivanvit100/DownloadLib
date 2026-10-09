@@ -1,269 +1,196 @@
-import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
+import { DEFAULT_RATE_LIMIT, normalizeRateLimit, RateLimiter } from '../../core/RateLimiter.js';
 
-let RateLimiter;
-let globalRateLimiter;
+const settle = () => vi.advanceTimersByTimeAsync(0);
+
+/**
+ * Запускает n запросов и возвращает функцию, сообщающую, сколько из них уже разрешено.
+ * @param {RateLimiter} limiter - Ограничитель.
+ * @param {number} n - Число запросов.
+ * @returns {{granted: function(): number, requests: Promise[]}}
+ */
+function startRequests(limiter, n) {
+    let granted = 0;
+    const requests = Array.from({ length: n }, () => limiter.acquire('svc').then(() => { granted += 1; }));
+    return { granted: () => granted, requests };
+}
+
+beforeEach(() => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date('2026-10-08T12:00:00Z'));
+    vi.spyOn(console, 'log').mockImplementation(() => {});
+    vi.spyOn(console, 'warn').mockImplementation(() => {});
+    vi.spyOn(console, 'debug').mockImplementation(() => {});
+});
+
+afterEach(() => {
+    vi.useRealTimers();
+    vi.restoreAllMocks();
+});
+
+describe('normalizeRateLimit', () => {
+    it('Clamps the limit to 2..200 without subtracting one', () => {
+        expect(normalizeRateLimit(50)).toBe(50);
+        expect(normalizeRateLimit('20')).toBe(20);
+        expect(normalizeRateLimit(1)).toBe(2);
+        expect(normalizeRateLimit(1000)).toBe(200);
+    });
+
+    it('Falls back to the default for non-numeric values', () => {
+        expect(normalizeRateLimit('abc')).toBe(DEFAULT_RATE_LIMIT);
+        expect(normalizeRateLimit(undefined)).toBe(DEFAULT_RATE_LIMIT);
+    });
+});
 
 describe('RateLimiter', () => {
-    beforeEach(async () => {
-        vi.resetModules();
-        ({ RateLimiter, globalRateLimiter } = await import('../../core/RateLimiter.js'));
+    it('Grants up to the limit within a minute and the rest when the window slides', async () => {
+        const limiter = new RateLimiter({ maxRequestsPerMinute: 3 });
+        const { granted } = startRequests(limiter, 5);
+        await settle();
+        expect(granted()).toBe(3);
+        expect(limiter.getStats()).toMatchObject({ requestsInLastMinute: 3, queueSize: 2, maxRequestsPerMinute: 3 });
+
+        await vi.advanceTimersByTimeAsync(59999);
+        expect(granted()).toBe(3);
+        await vi.advanceTimersByTimeAsync(1);
+        expect(granted()).toBe(5);
     });
 
-    it('Initializes with default limit', () => {
-        const logSpy = vi.spyOn(console, 'log').mockImplementation(() => {});
-        const rl = new RateLimiter();
-        expect(rl._maxRequestsPerMinute).toBe(85);
-        logSpy.mockRestore();
+    it('Uses a single timer for the whole queue instead of polling', async () => {
+        const limiter = new RateLimiter({ maxRequestsPerMinute: 2 });
+        startRequests(limiter, 10);
+        await settle();
+        expect(vi.getTimerCount()).toBe(1);
     });
 
-    it('Initializes with custom limit', () => {
-        const rl = new RateLimiter({ maxRequestsPerMinute: 10 });
-        expect(rl._maxRequestsPerMinute).toBe(10);
+    it('Releases the next request when the oldest grant leaves the window', async () => {
+        const limiter = new RateLimiter({ maxRequestsPerMinute: 2 });
+        const first = startRequests(limiter, 1);
+        await vi.advanceTimersByTimeAsync(20000);
+        const rest = startRequests(limiter, 2);
+        await settle();
+        expect(first.granted() + rest.granted()).toBe(2);
+
+        await vi.advanceTimersByTimeAsync(40000);
+        expect(rest.granted()).toBe(2);
     });
 
-    it('Set limit enforces minimum and logs', () => {
-        const logSpy = vi.spyOn(console, 'log').mockImplementation(() => {});
-        const rl = new RateLimiter({ maxRequestsPerMinute: 10 });
-        rl.setLimit(1);
-        expect(rl._maxRequestsPerMinute).toBe(1);
-        rl.setLimit(20);
-        expect(rl._maxRequestsPerMinute).toBe(19);
-        expect(logSpy).toHaveBeenCalledWith('[RateLimiter] Rate limit set to: 1 requests/minute');
-        expect(logSpy).toHaveBeenCalledWith('[RateLimiter] Rate limit set to: 19 requests/minute');
-        logSpy.mockRestore();
+    it('setLimit applies the exact limit and releases waiting requests when raised', async () => {
+        const limiter = new RateLimiter({ maxRequestsPerMinute: 2 });
+        const { granted } = startRequests(limiter, 4);
+        await settle();
+        expect(granted()).toBe(2);
+
+        limiter.setLimit(4);
+        await settle();
+        expect(granted()).toBe(4);
+        expect(limiter.getStats().maxRequestsPerMinute).toBe(4);
     });
 
-    it('Track request resolves and increments stats', async () => {
-        const rl = new RateLimiter({ maxRequestsPerMinute: 5 });
-        const before = rl.getStats().requestsInLastMinute;
-        await rl.trackRequest('test');
-        expect(rl.getStats().requestsInLastMinute).toBe(before + 1);
+    it('throttle blocks all grants until the block ends', async () => {
+        const limiter = new RateLimiter({ maxRequestsPerMinute: 10 });
+        limiter.throttle(5000);
+        const { granted } = startRequests(limiter, 2);
+        await vi.advanceTimersByTimeAsync(4999);
+        expect(granted()).toBe(0);
+        expect(limiter.getStats().throttled).toBe(true);
+
+        await vi.advanceTimersByTimeAsync(1);
+        expect(granted()).toBe(2);
+        expect(limiter.getStats().throttled).toBe(false);
     });
 
-    it('Acquire is alias for trackRequest', async () => {
-        const rl = new RateLimiter({ maxRequestsPerMinute: 5 });
-        const spy = vi.spyOn(rl, 'trackRequest');
-        await rl.acquire('svc');
-        expect(spy).toHaveBeenCalledWith('svc');
+    it('throttle extends the block when called again with a later end', async () => {
+        const limiter = new RateLimiter({ maxRequestsPerMinute: 10 });
+        limiter.throttle(5000);
+        await vi.advanceTimersByTimeAsync(3000);
+        const until = limiter.throttle(5000);
+        expect(until).toBe(Date.now() + 5000);
+
+        const { granted } = startRequests(limiter, 1);
+        await vi.advanceTimersByTimeAsync(4999);
+        expect(granted()).toBe(0);
+        await vi.advanceTimersByTimeAsync(1);
+        expect(granted()).toBe(1);
     });
 
-    it('Execute waits for slot and calls fn', async () => {
-        const rl = new RateLimiter({ maxRequestsPerMinute: 5 });
-        const fn = vi.fn(() => 42);
-        const result = await rl.execute('svc', fn);
-        expect(result).toBe(42);
-        expect(fn).toHaveBeenCalled();
+    it('throttle does not shorten a longer block', () => {
+        const limiter = new RateLimiter();
+        const until = limiter.throttle(30000);
+        expect(limiter.throttle(1000)).toBe(until);
     });
 
-    it('Get stats returns correct structure', () => {
-        const rl = new RateLimiter({ maxRequestsPerMinute: 5 });
-        const stats = rl.getStats();
-        expect(stats).toHaveProperty('requestsInLastMinute');
-        expect(stats).toHaveProperty('maxRequestsPerMinute');
-        expect(stats).toHaveProperty('queueSize');
-        expect(stats).toHaveProperty('timestamps');
-        expect(Array.isArray(stats.timestamps)).toBe(true);
+    it('recordRequest always counts, even when the limit is reached', async () => {
+        const limiter = new RateLimiter({ maxRequestsPerMinute: 2 });
+        limiter.recordRequest('page');
+        limiter.recordRequest('page');
+        limiter.record('page');
+        expect(limiter.getStats().requestsInLastMinute).toBe(3);
+
+        const { granted } = startRequests(limiter, 1);
+        await settle();
+        expect(granted()).toBe(0);
     });
 
-    it('Reset clears stats and logs', () => {
-        const logSpy = vi.spyOn(console, 'log').mockImplementation(() => {});
-        const rl = new RateLimiter({ maxRequestsPerMinute: 5 });
-        rl._requestsInLastMinute = 3;
-        rl._requestTimestamps = [1, 2, 3];
-        rl._pendingQueue = [1, 2];
-        rl._isProcessing = true;
-        rl.reset();
-        expect(rl._requestsInLastMinute).toBe(0);
-        expect(rl._requestTimestamps).toEqual([]);
-        expect(rl._pendingQueue).toEqual([]);
-        expect(rl._isProcessing).toBe(false);
-        expect(logSpy).toHaveBeenCalledWith('[RateLimiter] Reset completed');
-        logSpy.mockRestore();
+    it('reset rejects waiting requests, clears the window and the block', async () => {
+        const limiter = new RateLimiter({ maxRequestsPerMinute: 1 });
+        await limiter.acquire('svc');
+        limiter.throttle(60000);
+        const waiting = limiter.acquire('svc');
+
+        limiter.reset();
+        await expect(waiting).rejects.toThrow('Rate limiter reset');
+        expect(limiter.getStats()).toMatchObject({ requestsInLastMinute: 0, queueSize: 0, throttled: false });
+        expect(vi.getTimerCount()).toBe(0);
+
+        await expect(limiter.acquire('svc')).resolves.toBeUndefined();
     });
 
-    it('Decrements stats and logs on request expiration', async () => {
-        const debugSpy = vi.spyOn(console, 'debug').mockImplementation(() => {});
-        vi.useFakeTimers();
-        const rl = new RateLimiter({ maxRequestsPerMinute: 5 });
-        await rl.trackRequest();
-        expect(rl._requestsInLastMinute).toBe(1);
-
-        vi.advanceTimersByTime(60000);
-        await Promise.resolve();
-        vi.useRealTimers();
-
-        expect(rl._requestsInLastMinute).toBe(0);
-        expect(
-            debugSpy.mock.calls.some(
-                call => call[0] && call[0].includes('[RateLimiter] Request expired:')
-            )
-        ).toBe(true);
-        debugSpy.mockRestore();
+    it('execute runs the function after a grant and returns its result', async () => {
+        const limiter = new RateLimiter();
+        await expect(limiter.execute('svc', () => 42)).resolves.toBe(42);
+        expect(limiter.getStats().requestsInLastMinute).toBe(1);
     });
 
-    it('Logs and waits when rate limit is reached', async () => {
-        const debugSpy = vi.spyOn(console, 'debug').mockImplementation(() => {});
-        vi.useFakeTimers();
-        const rl = new RateLimiter({ maxRequestsPerMinute: 2 });
-        await rl.trackRequest();
-        await rl.trackRequest();
-        const promise = rl.trackRequest();
-        expect(
-            debugSpy.mock.calls.some(
-                call => call[0] && call[0].includes('[RateLimiter] Rate limit reached:')
-            )
-        ).toBe(true);
-        let done = false;
-        promise.then(() => { done = true; });
-        while (!done) {
-            vi.runOnlyPendingTimers();
-            await Promise.resolve();
-        }
-        vi.useRealTimers();
-        debugSpy.mockRestore();
+    it('trackRequest is the same as acquire', async () => {
+        const limiter = new RateLimiter({ maxRequestsPerMinute: 1 });
+        await limiter.trackRequest('svc');
+        expect(limiter.getStats().requestsInLastMinute).toBe(1);
     });
 
-    it('Returns immediately if request is processing', async () => {
-        const rl = new RateLimiter({ maxRequestsPerMinute: 5 });
-        rl._isProcessing = true;
-        rl._pendingQueue = [{ source: 'test', resolve: vi.fn() }];
-        await rl._processQueue();
-        expect(rl._pendingQueue).toEqual([{ source: 'test', resolve: expect.any(Function) }]);
+    it('snapshot and restore keep the window and the block across restarts', async () => {
+        const limiter = new RateLimiter({ maxRequestsPerMinute: 2 });
+        await limiter.acquire('svc');
+        await limiter.acquire('svc');
+        limiter.throttle(10000);
+        const snapshot = limiter.snapshot();
+
+        const restored = new RateLimiter({ maxRequestsPerMinute: 2 });
+        restored.restore(snapshot);
+        expect(restored.getStats()).toMatchObject({ requestsInLastMinute: 2, throttled: true });
+
+        const { granted } = startRequests(restored, 1);
+        await vi.advanceTimersByTimeAsync(59999);
+        expect(granted()).toBe(0);
+        await vi.advanceTimersByTimeAsync(1);
+        expect(granted()).toBe(1);
     });
 
-    it('Skips processing when request is falsy', async () => {
-        const rl = new RateLimiter({ maxRequestsPerMinute: 5 });
-        rl._pendingQueue = [null, { source: 'test', resolve: vi.fn() }];
-        const resolveSpy = rl._pendingQueue[1].resolve;
-        await rl._processQueue();
-        expect(resolveSpy).toHaveBeenCalled();
+    it('restore drops timestamps that already left the window and ignores empty state', () => {
+        const limiter = new RateLimiter();
+        limiter.restore({ timestamps: [Date.now() - 120000, Date.now() - 1000, 'x'], blockedUntil: 0 });
+        expect(limiter.getStats().requestsInLastMinute).toBe(1);
+        expect(() => limiter.restore(null)).not.toThrow();
     });
 
-    it('Acquire uses default service name when not provided', async () => {
-        const rl = new RateLimiter({ maxRequestsPerMinute: 5 });
-        const spy = vi.spyOn(rl, 'trackRequest');
-        await rl.acquire();
-        expect(spy).toHaveBeenCalledWith('default');
-    });
-
-    it('globalRateLimiter is defined and is instance of RateLimiter', () => {
-        expect(globalRateLimiter).toBeInstanceOf(RateLimiter);
-        expect(globalRateLimiter.getStats().maxRequestsPerMinute).toBe(85);
-    });
-
-    it('Blocks requests and unblocks after duration when throttle is called', async () => {
-        const rl = new RateLimiter({ maxRequestsPerMinute: 5 });
-        const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
-        const logSpy = vi.spyOn(console, 'log').mockImplementation(() => {});
-        const processSpy = vi.spyOn(rl, '_processQueue').mockImplementation(() => {});
-        vi.useFakeTimers();
-        rl.throttle(1234);
-        expect(rl._throttled).toBe(true);
-        expect(warnSpy).toHaveBeenCalledWith('[RateLimiter] 429 detected: blocking ALL requests for 1234ms');
-        vi.advanceTimersByTime(1234);
-        expect(rl._throttled).toBe(false);
-        expect(logSpy).toHaveBeenCalledWith('[RateLimiter] Throttle lifted, resuming queue');
-        expect(processSpy).toHaveBeenCalled();
-        vi.useRealTimers();
-        warnSpy.mockRestore();
-        logSpy.mockRestore();
-        processSpy.mockRestore();
-    });
-
-    it('Ignores duplicate throttle calls when already throttled', () => {
-        const rl = new RateLimiter({ maxRequestsPerMinute: 5 });
-        const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
-        rl._throttled = true;
-        rl.throttle(5000);
-        expect(warnSpy).toHaveBeenCalledWith('[RateLimiter] Already throttled, ignoring duplicate');
-        expect(rl._throttled).toBe(true);
-        warnSpy.mockRestore();
-    });
-
-    it('Clears previous throttle timer if throttle is called again before timeout', () => {
-        const rl = new RateLimiter({ maxRequestsPerMinute: 5 });
-        const clearSpy = vi.spyOn(global, 'clearTimeout');
-        const timer = setTimeout(() => {}, 10000);
-        rl._throttleTimer = timer;
-        rl._throttled = false;
-        rl.throttle(1000);
-        expect(clearSpy).toHaveBeenCalledWith(timer);
-        clearSpy.mockRestore();
-    });
-
-    it('Uses default duration 30000 when throttle is called without argument', () => {
-        const rl = new RateLimiter({ maxRequestsPerMinute: 5 });
-        const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
-        const logSpy = vi.spyOn(console, 'log').mockImplementation(() => {});
-        const processSpy = vi.spyOn(rl, '_processQueue').mockImplementation(() => {});
-        vi.useFakeTimers();
-        rl.throttle();
-        expect(warnSpy).toHaveBeenCalledWith('[RateLimiter] 429 detected: blocking ALL requests for 30000ms');
-        vi.advanceTimersByTime(30000);
-        expect(logSpy).toHaveBeenCalledWith('[RateLimiter] Throttle lifted, resuming queue');
-        expect(processSpy).toHaveBeenCalled();
-        vi.useRealTimers();
-        warnSpy.mockRestore();
-        logSpy.mockRestore();
-        processSpy.mockRestore();
-    });
-
-    it('Logs debug message when throttled', async () => {
-        const rl = new RateLimiter({ maxRequestsPerMinute: 5 });
-        const debugSpy = vi.spyOn(console, 'debug').mockImplementation(() => {});
-        rl._pendingQueue = [{ source: 'test', resolve: vi.fn() }];
-        rl._throttled = true;
-        const processPromise = rl._processQueue();
-        await Promise.resolve();
-        expect(debugSpy).toHaveBeenCalledWith(expect.stringContaining('[RateLimiter] Throttled (429). Queue size: 1. Waiting...'));
-        rl._throttled = false;
-        await processPromise;
-        debugSpy.mockRestore();
-    });
-
-    it('Records external request, logs debug and decrements after timeout', async () => {
-        const rl = new RateLimiter({ maxRequestsPerMinute: 5 });
-        const debugSpy = vi.spyOn(console, 'debug').mockImplementation(() => {});
-        vi.useFakeTimers();
-        rl.recordRequest('svc');
-        expect(rl._requestsInLastMinute).toBe(1);
-        expect(rl._requestTimestamps.length).toBe(1);
-        expect(debugSpy).toHaveBeenCalledWith('[RateLimiter] Recorded external request (svc): 1/5');
-        vi.advanceTimersByTime(60000);
-        await Promise.resolve();
-        expect(rl._requestsInLastMinute).toBe(0);
-        expect(rl._requestTimestamps.length).toBe(0);
-        vi.useRealTimers();
-        debugSpy.mockRestore();
-    });
-
-    it('Does nothing and returns immediately if requestsInLastMinute exceeds maxRequestsPerMinute', () => {
-        const rl = new RateLimiter({ maxRequestsPerMinute: 2 });
-        rl._requestsInLastMinute = 2;
-        const debugSpy = vi.spyOn(console, 'debug').mockImplementation(() => {});
-        rl.recordRequest('svc');
-        expect(rl._requestsInLastMinute).toBe(2);
-        expect(rl._requestTimestamps.length).toBe(0);
-        expect(debugSpy).not.toHaveBeenCalled();
-        debugSpy.mockRestore();
-    });
-
-    it('Uses default source unknown when recordRequest is called without argument', () => {
-        const rl = new RateLimiter({ maxRequestsPerMinute: 5 });
-        const debugSpy = vi.spyOn(console, 'debug').mockImplementation(() => {});
-        rl.recordRequest();
-        expect(debugSpy).toHaveBeenCalledWith('[RateLimiter] Recorded external request (unknown): 1/5');
-        debugSpy.mockRestore();
-    });
-
-    it('Clears throttle timer and sets it to null when reset is called with active timer', () => {
-        const rl = new RateLimiter({ maxRequestsPerMinute: 5 });
-        const clearSpy = vi.spyOn(global, 'clearTimeout');
-        const timer = setTimeout(() => {}, 10000);
-        rl._throttleTimer = timer;
-        rl.reset();
-        expect(clearSpy).toHaveBeenCalledWith(timer);
-        expect(rl._throttleTimer).toBeNull();
-        clearSpy.mockRestore();
+    it('Calls onChange when its state changes', async () => {
+        const onChange = vi.fn();
+        const limiter = new RateLimiter({ onChange });
+        await limiter.acquire('svc');
+        limiter.throttle(1000);
+        limiter.setLimit(10);
+        limiter.recordRequest();
+        limiter.reset();
+        expect(onChange).toHaveBeenCalledTimes(5);
     });
 });

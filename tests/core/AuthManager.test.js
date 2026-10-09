@@ -151,7 +151,10 @@ describe('AuthManager.apply', () => {
 });
 
 describe('AuthManager getToken — executeScript inner func (JWT extraction)', () => {
-    const JWT = 'eyJhbGc.eyJzdWI.SflKxwRJ';
+    const base64url = value => btoa(JSON.stringify(value)).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
+    const makeJwt = payload => `${base64url({ alg: 'HS256' })}.${base64url(payload)}.signature`;
+    const nowSeconds = () => Math.floor(Date.now() / 1000);
+    const JWT = makeJwt({ sub: '1', exp: nowSeconds() + 3600 });
     let capturedFunc;
 
     beforeEach(async () => {
@@ -234,5 +237,49 @@ describe('AuthManager getToken — executeScript inner func (JWT extraction)', (
     it('finds JWT in sessionStorage when localStorage is empty', () => {
         sessionStorage.setItem('jwt', JWT);
         expect(capturedFunc()).toBe(JWT);
+    });
+
+    it('ignores an expired JWT', () => {
+        localStorage.setItem('auth', makeJwt({ sub: '1', exp: nowSeconds() - 60 }));
+        expect(capturedFunc()).toBeNull();
+    });
+
+    it('ignores a JWT that expires within the safety margin', () => {
+        localStorage.setItem('auth', makeJwt({ sub: '1', exp: nowSeconds() + 10 }));
+        expect(capturedFunc()).toBeNull();
+    });
+
+    it('ignores a JWT without exp', () => {
+        localStorage.setItem('auth', makeJwt({ sub: '1' }));
+        expect(capturedFunc()).toBeNull();
+    });
+
+    it('skips an expired JWT and returns a live one from another key', () => {
+        localStorage.setItem('auth', makeJwt({ sub: 'old', exp: nowSeconds() - 60 }));
+        localStorage.setItem('session', JWT);
+        expect(capturedFunc()).toBe(JWT);
+    });
+
+    it('prefers keys that look like a token store', () => {
+        const other = makeJwt({ sub: 'other', exp: nowSeconds() + 3600 });
+        localStorage.setItem('a-analytics', other);
+        localStorage.setItem('z-auth-token', JWT);
+        expect(capturedFunc()).toBe(JWT);
+    });
+});
+
+describe('AuthManager.invalidate', () => {
+    it('asks the background to drop the token of the service', async () => {
+        mockRuntime.sendMessage.mockResolvedValue({ ok: true });
+        await AuthManager.invalidate('mangalib');
+        expect(mockRuntime.sendMessage).toHaveBeenCalledWith({ action: 'authInvalidate', serviceKey: 'mangalib' });
+    });
+
+    it('warns instead of throwing when the background is unavailable', async () => {
+        const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+        mockRuntime.sendMessage.mockRejectedValue(new Error('no receiver'));
+        await expect(AuthManager.invalidate('mangalib')).resolves.toBeUndefined();
+        expect(warn).toHaveBeenCalled();
+        warn.mockRestore();
     });
 });

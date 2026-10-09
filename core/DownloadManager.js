@@ -11,8 +11,9 @@ import { extensionApi, fetchViaTab, hasServiceTab, NoServiceTabError } from './B
 import { EventBus } from './EventBus.js';
 import { ImageCompressor } from './ImageCompressor.js';
 import { MangaPatcher } from './MangaPatcher.js';
+import { PORT_KEEP_ALIVE } from './messages.js';
 import { PluginManager } from './PluginManager.js';
-import { globalRateLimiter } from './RateLimiter.js';
+import { RateLimitClient } from './RateLimitClient.js';
 import { ExporterRegistry } from '../exporters/ExporterRegistry.js';
 import { extractSlug } from '../services/hosts.js';
 import { serviceRegistry } from '../services/ServiceRegistry.js';
@@ -77,8 +78,7 @@ function chapterName(chapter) {
  */
 function isHeldBack() {
     if (activeGate?.controller?.isPaused?.()) return true;
-    const stats = globalRateLimiter.getStats();
-    return !!stats && (stats.queueSize > 0 || stats.throttled === true);
+    return RateLimitClient.isHeldBack();
 }
 
 /**
@@ -696,7 +696,7 @@ export class DownloadManager {
         const connect = () => {
             if (state.stopped) return;
             try {
-                const port = extensionApi.runtime.connect({ name: 'downloadKeepAlive' });
+                const port = extensionApi.runtime.connect({ name: PORT_KEEP_ALIVE });
                 state.port = port;
                 state.interval = setInterval(() => {
                     try {
@@ -1371,7 +1371,7 @@ export async function fetchPageImage(url, serviceKey) {
  * @throws {Error} NoServiceTabError, если не найдено открытой вкладки сервиса.
  */
 async function fetchPageImageUngated(url, serviceKey) {
-    await globalRateLimiter.trackRequest(serviceKey || 'image');
+    await RateLimitClient.acquire(serviceKey || 'image');
     if (activeGate) await activeGate.checkpoint();
 
     const viaTab = await fetchViaTab(url, serviceKey);

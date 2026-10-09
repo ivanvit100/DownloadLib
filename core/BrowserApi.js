@@ -45,6 +45,27 @@ function resolveEnv() {
 export const browserEnv = resolveEnv();
 
 /**
+ * Возвращает origin страниц расширения ('moz-extension://<uuid>', 'chrome-extension://<id>').
+ * Вычисляется из runtime.getURL, а не через URL.origin: по стандарту origin
+ * нестандартных схем непрозрачен ('null'), и сравнение через него ненадёжно.
+ * @returns {?string} Origin расширения, либо null, если runtime недоступен.
+ */
+export function extensionOrigin() {
+    const base = extensionApi?.runtime?.getURL?.('');
+    return typeof base === 'string' && base ? base.replace(/\/+$/, '') : null;
+}
+
+/**
+ * Проверяет, что URL указывает на страницу самого расширения.
+ * @param {*} url - Проверяемый URL.
+ * @returns {boolean}
+ */
+export function isExtensionUrl(url) {
+    const origin = extensionOrigin();
+    return !!origin && typeof url === 'string' && url.startsWith(`${origin}/`);
+}
+
+/**
  * Бросается, когда для сервиса не найдено открытой вкладки, через которую можно
  * выполнить запрос в её контексте. В отличие от обычной ошибки одного запроса,
  * означает, что весь пакет запросов (например, все страницы главы) заведомо

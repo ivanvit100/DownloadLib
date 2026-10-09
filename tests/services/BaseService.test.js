@@ -2,14 +2,14 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 
 vi.mock('../../core/BrowserApi.js', async () =>
     (await import('../helpers/globalBridge.js')).globalBridge('extensionApi', 'requestViaTab'));
-vi.mock('../../core/RateLimiter.js', async () =>
-    (await import('../helpers/globalBridge.js')).globalBridge('globalRateLimiter'));
+vi.mock('../../core/RateLimitClient.js', async () =>
+    (await import('../helpers/globalBridge.js')).globalBridge('RateLimitClient'));
 
 let BaseService;
 
 beforeEach(async () => {
     vi.resetModules();
-    global.globalRateLimiter = { throttle: vi.fn() };
+    global.RateLimitClient = { throttle: vi.fn() };
     ({ BaseService } = await import('../../services/BaseService.js'));
 });
 
@@ -157,18 +157,18 @@ describe('BaseService', () => {
         const delaySpy = vi.spyOn(svc, 'delay').mockResolvedValue();
         let on429Called = false;
         svc._on429 = (ms) => { on429Called = ms === 2000; };
-        global.globalRateLimiter = { throttle: vi.fn() };
+        global.RateLimitClient = { throttle: vi.fn() };
         const result = await svc.fetchWithRateLimitRetry('url', {}, 2);
         expect(result.status).toBe(200);
         expect(requestViaTabMock).toHaveBeenCalledTimes(2);
         expect(warnSpy).toHaveBeenCalledWith('[TestService] 429 Too Many Requests (attempt 1/2), waiting 2000ms...');
         expect(on429Called).toBe(true);
-        expect(global.globalRateLimiter.throttle).toHaveBeenCalledWith(2000);
+        expect(global.RateLimitClient.throttle).toHaveBeenCalledWith(2000);
         expect(delaySpy).toHaveBeenCalledWith(2000);
         warnSpy.mockRestore();
         delaySpy.mockRestore();
         delete global.requestViaTab;
-        delete global.globalRateLimiter;
+        delete global.RateLimitClient;
     });
 
     it('Uses default waitMs 30000 when Retry-After header is missing or invalid', async () => {
@@ -180,13 +180,13 @@ describe('BaseService', () => {
             .mockResolvedValueOnce(responseOk);
         global.requestViaTab = requestViaTabMock;
         const delaySpy = vi.spyOn(svc, 'delay').mockResolvedValue();
-        global.globalRateLimiter = { throttle: vi.fn() };
+        global.RateLimitClient = { throttle: vi.fn() };
         const result = await svc.fetchWithRateLimitRetry('url', {}, 2);
         expect(result.status).toBe(200);
         expect(delaySpy).toHaveBeenCalledWith(30000);
         delaySpy.mockRestore();
         delete global.requestViaTab;
-        delete global.globalRateLimiter;
+        delete global.RateLimitClient;
     });
 
     it('Throws error after maxRetries when always rate limited', async () => {

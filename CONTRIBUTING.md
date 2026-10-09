@@ -91,17 +91,21 @@ DownloadLib/
 │   ├── main.js              # Общая точка входа фона: импортирует RequestInterceptor и MessageRouter
 │   ├── service-worker.js    # Chrome: модульный service worker, импортирует main.js
 │   ├── background.html      # Firefox: фоновая страница, подключает main.js как модуль
-│   ├── RequestInterceptor.js# Перехват HTTP-запросов, заголовки, авторизация
+│   ├── RequestInterceptor.js# Захват токенов из запросов страниц сервиса, CORS изображений в Firefox
+│   ├── tokenStore.js        # Хранилище токенов авторизации (storage.session, проверка exp)
+│   ├── rateLimitService.js  # Единственный ограничитель частоты запросов для всех окон
+│   ├── pluginHosts.js       # Хосты сайтов сервисных плагинов
 │   ├── netRules.js          # Правила declarativeNetRequest из конфигов (блокировка рекламы)
-│   └── MessageRouter.js     # Маршрутизация runtime.onMessage, регистрация content scripts
+│   └── MessageRouter.js     # Маршрутизация runtime.onMessage с проверкой отправителя, регистрация content scripts
 ├── content/                 # Контент-скрипты (исполняются на страницах сайтов)
 │   ├── AdCleaner.js         # Удаляет рекламные элементы
-│   ├── DownloadButton.js    # Инжектирует кнопку «Скачать» на странице тайтла
-│   └── ImageFetcher.js      # Прокидывает fetch изображений через вкладку в background
+│   └── DownloadButton.js    # Инжектирует кнопку «Скачать» на странице тайтла
 ├── core/                    # Ядро: логика загрузки, утилиты, хранилища
 │   ├── BrowserApi.js        # Единый API-адаптер (Firefox/Chrome)
+│   ├── messages.js          # Имена runtime-сообщений (MSG) и порта keep-alive
 │   ├── EventBus.js          # Pub/Sub шина событий
-│   ├── RateLimiter.js       # Ограничитель частоты запросов
+│   ├── RateLimiter.js       # Ограничитель частоты запросов (скользящее окно)
+│   ├── RateLimitClient.js   # Клиент ограничителя фона для окон расширения
 │   ├── Storage.js           # SafeStorage: обёртка над localStorage
 │   ├── pluginApi.js         # Публикует в globalThis классы и реестры для плагинов
 │   ├── DownloadHistory.js   # Хранение истории загрузок (до 10 записей)
@@ -180,6 +184,7 @@ npm run test:coverage
 
 Если хотите помочь с реализацией одного из запланированных пунктов — упомяните это в своём issue или PR, чтобы не дублировать работу.
 
+- [ ] Ограничитель загрузки по главам (1.1.0)
 - [ ] Улучшить блокировку рекламы в Chromium (1.1.0)
 - [x] Ускорение загрузки временным скипом "завсиших" глав (1.1.0)
 - [ ] Общий рефакторинг архитектуры (1.1.0)

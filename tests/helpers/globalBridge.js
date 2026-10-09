@@ -8,8 +8,8 @@
  * Использование:
  *   vi.mock('../../core/EventBus.js', async () =>
  *       (await import('../helpers/globalBridge.js')).globalBridge('EventBus'));
- *   vi.mock('../../background/RequestInterceptor.js', async () =>
- *       (await import('../helpers/globalBridge.js')).globalBridge({ authTokens: 'authTokenStore' }));
+ *   vi.mock('../../background/tokenStore.js', async () =>
+ *       (await import('../helpers/globalBridge.js')).globalBridge({ getToken: 'tsGetToken' }));
  *
  * @param {...(string|Object<string, string>)} specs - Имена экспортов, совпадающие
  * с именами глобалов, либо объекты вида { имяЭкспорта: 'имяГлобала' }.

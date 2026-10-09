@@ -189,7 +189,7 @@ describe('PopupController second test file', () => {
         expect(resetUISpy).toHaveBeenCalled();
     });
 
-    it('Uses default rate limit of 85 when localStorage has no saved value', async () => {
+    it('Shows the default rate limit of 85 and leaves the limit to the background', async () => {
         const controller = new PopupController();
         controller.currentSlug = 'slug';
         controller.currentServiceKey = 'ranobelib';
@@ -197,21 +197,34 @@ describe('PopupController second test file', () => {
 
         await controller.startDownload();
 
-        expect(sendMessageSpy).toHaveBeenCalledWith(expect.objectContaining({ action: 'setRateLimit', limit: 85 }));
+        expect(document.getElementById('downloadInfoPanel').textContent).toContain('Запросов в минуту85');
+        expect(sendMessageSpy).not.toHaveBeenCalledWith(expect.objectContaining({ action: 'setRateLimit' }));
     });
 
-    it('Uses saved rate limit from localStorage when available', async () => {
+    it('Shows the rate limit saved by an older version in localStorage', async () => {
         global.localStorage.getItem = vi.fn(key =>
             key === 'downloadlib_default_rate_limit' ? '120' : null
         );
         const controller = new PopupController();
         controller.currentSlug = 'slug';
         controller.currentServiceKey = 'ranobelib';
-        const sendMessageSpy = vi.spyOn(global.extensionApi.runtime, 'sendMessage');
 
         await controller.startDownload();
 
-        expect(sendMessageSpy).toHaveBeenCalledWith(expect.objectContaining({ action: 'setRateLimit', limit: 120 }));
+        expect(document.getElementById('downloadInfoPanel').textContent).toContain('Запросов в минуту120');
+    });
+
+    it('Shows the rate limit from the settings in storage.local', async () => {
+        global.extensionApi.storage = {
+            local: { get: vi.fn(async () => ({ downloadlib_default_rate_limit: 40 })), set: vi.fn(async () => {}) }
+        };
+        const controller = new PopupController();
+        controller.currentSlug = 'slug';
+        controller.currentServiceKey = 'ranobelib';
+
+        await controller.startDownload();
+
+        expect(document.getElementById('downloadInfoPanel').textContent).toContain('Запросов в минуту40');
     });
 
     it('Completes without spurious warnings when all optional elements are missing during download start', async () => {
@@ -243,9 +256,6 @@ describe('PopupController second test file', () => {
         await controller.startDownload();
 
         expect(warnSpy).not.toHaveBeenCalled();
-        expect(global.extensionApi.runtime.sendMessage).toHaveBeenCalledWith(
-            expect.objectContaining({ action: 'setRateLimit', limit: 85 })
-        );
     });
 
     it('Sets download start status text', async () => {
