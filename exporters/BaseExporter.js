@@ -7,6 +7,8 @@
  * @version 1.1.0
  */
 
+import { decodeEntities, escapeHtml, escapeXml } from '../core/text.js';
+
 console.log('[BaseExporter] Loading...');
 
 /**
@@ -46,13 +48,7 @@ export class BaseExporter {
      * @returns {string} Экранированная строка, либо пустая строка для falsy-значений.
      */
     escapeXml(str) {
-        if (!str) return '';
-        return String(str)
-            .replace(/&/g, '&amp;')
-            .replace(/</g, '&lt;')
-            .replace(/>/g, '&gt;')
-            .replace(/"/g, '&quot;')
-            .replace(/'/g, '&apos;');
+        return escapeXml(str);
     }
 
     /**
@@ -61,34 +57,23 @@ export class BaseExporter {
      * @returns {string} Экранированная строка, либо пустая строка для falsy-значений.
      */
     escapeHtml(str) {
-        if (!str) return '';
-        return String(str)
-            .replace(/&/g, '&amp;')
-            .replace(/</g, '&lt;')
-            .replace(/>/g, '&gt;')
-            .replace(/"/g, '&quot;')
-            .replace(/'/g, '&#39;');
+        return escapeHtml(str);
     }
 
     /**
      * Удаляет HTML-разметку из строки, превращая её в чистый текст: вырезает
      * теги script/style целиком, заменяет остальные теги переносами строк
-     * и декодирует основные HTML-сущности.
+     * и декодирует основные HTML-сущности (&amp;amp; — последней).
      * @param {*} html - Исходная HTML-строка.
      * @returns {string} Очищенный текст, либо пустая строка для falsy-значений.
      */
     stripHtml(html) {
         if (!html) return '';
-        return String(html)
+        const text = String(html)
             .replace(/<script[^>]*>[\s\S]*?<\/script>/gi, '')
             .replace(/<style[^>]*>[\s\S]*?<\/style>/gi, '')
-            .replace(/<[^>]+>/g, '\n')
-            .replace(/&nbsp;/g, ' ')
-            .replace(/&quot;/g, '"')
-            .replace(/&apos;/g, '\'')
-            .replace(/&lt;/g, '<')
-            .replace(/&gt;/g, '>')
-            .replace(/&amp;/g, '&')
+            .replace(/<[^>]+>/g, '\n');
+        return decodeEntities(text)
             .replace(/\n{3,}/g, '\n\n')
             .trim();
     }

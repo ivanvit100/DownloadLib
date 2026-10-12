@@ -9,6 +9,7 @@
  */
 
 import { BaseExporter } from './BaseExporter.js';
+import { base64ToBytes } from '../core/encoding.js';
 
 console.log('[MOBIExporter] Loading...');
 
@@ -386,18 +387,6 @@ function buildPalmDB(titleBytes, records) {
 }
 
 /**
- * Декодирует base64-строку в бинарный массив байтов.
- * @param {string} b64 - Base64-строка (пробелы допустимы и удаляются).
- * @returns {Uint8Array} Декодированные байты.
- */
-function b64toBytes(b64) {
-    const bin = atob(b64.replace(/\s/g, ''));
-    const arr = new Uint8Array(bin.length);
-    for (let i = 0; i < bin.length; i++) arr[i] = bin.charCodeAt(i);
-    return arr;
-}
-
-/**
  * Экспортёр формата MOBI (Mobipocket 6) для устройств Kindle: собирает
  * бинарный файл вручную на чистом JavaScript (без WASM и внешних библиотек),
  * представляя книгу как один HTML-документ, разбитый на текстовые записи
@@ -498,7 +487,7 @@ export class MOBIExporter extends BaseExporter {
         ));
 
         for (const chunk of textChunks) records.push(chunk);
-        for (const img of imageList) records.push(b64toBytes(img.base64));
+        for (const img of imageList) records.push(base64ToBytes(img.base64));
 
         records.push(buildFLIS());
         records.push(buildFCIS(textLen));

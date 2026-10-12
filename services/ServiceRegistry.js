@@ -45,21 +45,31 @@ export class ServiceRegistry {
     }
 
     /**
-     * Находит зарегистрированный сервис-синглтон, чей matcher соответствует URL.
+     * Находит ключ зарегистрированного сервиса, чей matcher соответствует URL.
      * @param {string} url - Проверяемый URL страницы.
-     * @returns {?object} Экземпляр-синглтон подходящего сервиса, либо null,
-     * если ни один сервис не совпал.
+     * @returns {?string} Ключ сервиса, либо null, если ни один сервис не совпал.
      */
-    getServiceByUrl(url) {
-        for (const [name, { instance, matcher }] of this.services) {
-            console.log(name, matcher);
+    findServiceKey(url) {
+        for (const [name, { matcher }] of this.services) {
             try {
-                if (matcher(url)) return instance;
+                if (matcher(url)) return name;
             } catch (e) {
                 console.error(`[ServiceRegistry] Error checking matcher for ${name}:`, e);
             }
         }
         return null;
+    }
+
+    /**
+     * Находит зарегистрированный сервис-синглтон, чей matcher соответствует URL.
+     * Для загрузки нужен собственный экземпляр: findServiceKey + createService.
+     * @param {string} url - Проверяемый URL страницы.
+     * @returns {?object} Экземпляр-синглтон подходящего сервиса, либо null,
+     * если ни один сервис не совпал.
+     */
+    getServiceByUrl(url) {
+        const key = this.findServiceKey(url);
+        return key ? this.getService(key) : null;
     }
 
     /**

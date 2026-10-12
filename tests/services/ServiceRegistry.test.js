@@ -148,4 +148,29 @@ describe('ServiceRegistry', () => {
         expect(errorSpy).toHaveBeenCalled();
         errorSpy.mockRestore();
     });
+
+    it('findServiceKey returns the key of the service of a site, so a download can create its own instance', () => {
+        vi.spyOn(console, 'log').mockImplementation(() => {});
+        class SiteService {
+            constructor() { this.name = 'site'; }
+            static matches(url) { return url.includes('site.example'); }
+        }
+        const registry = new ServiceRegistry();
+        registry.register(SiteService);
+        expect(registry.findServiceKey('https://site.example/manga/x')).toBe('site');
+        expect(registry.findServiceKey('https://other.example/')).toBeNull();
+
+        const own = registry.createService(registry.findServiceKey('https://site.example/'));
+        expect(own).toBeInstanceOf(SiteService);
+        expect(own).not.toBe(registry.getServiceByUrl('https://site.example/'));
+    });
+
+    it('Does not log every matcher it checks', () => {
+        const log = vi.spyOn(console, 'log').mockImplementation(() => {});
+        const registry = new ServiceRegistry();
+        registry.register(class { constructor() { this.name = 'x'; } static matches() { return false; } });
+        log.mockClear();
+        registry.findServiceKey('https://x.example/');
+        expect(log).not.toHaveBeenCalled();
+    });
 });

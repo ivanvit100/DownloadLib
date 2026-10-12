@@ -1,8 +1,10 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
+import { withServiceFactory } from '../helpers/serviceRegistryMock.js';
 
 vi.mock('../../core/AuthManager.js', async () => (await import('../helpers/globalBridge.js')).globalBridge('AuthManager'));
 vi.mock('../../core/BrowserApi.js', async () => (await import('../helpers/globalBridge.js'))
-    .globalBridge('extensionApi', 'browserEnv', 'fetchViaTab', 'setServiceTab'));
+    .globalBridge('extensionApi', 'browserEnv'));
+vi.mock('../../core/TabNetwork.js', async () => (await import('../helpers/globalBridge.js')).globalBridge('fetchViaTab', 'setServiceTab'));
 vi.mock('../../core/DownloadHistory.js', async () => (await import('../helpers/globalBridge.js')).globalBridge('DownloadHistory'));
 vi.mock('../../core/DownloadManager.js', async () => (await import('../helpers/globalBridge.js')).globalBridge('DownloadManager'));
 vi.mock('../../core/PluginManager.js', async () => (await import('../helpers/globalBridge.js')).globalBridge('PluginManager'));
@@ -90,25 +92,24 @@ beforeEach(async () => {
     global.serviceRegistry = {
         getServiceByUrl: vi.fn(() => ({
             name: 'ranobelib',
-            fetchMangaMetadata: vi.fn(async () => ({
-                data: {
-                    rus_name: 'Title', summary: 'Summary', cover: 'cover.png',
-                    authors: ['Author'], ageRestriction: { label: '18+' }, releaseDate: '2020'
-                }
+            getManga: vi.fn(async () => ({
+                rus_name: 'Title', summary: 'Summary', cover: 'cover.png',
+                authors: ['Author'], ageRestriction: { label: '18+' }, releaseDate: '2020'
             })),
-            fetchChaptersList: vi.fn(async () => ({ data: [] }))
+            getChapterList: vi.fn(async () => [])
         })),
         getService: vi.fn(() => null),
     };
+    withServiceFactory(global.serviceRegistry);
     global.RanobeLibService = class {
         name = 'ranobelib';
-        fetchMangaMetadata = vi.fn(async () => ({ data: { rus_name: 'Title', summary: 'S', cover: null, authors: [], ageRestriction: null } }));
-        fetchChaptersList = vi.fn(async () => ({ data: [] }));
+        getManga = vi.fn(async () => ({ rus_name: 'Title', summary: 'S', cover: null, authors: [], ageRestriction: null }));
+        getChapterList = vi.fn(async () => []);
     };
     global.MangaLibService = class {
         name = 'mangalib';
-        fetchMangaMetadata = vi.fn(async () => ({ data: { rus_name: 'Title', summary: 'S', cover: null, authors: [], ageRestriction: null } }));
-        fetchChaptersList = vi.fn(async () => ({ data: [] }));
+        getManga = vi.fn(async () => ({ rus_name: 'Title', summary: 'S', cover: null, authors: [], ageRestriction: null }));
+        getChapterList = vi.fn(async () => []);
     };
     global.extensionApi = {
         runtime: {
@@ -147,7 +148,7 @@ beforeEach(async () => {
         current: vi.fn(() => null)
     };
     global.HistoryController = { init: vi.fn() };
-    global.fetchViaTab = vi.fn(async () => null);
+    global.fetchViaTab = vi.fn(async () => ({ ok: false, status: 0, noTab: true }));
     global.setServiceTab = vi.fn();
     global.fetch = vi.fn(async () => ({
         json: async () => ({ workflow_runs: [{ conclusion: 'success' }] })
@@ -456,6 +457,18 @@ describe('PopupController extra coverage', () => {
             expect(pauseBtn.textContent).toBe('Пауза');
         });
 
+        it('pauseBtn pauses and resumes the controller of the running download', () => {
+            const controller = new PopupController();
+            controller.controller = { pause: vi.fn(), resume: vi.fn() };
+            controller.setupEventListeners();
+            const pauseBtn = document.getElementById('pauseBtn');
+
+            pauseBtn.click();
+            expect(controller.controller.pause).toHaveBeenCalledTimes(1);
+            pauseBtn.click();
+            expect(controller.controller.resume).toHaveBeenCalledTimes(1);
+        });
+
         it('stopBtn click calls stopDownload', () => {
             const controller = new PopupController();
             const stopSpy = vi.spyOn(controller, 'stopDownload').mockImplementation(() => {});
@@ -568,7 +581,7 @@ describe('PopupController extra coverage', () => {
     describe('_fetchCover', () => {
         it('returns base64 data URL when fetchViaTab returns ok response', async () => {
             global.fetchViaTab = vi.fn(async () => ({
-                ok: true, contentType: 'image/jpeg', base64: 'abc123'
+                ok: true, status: 200, noTab: false, contentType: 'image/jpeg', base64: 'abc123'
             }));
             const controller = new PopupController();
             controller.currentServiceKey = 'ranobelib';

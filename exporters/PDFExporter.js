@@ -8,6 +8,7 @@
  */
 
 import { BaseExporter } from './BaseExporter.js';
+import { sanitizeFilename } from '../core/text.js';
 
 console.log('[PDFExporter] Loading...');
 
@@ -36,13 +37,12 @@ export class PDFExporter extends BaseExporter {
     }
 
     /**
-     * Очищает строку для использования в качестве имени файла: заменяет
-     * запрещённые символы на подчёркивания и обрезает длину.
+     * Очищает строку для использования в качестве имени файла (см. text.sanitizeFilename).
      * @param {string} filename - Исходное имя файла.
      * @returns {string} Строка, безопасная для имени файла (не длиннее 200 символов).
      */
     sanitizeFilename(filename) {
-        return filename.replace(/[<>:"/\\|?*]/g, '_').substring(0, 200);
+        return sanitizeFilename(filename);
     }
 
     /**

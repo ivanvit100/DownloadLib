@@ -8,7 +8,8 @@
  */
 
 import { AuthManager } from '../core/AuthManager.js';
-import { browserEnv, extensionApi, fetchViaTab, setServiceTab } from '../core/BrowserApi.js';
+import { browserEnv, extensionApi } from '../core/BrowserApi.js';
+import { createController } from '../core/DownloadContext.js';
 import { DownloadHistory } from '../core/DownloadHistory.js';
 import { DownloadManager } from '../core/DownloadManager.js';
 import { MangaPatcher } from '../core/MangaPatcher.js';
@@ -16,10 +17,9 @@ import { MSG } from '../core/messages.js';
 import { PluginManager } from '../core/PluginManager.js';
 import { DEFAULT_RATE_LIMIT } from '../core/RateLimiter.js';
 import { RateLimitClient } from '../core/RateLimitClient.js';
+import { fetchViaTab, setServiceTab } from '../core/TabNetwork.js';
 import { ExporterRegistry } from '../exporters/ExporterRegistry.js';
 import { extractSlug } from '../services/hosts.js';
-import { MangaLibService } from '../services/mangalib/MangaLibService.js';
-import { RanobeLibService } from '../services/ranobelib/RanobeLibService.js';
 import { serviceRegistry } from '../services/ServiceRegistry.js';
 import { ChapterController } from './ChapterController.js';
 import { HistoryController } from './HistoryController.js';
@@ -54,6 +54,7 @@ export class PopupController {
         this.isDownloading = false;
         this.isPaused = false;
         this.shouldStop = false;
+        this.controller = null;
         this._shellEventsBound = false;
         this.currentDownloadId = null;
         this.currentSlug = null;
@@ -488,16 +489,9 @@ export class PopupController {
      */
     async _resolveService({ autoDownload, slugFromUrl, serviceFromUrl, tabIdFromUrl }) {
         if (autoDownload && slugFromUrl && serviceFromUrl) {
-            const serviceKey = serviceFromUrl;
-            let service;
-            if (serviceKey === 'ranobelib')
-                service = new RanobeLibService();
-            else if (serviceKey === 'mangalib')
-                service = new MangaLibService();
-            else
-                service = serviceRegistry.getService(serviceKey) ?? null;
-            if (!service) throw new Error(`Unknown service: ${serviceKey}`);
-            return { slug: slugFromUrl, serviceKey, service, activeTabId: tabIdFromUrl };
+            const service = serviceRegistry.createService(serviceFromUrl);
+            if (!service) throw new Error(`Unknown service: ${serviceFromUrl}`);
+            return { slug: slugFromUrl, serviceKey: serviceFromUrl, service, activeTabId: tabIdFromUrl };
         }
 
         const tabs = await extensionApi.tabs.query({ active: true, currentWindow: true });
@@ -508,13 +502,14 @@ export class PopupController {
 
         const slug = extractSlug(currentUrl);
 
-        const service = serviceRegistry.getServiceByUrl(currentUrl);
+        const serviceKey = serviceRegistry.findServiceKey(currentUrl);
+        const service = serviceKey ? serviceRegistry.createService(serviceKey) : null;
         if (!service) {
             await this._showWrongServiceState();
             return null;
         }
 
-        return { slug, serviceKey: service.name, service, activeTabId };
+        return { slug, serviceKey, service, activeTabId };
     }
 
     /**
@@ -587,10 +582,9 @@ export class PopupController {
 
             console.log('[PopupController] Fetching metadata for slug:', slug);
 
-            const rawResp = await service.fetchMangaMetadata(slug);
-            console.log('[PopupController] Raw response:', rawResp);
+            const meta = await service.getManga(slug);
+            console.log('[PopupController] Metadata:', meta);
 
-            const meta = rawResp.data || rawResp;
             const patched = MangaPatcher.patch(meta);
             const chaptersCount = await this.chapterController.loadAndPopulate(
                 service, slug, chapterFromUrl, chapterToUrl, branchIdFromUrl
@@ -614,7 +608,8 @@ export class PopupController {
     async _fetchCover(url) {
         try {
             const result = await fetchViaTab(url, this.currentServiceKey);
-            if (result?.ok) return `data:${result.contentType};base64,${result.base64}`;
+            if (result.ok) return `data:${result.contentType};base64,${result.base64}`;
+            console.warn('[PopupController] Cover fetch failed:', result.error);
         } catch (e) {
             console.warn('[PopupController] Cover fetch failed:', e.message);
         }
@@ -695,6 +690,8 @@ export class PopupController {
             pauseBtn.addEventListener('click', () => {
                 if (this.shouldStop) return;
                 this.isPaused = !this.isPaused;
+                if (this.isPaused) this.controller?.pause();
+                else this.controller?.resume();
                 pauseBtn.textContent = this.isPaused ? 'Продолжить' : 'Пауза';
                 const status = $el('status');
                 if (status) status.textContent = this.isPaused ? 'Пауза...' : 'Загрузка...';
@@ -713,6 +710,11 @@ export class PopupController {
     subscribeToEvents() {
         this.downloadManager.eventBus.on('download:progress', (state) => {
             this.updateProgress(state.status, state.progress);
+        });
+
+        this.downloadManager.eventBus.on('download:pages', ({ done, total }) => {
+            const statusEl = $el('status');
+            if (statusEl && !this.isPaused) statusEl.textContent = `Загружено страниц: ${done}/${total}`;
         });
 
         this.downloadManager.eventBus.on('download:completed', () => {
@@ -800,6 +802,7 @@ export class PopupController {
             this.isDownloading = true;
             this.isPaused = false;
             this.shouldStop = false;
+            this.controller = createController();
 
             this._setDownloadingUIState({
                 btn, progress, controls, chapterRangeContainer, status, rateLimit
@@ -822,15 +825,7 @@ export class PopupController {
                 splitPages,
                 fitFb2Images,
                 authToken: this.authToken,
-                controller: {
-                    isPaused: () => this.isPaused,
-                    shouldStop: () => this.shouldStop,
-                    stop: () => { this.shouldStop = true; },
-                    waitIfPaused: async () => {
-                        while (this.isPaused && !this.shouldStop)
-                            await new Promise(resolve => setTimeout(resolve, 100));
-                    }
-                }
+                controller: this.controller
             });
 
             DownloadHistory.add({
@@ -900,6 +895,7 @@ export class PopupController {
         this.shouldStop = true;
         this.isPaused = false;
         this.isDownloading = false;
+        this.controller?.stop();
         const pauseBtn = $el('pauseBtn');
         const stopBtn = $el('stopBtn');
         if (pauseBtn) pauseBtn.disabled = true;

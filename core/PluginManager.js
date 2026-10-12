@@ -7,13 +7,11 @@
  * @version 1.1.0
  */
 
-import { browserEnv, extensionApi, NoServiceTabError } from './BrowserApi.js';
-import { fetchPageImage, loadImageOrDefer } from './DownloadManager.js';
-import { ImageCompressor } from './ImageCompressor.js';
+import { browserEnv, extensionApi } from './BrowserApi.js';
 import { MSG } from './messages.js';
 import { BaseExporter } from '../exporters/BaseExporter.js';
 import { ExporterRegistry } from '../exporters/ExporterRegistry.js';
-import { BaseService } from '../services/BaseService.js';
+import { CdnLibsService } from '../services/CdnLibsService.js';
 import { matchesHosts } from '../services/hosts.js';
 import { serviceRegistry } from '../services/ServiceRegistry.js';
 
@@ -84,12 +82,26 @@ function _injectFromBlob(code) {
 }
 
 /**
+ * Читает код заглушек песочницы (sandbox.js) из пакета расширения, чтобы
+ * встроить его в iframe песочницы Firefox.
+ * @returns {Promise<string>} Код sandbox.js.
+ * @throws {Error} Если файл не удалось прочитать.
+ */
+async function _sandboxScript() {
+    const url = extensionApi?.runtime?.getURL?.('sandbox.js');
+    if (!url) throw new Error('Cannot resolve sandbox URL');
+    const response = await fetch(url);
+    if (!response.ok) throw new Error(`Failed to load sandbox.js: HTTP ${response.status}`);
+    return response.text();
+}
+
+/**
  * Создаёт изолированный iframe-песочницу (sandbox="allow-scripts") для безопасного
  * выполнения кода плагина, не зарегистрировавшего свой формат обычным способом.
- * В Firefox песочница строится из инлайн-скрипта (srcdoc) с минимальными заглушками
- * BaseService/BaseExporter/ExporterRegistry, в Chrome — загружается sandbox.html
- * из пакета расширения (там разрешён CSP unsafe-eval). Общение с песочницей идёт
- * через postMessage с сопоставлением ответов по числовому id запроса.
+ * Заглушки BaseService/BaseExporter/ExporterRegistry и протокол sb-* — в sandbox.js:
+ * в Chrome iframe загружает sandbox.html из пакета расширения (там разрешён CSP
+ * unsafe-eval), в Firefox тот же sandbox.js встраивается в srcdoc. Общение
+ * с песочницей идёт через postMessage с сопоставлением ответов по id запроса.
  * @returns {Promise<{exec: function(string): Promise<object>,
  * exportVia: function(string, object, object[], ?string): Promise<object>,
  * destroy: function(): void}>} Объект-хендл песочницы: exec — выполняет код и
@@ -97,65 +109,21 @@ function _injectFromBlob(code) {
  * export() зарегистрированного в песочнице экспортёра, destroy — снимает
  * обработчики и удаляет iframe.
  */
-function _createSandbox() {
+async function _createSandbox() {
+    const iframe = document.createElement('iframe');
+    iframe.setAttribute('sandbox', 'allow-scripts');
+    iframe.style.cssText = 'position:fixed;width:0;height:0;border:none;visibility:hidden;pointer-events:none';
+
+    if (browserEnv.isFirefox) {
+        const script = (await _sandboxScript()).replace(/<\/script/gi, '<\\/script');
+        iframe.srcdoc = `<!DOCTYPE html><html><body><script>${script}<\/script></body></html>`;
+    } else {
+        const sandboxUrl = extensionApi?.runtime?.getURL?.('sandbox.html');
+        if (!sandboxUrl) throw new Error('Cannot resolve sandbox URL');
+        iframe.src = sandboxUrl;
+    }
+
     return new Promise((resolve, reject) => {
-        const iframe = document.createElement('iframe');
-        iframe.setAttribute('sandbox', 'allow-scripts');
-        iframe.style.cssText = 'position:fixed;width:0;height:0;border:none;visibility:hidden;pointer-events:none';
-
-        if (browserEnv.isFirefox) {
-            const innerScript = [
-                '"use strict";',
-                'var _cap={};var _reg={};var global=window;',
-                'global.BaseService=function(c){this.config=c;this.name=c&&c.name;};',
-                'global.BaseExporter=function(){this.format="unknown";};',
-                'global.BaseExporter.prototype.escapeXml=function(s){',
-                '  if(!s)return"";',
-                '  return String(s).replace(/&/g,"&amp;").replace(/</g,"&lt;")',
-                '    .replace(/>/g,"&gt;").replace(/"/g,"&quot;").replace(/\'/g,"&apos;");',
-                '};',
-                'global.BaseExporter.prototype.escapeHtml=function(s){',
-                '  if(!s)return"";',
-                '  return String(s).replace(/&/g,"&amp;").replace(/</g,"&lt;")',
-                '    .replace(/>/g,"&gt;").replace(/"/g,"&quot;").replace(/\'/g,"&#39;");',
-                '};',
-                'global.BaseExporter.prototype.sanitizeText=function(t){if(!t)return"";return String(t).trim();};',
-                'global.ExporterRegistry={',
-                '  register:function(fmt,Cls,meta){_cap.format=fmt;',
-                '    _reg[String(fmt).toLowerCase()]={Cls:Cls,meta:meta||{}};},',
-                '};',
-                'window.addEventListener("message",function(e){',
-                '  var m=e.data;if(!m||!m._t)return;',
-                '  if(m._t==="sb-exec"){',
-                '    _cap={};',
-                '    try{(new Function(m.code))();e.source.postMessage({_t:"sb-ok",_id:m._id,c:_cap},"*");}',
-                '    catch(err){e.source.postMessage({_t:"sb-err",_id:m._id,e:err.message},"*");}',
-                '  } else if(m._t==="sb-export"){',
-                '    (async function(){',
-                '      try{',
-                '        var entry=_reg[String(m.fmt).toLowerCase()];',
-                '        if(!entry)throw new Error("Format not registered in sandbox: "+m.fmt);',
-                '        var inst=new entry.Cls();',
-                '        var result=await inst.export(m.manga,m.chapters,m.cover);',
-                '        var buf=await result.blob.arrayBuffer();',
-                '        var pl={_t:"sb-export-ok",_id:m._id,buf:buf,',
-                '          filename:result.filename,mimeType:result.mimeType};',
-                '        e.source.postMessage(pl,"*",[buf]);',
-                '      }catch(ex){e.source.postMessage({_t:"sb-err",_id:m._id,e:ex.message},"*");}',
-                '    })();',
-                '  }',
-                '});'
-            ].join('');
-            iframe.srcdoc = `<!DOCTYPE html><html><body><script>${innerScript}<\/script></body></html>`;
-        } else {
-            const sandboxUrl = extensionApi?.runtime?.getURL?.('sandbox.html');
-            if (!sandboxUrl) {
-                reject(new Error('Cannot resolve sandbox URL'));
-                return;
-            }
-            iframe.src = sandboxUrl;
-        }
-
         const loadTimeout = setTimeout(() => {
             iframe.remove();
             reject(new Error('Sandbox load timeout'));
@@ -518,7 +486,7 @@ export class PluginManager {
 
     /**
      * Регистрирует в serviceRegistry прокси-сервис для плагина сервиса (кастомного
-     * парсера сайта), собирая класс сервиса на основе BaseService и конфигурации
+     * парсера сайта), собирая класс сервиса на основе CdnLibsService и конфигурации
      * плагина (хосты, конфиг сервера изображений и т.д.).
      * @param {{service: string, serviceConfig?: object, hosts?: string[],
      * serviceLabel?: string}} plugin - Данные плагина сервиса.
@@ -527,14 +495,14 @@ export class PluginManager {
     static _loadServiceProxy(plugin) {
         const config = plugin.serviceConfig || { name: plugin.service };
         const hosts = plugin.hosts || [];
-        const serviceName = plugin.service;
 
         /**
-         * Прокси-реализация BaseService для кастомного сервиса, описанного плагином:
-         * определяет принадлежность URL по списку хостов плагина и переопределяет
-         * загрузку страниц главы конфигурацией плагина (сервер изображений, сжатие).
+         * Сервис, описанный плагином через @dl-service-config: определяет
+         * принадлежность URL по хостам плагина, а страницы глав загружает, режет
+         * и сжимает так же, как MangaLib (см. CdnLibsService), по полям конфига
+         * imagesDomain, imageServers, defaultImageServer, splitLongImages, maxImageHeight.
          */
-        class PluginServiceProxy extends BaseService {
+        class PluginServiceProxy extends CdnLibsService {
             /**
              * Создаёт сервис с конфигурацией плагина.
              */
@@ -548,128 +516,6 @@ export class PluginManager {
              */
             static matches(url) {
                 return matchesHosts(url, hosts);
-            }
-
-            /**
-             * Извлекает список страниц главы в унифицированном текстовом формате.
-             * @param {object} content - Сырое содержимое главы от API сервиса.
-             * @returns {{type: 'image', src: string}[]} Список страниц как изображений.
-             */
-            extractText(content) {
-                const pages = this.extractPages(content);
-                return pages.map(page => ({
-                    type: 'image',
-                    src: page.url || page.filename || page.src || String(page)
-                }));
-            }
-
-            /**
-             * Возвращает конфигурацию активного сервера изображений сервиса,
-             * выбранного пользователем (или сервер по умолчанию из конфигурации плагина).
-             * @returns {?object} Конфигурация сервера изображений, либо null,
-             * если плагин не описывает серверы изображений.
-             */
-            _getActiveServer() {
-                if (!config.imageServers) return null;
-                const key = (typeof localStorage !== 'undefined' && localStorage.getItem(`${serviceName}_image_server`))
-                    || config.defaultImageServer
-                    || 'compression';
-                return config.imageServers[key] || config.imageServers.compression || null;
-            }
-
-            /**
-             * Строит абсолютный URL страницы главы из ссылки, используя домен
-             * активного сервера изображений или домен из конфигурации плагина.
-             * @param {*} ref - Ссылка на страницу: готовый URL, объект с полем src,
-             * либо относительный путь.
-             * @returns {?string} Абсолютный URL страницы, либо null, если ref пуст.
-             */
-            resolvePageUrl(ref) {
-                if (!ref) return null;
-                const str = String(ref?.src || ref);
-                if (/^https?:\/\//i.test(str)) return str;
-                const server = this._getActiveServer();
-                const domain = server ? server.domain : (config.imagesDomain || '');
-                return str.startsWith('/') ? `${domain}${str}` : `${domain}/${str}`;
-            }
-
-            /**
-             * Загружает страницу главы и кодирует её в base64, сжимая изображение,
-             * если это не отключено конфигурацией активного сервера.
-             * @param {*} ref - Ссылка на страницу.
-             * @param {{compressionFormat?: string, compressionQuality?: number}} [opts] - Параметры сжатия.
-             * @returns {Promise<?{base64: string, contentType: string}>} Загруженное
-             * изображение, либо null при ошибке загрузки или отсутствии URL.
-             */
-            async loadPageAsBase64(ref, opts = {}) {
-                const url = this.resolvePageUrl(ref?.src || ref);
-                if (!url) return null;
-                const response = await fetchPageImage(url, serviceName);
-                if (!response?.ok) {
-                    console.warn(`[${serviceName}] Failed to fetch ${url}:`, response?.error);
-                    return null;
-                }
-
-                const server = this._getActiveServer();
-                if (server && server.compress === false)
-                    return { base64: response.base64, contentType: response.contentType };
-
-                const compressOpts = {
-                    format: opts.compressionFormat || 'image/jpeg',
-                    quality: opts.compressionQuality || 0.92
-                };
-                return ImageCompressor.compress(response.base64, response.contentType, compressOpts);
-            }
-
-            /**
-             * Загружает все страницы главы пакетами (по 5 одновременно), обновляя
-             * статус прогресса, и приводит результат к унифицированному формату
-             * контента главы (изображения либо текст-заглушка при ошибке загрузки;
-             * страницы, не успевшие загрузиться за отведённый срок, заменяются
-             * метками и догружаются в фоне — см. loadImageOrDefer).
-             * @param {Array} extracted - Список страниц, извлечённых extractText/extractPages.
-             * @param {?{textContent: string}} status - Элемент статуса для отображения прогресса.
-             * @param {{compressionFormat?: string, compressionQuality?: number}} [opts] - Параметры сжатия.
-             * @returns {Promise<object[]>} Список элементов содержимого главы (изображения/текст).
-             */
-            async processChapterContent(extracted, status, opts = {}) {
-                const pages = Array.isArray(extracted) ? extracted : [];
-                const loadOpts = {
-                    compressionFormat: opts.compressionFormat || 'image/jpeg',
-                    compressionQuality: opts.compressionQuality || 0.92
-                };
-                const result = [];
-                let completed = 0;
-                const concurrency = 5;
-                for (let i = 0; i < pages.length; i += concurrency) {
-                    const batch = pages.slice(i, Math.min(i + concurrency, pages.length));
-                    const batchResults = await Promise.all(
-                        batch.map((page, batchIdx) => {
-                            const index = i + batchIdx;
-                            const load = async () => {
-                                const img = await this.loadPageAsBase64(page, loadOpts);
-                                return img
-                                    ? [{ type: 'image', id: `img_${Date.now()}_${index}`, data: img, originalIndex: index }]
-                                    : null;
-                            };
-                            return loadImageOrDefer(index + 1, load)
-                                .then(blocks => ({ blocks, index }))
-                                .catch(e => {
-                                    if (e instanceof NoServiceTabError) throw e;
-                                    return { blocks: null, index };
-                                });
-                        })
-                    );
-                    for (const { blocks, index } of batchResults) {
-                        if (!blocks)
-                            result.push({ type: 'text', text: `[Ошибка загрузки изображения ${index + 1}]` });
-                        else
-                            result.push(...blocks);
-                        completed += 1;
-                        if (status) status.textContent = `Загружено страниц: ${completed}/${pages.length}`;
-                    }
-                }
-                return result;
             }
         }
 

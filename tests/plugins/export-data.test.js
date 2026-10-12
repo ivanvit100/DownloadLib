@@ -8,7 +8,7 @@
  */
 import { describe, it, expect, beforeAll, vi } from 'vitest';
 
-vi.mock('../../core/BrowserApi.js', async importOriginal => ({
+vi.mock('../../core/TabNetwork.js', async importOriginal => ({
     ...await importOriginal(),
     fetchViaTab: vi.fn(async () => ({ ok: true, base64: 'COVER', contentType: 'image/jpeg' }))
 }));

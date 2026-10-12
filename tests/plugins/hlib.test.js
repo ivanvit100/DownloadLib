@@ -9,7 +9,7 @@ import { describe, it, expect, beforeAll, vi } from 'vitest';
 import { readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 
-vi.mock('../../core/BrowserApi.js', async importOriginal => ({ ...await importOriginal(), requestViaTab: vi.fn() }));
+vi.mock('../../core/TabNetwork.js', async importOriginal => ({ ...await importOriginal(), requestViaTab: vi.fn() }));
 
 const root = resolve(import.meta.dirname, '../..');
 const pluginCode = readFileSync(resolve(root, 'plugins/HLibService.js'), 'utf8');
@@ -32,7 +32,7 @@ beforeAll(async () => {
     await import('../../core/pluginApi.js');
     ({ serviceRegistry } = await import('../../services/index.js'));
     ({ PluginManager } = await import('../../core/PluginManager.js'));
-    ({ requestViaTab } = await import('../../core/BrowserApi.js'));
+    ({ requestViaTab } = await import('../../core/TabNetwork.js'));
 
     await PluginManager.save({ id: 'plugin_hlib', name: 'HLibService', code: pluginCode, enabled: true });
     await PluginManager.loadAll();

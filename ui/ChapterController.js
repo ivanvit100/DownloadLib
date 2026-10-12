@@ -34,7 +34,7 @@ export class ChapterController {
     /**
      * Загружает список глав тайтла у сервиса, при наличии нескольких переводов
      * настраивает селектор переводчика и заполняет select-элементы диапазона.
-     * @param {object} service - Экземпляр сервиса с методом fetchChaptersList.
+     * @param {object} service - Экземпляр сервиса с методом getChapterList.
      * @param {string} slug - Slug тайтла.
      * @param {?string} chapterFromUrl - Сохранённый индекс начала диапазона из URL (или null).
      * @param {?string} chapterToUrl - Сохранённый индекс конца диапазона из URL (или null).
@@ -43,8 +43,7 @@ export class ChapterController {
      */
     async loadAndPopulate(service, slug, chapterFromUrl, chapterToUrl, branchIdFromUrl = null) {
         try {
-            const chaptersData = await service.fetchChaptersList(slug);
-            const chapters = chaptersData.data || [];
+            const chapters = await service.getChapterList(slug);
             this._allChapters = chapters;
 
             const hasMultipleBranches = chapters.some(ch => ch.branches && ch.branches.length > 1);

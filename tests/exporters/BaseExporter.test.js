@@ -64,6 +64,10 @@ describe('BaseExporter', () => {
         const html = '&lt;tag&gt;&amp;&quot;&apos;&nbsp;';
         expect(exporter.stripHtml(html)).toBe('<tag>&"\'');
     });
+
+    it('Decodes &amp; last, so escaped entities stay text', () => {
+        expect(exporter.stripHtml('a &amp;lt;b&amp;gt; &#39;q&#39;')).toBe('a &lt;b&gt; \'q\'');
+    });
     
     it('Collapse multiple newlines', () => {
         const html = '<div>foo</div><br><br><br><div>bar</div>';

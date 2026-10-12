@@ -9,6 +9,20 @@
 console.log('[MangaPatcher] Loading...');
 
 /**
+ * Возвращает имя элемента списка из API: строку как есть, у объекта — первое
+ * непустое из name/rus_name/title. Общая логика для авторов, художников,
+ * жанров и тегов.
+ * @param {*} item - Элемент списка (строка, объект или иное значение).
+ * @returns {string} Имя, либо пустая строка.
+ */
+export function resolveName(item) {
+    if (typeof item === 'string') return item;
+    if (item !== null && typeof item === 'object')
+        return item.name || item.rus_name || item.title || '';
+    return '';
+}
+
+/**
  * Приводит название тайтла к единому полю name, выбирая первое непустое
  * значение из rus_name/name/slug.
  */
@@ -35,13 +49,7 @@ class AuthorsResolutionModule {
      */
     static patchArray(authors) {
         if (authors.length === 0) return [''];
-        return authors.map(author => {
-            if (author !== null && typeof author === 'object')
-                return author.name || author.rus_name || author.title || '';
-            if (typeof author === 'string')
-                return author;
-            return '';
-        });
+        return authors.map(resolveName);
     }
 
     /**
@@ -138,12 +146,7 @@ class GenresResolutionModule {
      */
     static patchNames(arr) {
         if (!Array.isArray(arr) || arr.length === 0) return [];
-        return arr.map(item => {
-            if (typeof item === 'string') return item;
-            if (item !== null && typeof item === 'object')
-                return item.name || item.rus_name || item.title || '';
-            return '';
-        }).filter(Boolean);
+        return arr.map(resolveName).filter(Boolean);
     }
 
     /**
@@ -168,14 +171,7 @@ class ArtistsResolutionModule {
      * @returns {object} Копия manga с нормализованным полем artists.
      */
     static patch(manga) {
-        const artists = Array.isArray(manga.artists)
-            ? manga.artists.map(a => {
-                if (a !== null && typeof a === 'object')
-                    return a.name || a.rus_name || a.title || '';
-                if (typeof a === 'string') return a;
-                return '';
-            }).filter(Boolean)
-            : [];
+        const artists = Array.isArray(manga.artists) ? manga.artists.map(resolveName).filter(Boolean) : [];
         return { ...manga, artists };
     }
 }

@@ -1,10 +1,33 @@
 import { describe, it, expect, beforeEach, vi } from 'vitest';
 
-let MangaPatcher;
+let MangaPatcher, resolveName;
 
 beforeEach(async () => {
     vi.resetModules();
-    ({ MangaPatcher } = await import('../../core/MangaPatcher.js'));
+    ({ MangaPatcher, resolveName } = await import('../../core/MangaPatcher.js'));
+});
+
+describe('resolveName', () => {
+    it('Takes a string as is and the first name of an object', () => {
+        expect(resolveName('Автор')).toBe('Автор');
+        expect(resolveName({ name: 'N', rus_name: 'R', title: 'T' })).toBe('N');
+        expect(resolveName({ rus_name: 'R', title: 'T' })).toBe('R');
+        expect(resolveName({ title: 'T' })).toBe('T');
+    });
+
+    it('Returns an empty string for anything else', () => {
+        [null, undefined, 5, {}, { name: '' }].forEach(item => expect(resolveName(item)).toBe(''));
+    });
+
+    it('Keeps the output of patch for authors, artists, genres and tags', () => {
+        const patched = MangaPatcher.patch({
+            authors: [{ rus_name: 'A' }, 'B', null],
+            artists: [{ title: 'C' }, '', 7],
+            genres: [{ name: 'G' }, {}],
+            tags: ['T', { name: '' }]
+        });
+        expect(patched).toMatchObject({ authors: ['A', 'B', ''], artists: ['C'], genres: ['G'], tags: ['T'] });
+    });
 });
 
 describe('MangaPatcher', () => {

@@ -1,8 +1,10 @@
 import { describe, it, expect, beforeEach, vi } from 'vitest';
+import { withServiceFactory } from '../helpers/serviceRegistryMock.js';
 
 vi.mock('../../core/AuthManager.js', async () => (await import('../helpers/globalBridge.js')).globalBridge('AuthManager'));
 vi.mock('../../core/BrowserApi.js', async () => (await import('../helpers/globalBridge.js'))
-    .globalBridge('extensionApi', 'browserEnv', 'fetchViaTab', 'setServiceTab'));
+    .globalBridge('extensionApi', 'browserEnv'));
+vi.mock('../../core/TabNetwork.js', async () => (await import('../helpers/globalBridge.js')).globalBridge('fetchViaTab', 'setServiceTab'));
 vi.mock('../../core/DownloadHistory.js', async () => (await import('../helpers/globalBridge.js')).globalBridge('DownloadHistory'));
 vi.mock('../../core/DownloadManager.js', async () => (await import('../helpers/globalBridge.js')).globalBridge('DownloadManager'));
 vi.mock('../../core/PluginManager.js', async () => (await import('../helpers/globalBridge.js')).globalBridge('PluginManager'));
@@ -95,33 +97,28 @@ beforeEach(async () => {
         stop = vi.fn();
         getDownloadState = vi.fn(() => ({ id: 1, status: 'active', progress: 50, slug: 'slug' }));
     };
-    global.serviceRegistry = {
+    global.serviceRegistry = withServiceFactory({
         getServiceByUrl: vi.fn(() => ({
             name: 'ranobelib',
-            fetchMangaMetadata: vi.fn(async () => ({
-                data: {
-                    rus_name: 'Title',
-                    summary: 'Summary',
-                    cover: 'cover.png',
-                    authors: ['Author'],
-                    ageRestriction: { label: '18+' },
-                    releaseDate: '2020'
-                },
-                image: 'cover.png'
+            getManga: vi.fn(async () => ({
+                rus_name: 'Title',
+                summary: 'Summary',
+                cover: 'cover.png',
+                authors: ['Author'],
+                ageRestriction: { label: '18+' },
+                releaseDate: '2020'
             })),
-            fetchChaptersList: vi.fn(async () => ({
-                data: [{}, {}]
-            }))
+            getChapterList: vi.fn(async () => [{}, {}])
         })),
         getService: vi.fn(() => null),
-    };
+    });
     global.RanobeLibService = class {
-        fetchMangaMetadata = vi.fn(async () => ({ data: { rus_name: 'Title', summary: 'Summary', cover: 'cover.png', authors: ['Author'], ageRestriction: { label: '18+' }, releaseDate: '2020' }, image: 'cover.png' }));
-        fetchChaptersList = vi.fn(async () => ({ data: [{}, {}] }));
+        getManga = vi.fn(async () => ({ rus_name: 'Title', summary: 'Summary', cover: 'cover.png', authors: ['Author'], ageRestriction: { label: '18+' }, releaseDate: '2020' }));
+        getChapterList = vi.fn(async () => [{}, {}]);
     };
     global.MangaLibService = class {
-        fetchMangaMetadata = vi.fn(async () => ({ data: { rus_name: 'Title', summary: 'Summary', cover: 'cover.png', authors: ['Author'], ageRestriction: { label: '18+' }, releaseDate: '2020' }, image: 'cover.png' }));
-        fetchChaptersList = vi.fn(async () => ({ data: [{}, {}] }));
+        getManga = vi.fn(async () => ({ rus_name: 'Title', summary: 'Summary', cover: 'cover.png', authors: ['Author'], ageRestriction: { label: '18+' }, releaseDate: '2020' }));
+        getChapterList = vi.fn(async () => [{}, {}]);
     };
     global.extensionApi = {
         runtime: {
@@ -162,7 +159,7 @@ beforeEach(async () => {
         current: vi.fn(() => null)
     };
     global.HistoryController = { init: vi.fn() };
-    global.fetchViaTab = vi.fn(async () => null);
+    global.fetchViaTab = vi.fn(async () => ({ ok: false, status: 0, noTab: true }));
     global.setServiceTab = vi.fn();
     global.browserEnv = { isFirefox: true };
     global.PluginManager = { loadAll: vi.fn(async () => {}) };
@@ -540,8 +537,8 @@ it('Sets formatSelector value from localStorage', async () => {
 
     it('Creates MangaLibService when serviceKey is mangalib', async () => {
         global.MangaLibService = vi.fn().mockImplementation(() => ({
-            fetchMangaMetadata: vi.fn(async () => ({ data: { rus_name: 'Title', summary: 'Summary', cover: 'cover.png', authors: ['Author'], ageRestriction: { label: '18+' }, releaseDate: '2020' }, image: 'cover.png' })),
-            fetchChaptersList: vi.fn(async () => ({ data: [{}, {}] }))
+            getManga: vi.fn(async () => ({ rus_name: 'Title', summary: 'Summary', cover: 'cover.png', authors: ['Author'], ageRestriction: { label: '18+' }, releaseDate: '2020' })),
+            getChapterList: vi.fn(async () => [{}, {}])
         }));
         const controller = new PopupController();
         Object.defineProperty(window, 'location', {
@@ -572,8 +569,8 @@ it('Sets formatSelector value from localStorage', async () => {
             constructor() {
                 hostnameSet = true;
             }
-            fetchMangaMetadata = vi.fn(async () => ({ data: { rus_name: 'Title', summary: 'Summary', cover: 'cover.png', authors: ['Author'], ageRestriction: { label: '18+' }, releaseDate: '2020' }, image: 'cover.png' }));
-            fetchChaptersList = vi.fn(async () => ({ data: [{}, {}] }));
+            getManga = vi.fn(async () => ({ rus_name: 'Title', summary: 'Summary', cover: 'cover.png', authors: ['Author'], ageRestriction: { label: '18+' }, releaseDate: '2020' }));
+            getChapterList = vi.fn(async () => [{}, {}]);
         };
         const controller = new PopupController();
         Object.defineProperty(window, 'location', {
@@ -598,11 +595,11 @@ it('Sets formatSelector value from localStorage', async () => {
         window.location.search = originalSearch;
     });
 
-    it('Uses rawResp as metadata if data is missing', async () => {
+    it('Renders the metadata returned by service.getManga', async () => {
         const controller = new PopupController();
         global.serviceRegistry.getServiceByUrl = vi.fn(() => ({
             name: 'ranobelib',
-            fetchMangaMetadata: vi.fn(async () => ({
+            getManga: vi.fn(async () => ({
                 rus_name: 'Title',
                 summary: 'Summary',
                 cover: 'cover.png',
@@ -610,7 +607,7 @@ it('Sets formatSelector value from localStorage', async () => {
                 ageRestriction: { label: '18+' },
                 releaseDate: '2020'
             })),
-            fetchChaptersList: vi.fn(async () => ({ data: [{}, {}] }))
+            getChapterList: vi.fn(async () => [{}, {}])
         }));
         Object.defineProperty(window, 'location', {
             value: { search: '' },
@@ -624,8 +621,8 @@ it('Sets formatSelector value from localStorage', async () => {
 
     it('Warns if site logo element not found when setting logo for service mangalib', async () => {
         global.MangaLibService = class {
-            fetchMangaMetadata = vi.fn(async () => ({ data: { rus_name: 'Title', summary: 'Summary', cover: 'cover.png', authors: ['Author'], ageRestriction: { label: '18+' }, releaseDate: '2020' }, image: 'cover.png' }));
-            fetchChaptersList = vi.fn(async () => ({ data: [{}, {}] }));
+            getManga = vi.fn(async () => ({ rus_name: 'Title', summary: 'Summary', cover: 'cover.png', authors: ['Author'], ageRestriction: { label: '18+' }, releaseDate: '2020' }));
+            getChapterList = vi.fn(async () => [{}, {}]);
         };
         const controller = new PopupController();
         Object.defineProperty(window, 'location', {
@@ -641,22 +638,19 @@ it('Sets formatSelector value from localStorage', async () => {
         consoleWarnSpy.mockRestore();
     });
 
-    it('Uses empty array as chapters if chaptersData.data is missing', async () => {
+    it('Handles a title without chapters', async () => {
         const controller = new PopupController();
         global.serviceRegistry.getServiceByUrl = vi.fn(() => ({
             name: 'ranobelib',
-            fetchMangaMetadata: vi.fn(async () => ({
-                data: {
-                    rus_name: 'Title',
-                    summary: 'Summary',
-                    cover: 'cover.png',
-                    authors: ['Author'],
-                    ageRestriction: { label: '18+' },
-                    releaseDate: '2020'
-                },
-                image: 'cover.png'
+            getManga: vi.fn(async () => ({
+                rus_name: 'Title',
+                summary: 'Summary',
+                cover: 'cover.png',
+                authors: ['Author'],
+                ageRestriction: { label: '18+' },
+                releaseDate: '2020'
             })),
-            fetchChaptersList: vi.fn(async () => ({}))
+            getChapterList: vi.fn(async () => [])
         }));
         Object.defineProperty(window, 'location', {
             value: { search: '' },
@@ -671,17 +665,15 @@ it('Sets formatSelector value from localStorage', async () => {
         const controller = new PopupController();
         global.serviceRegistry.getServiceByUrl = vi.fn(() => ({
             name: 'ranobelib',
-            fetchMangaMetadata: vi.fn(async () => ({
-                data: {
-                    name: 'MetaName',
-                    summary: 'Summary',
-                    cover: 'cover.png',
-                    authors: ['Author'],
-                    ageRestriction: { label: '18+' },
-                    releaseDate: '2020'
-                }
+            getManga: vi.fn(async () => ({
+                name: 'MetaName',
+                summary: 'Summary',
+                cover: 'cover.png',
+                authors: ['Author'],
+                ageRestriction: { label: '18+' },
+                releaseDate: '2020'
             })),
-            fetchChaptersList: vi.fn(async () => ({ data: [{}, {}] }))
+            getChapterList: vi.fn(async () => [{}, {}])
         }));
         Object.defineProperty(window, 'location', {
             value: { search: '' },
@@ -693,16 +685,14 @@ it('Sets formatSelector value from localStorage', async () => {
 
         global.serviceRegistry.getServiceByUrl = vi.fn(() => ({
             name: 'ranobelib',
-            fetchMangaMetadata: vi.fn(async () => ({
-                data: {
-                    summary: 'Summary',
-                    cover: 'cover.png',
-                    authors: ['Author'],
-                    ageRestriction: { label: '18+' },
-                    releaseDate: '2020'
-                }
+            getManga: vi.fn(async () => ({
+                summary: 'Summary',
+                cover: 'cover.png',
+                authors: ['Author'],
+                ageRestriction: { label: '18+' },
+                releaseDate: '2020'
             })),
-            fetchChaptersList: vi.fn(async () => ({ data: [{}, {}] }))
+            getChapterList: vi.fn(async () => [{}, {}])
         }));
         global.extensionApi.tabs.query = vi.fn(async () => ([{ url: 'https://ranobelib.me/manga/slug2' }]));
         await controller.loadMetadata();
@@ -713,17 +703,15 @@ it('Sets formatSelector value from localStorage', async () => {
         const controller = new PopupController();
         global.serviceRegistry.getServiceByUrl = vi.fn(() => ({
             name: 'ranobelib',
-            fetchMangaMetadata: vi.fn(async () => ({
-                data: {
-                    name: 'MetaName',
-                    summary: { type: 'doc', content: [{ type: 'paragraph', content: [{ type: 'text', text: 'Rich summary text' }] }, { type: 'paragraph' }] },
-                    cover: 'cover.png',
-                    authors: ['Author'],
-                    ageRestriction: { label: '18+' },
-                    releaseDate: '2020'
-                }
+            getManga: vi.fn(async () => ({
+                name: 'MetaName',
+                summary: { type: 'doc', content: [{ type: 'paragraph', content: [{ type: 'text', text: 'Rich summary text' }] }, { type: 'paragraph' }] },
+                cover: 'cover.png',
+                authors: ['Author'],
+                ageRestriction: { label: '18+' },
+                releaseDate: '2020'
             })),
-            fetchChaptersList: vi.fn(async () => ({ data: [{}, {}] }))
+            getChapterList: vi.fn(async () => [{}, {}])
         }));
         Object.defineProperty(window, 'location', {
             value: { search: '' },
@@ -735,16 +723,14 @@ it('Sets formatSelector value from localStorage', async () => {
 
         global.serviceRegistry.getServiceByUrl = vi.fn(() => ({
             name: 'ranobelib',
-            fetchMangaMetadata: vi.fn(async () => ({
-                data: {
-                    name: 'MetaName',
-                    cover: 'cover.png',
-                    authors: ['Author'],
-                    ageRestriction: { label: '18+' },
-                    releaseDate: '2020'
-                }
+            getManga: vi.fn(async () => ({
+                name: 'MetaName',
+                cover: 'cover.png',
+                authors: ['Author'],
+                ageRestriction: { label: '18+' },
+                releaseDate: '2020'
             })),
-            fetchChaptersList: vi.fn(async () => ({ data: [{}, {}] }))
+            getChapterList: vi.fn(async () => [{}, {}])
         }));
         global.extensionApi.tabs.query = vi.fn(async () => ([{ url: 'https://ranobelib.me/manga/slug2' }]));
         await controller.loadMetadata();
@@ -756,16 +742,13 @@ it('Sets formatSelector value from localStorage', async () => {
         controller.chapterController.loadAndPopulate = vi.fn(async () => null);
         global.serviceRegistry.getServiceByUrl = vi.fn(() => ({
             name: 'ranobelib',
-            fetchMangaMetadata: vi.fn(async () => ({
-                data: {
-                    rus_name: 'Title',
-                    summary: 'Summary',
-                    cover: 'cover.png',
-                    authors: ['Author'],
-                    ageRestriction: { label: '18+' },
-                    releaseDate: '2020'
-                },
-                image: 'cover.png'
+            getManga: vi.fn(async () => ({
+                rus_name: 'Title',
+                summary: 'Summary',
+                cover: 'cover.png',
+                authors: ['Author'],
+                ageRestriction: { label: '18+' },
+                releaseDate: '2020'
             }))
         }));
         await expect(controller.loadMetadata()).resolves.not.toThrow();
@@ -775,17 +758,15 @@ it('Sets formatSelector value from localStorage', async () => {
         const controller = new PopupController();
         global.serviceRegistry.getServiceByUrl = vi.fn(() => ({
             name: 'ranobelib',
-            fetchMangaMetadata: vi.fn(async () => ({
-                data: {
-                    rus_name: 'Title',
-                    summary: 'Summary',
-                    cover: { foo: 'bar' },
-                    authors: ['Author'],
-                    ageRestriction: { label: '18+' },
-                    releaseDate: '2020'
-                }
+            getManga: vi.fn(async () => ({
+                rus_name: 'Title',
+                summary: 'Summary',
+                cover: { foo: 'bar' },
+                authors: ['Author'],
+                ageRestriction: { label: '18+' },
+                releaseDate: '2020'
             })),
-            fetchChaptersList: vi.fn(async () => ({ data: [{}, {}] }))
+            getChapterList: vi.fn(async () => [{}, {}])
         }));
         Object.defineProperty(window, 'location', {
             value: { search: '' },
@@ -802,17 +783,15 @@ it('Sets formatSelector value from localStorage', async () => {
         const controller = new PopupController();
         global.serviceRegistry.getServiceByUrl = vi.fn(() => ({
             name: 'ranobelib',
-            fetchMangaMetadata: vi.fn(async () => ({
-                data: {
-                    rus_name: 'Title',
-                    summary: 'Summary',
-                    cover: { default: 'default-cover.png' },
-                    authors: ['Author'],
-                    ageRestriction: { label: '18+' },
-                    releaseDate: '2020'
-                }
+            getManga: vi.fn(async () => ({
+                rus_name: 'Title',
+                summary: 'Summary',
+                cover: { default: 'default-cover.png' },
+                authors: ['Author'],
+                ageRestriction: { label: '18+' },
+                releaseDate: '2020'
             })),
-            fetchChaptersList: vi.fn(async () => ({ data: [{}, {}] }))
+            getChapterList: vi.fn(async () => [{}, {}])
         }));
         Object.defineProperty(window, 'location', {
             value: { search: '' },
@@ -827,17 +806,15 @@ it('Sets formatSelector value from localStorage', async () => {
         const controller = new PopupController();
         global.serviceRegistry.getServiceByUrl = vi.fn(() => ({
             name: 'ranobelib',
-            fetchMangaMetadata: vi.fn(async () => ({
-                data: {
-                    rus_name: 'Title',
-                    summary: 'Summary',
-                    cover: { thumbnail: 'thumbnail-cover.png' },
-                    authors: ['Author'],
-                    ageRestriction: { label: '18+' },
-                    releaseDate: '2020'
-                }
+            getManga: vi.fn(async () => ({
+                rus_name: 'Title',
+                summary: 'Summary',
+                cover: { thumbnail: 'thumbnail-cover.png' },
+                authors: ['Author'],
+                ageRestriction: { label: '18+' },
+                releaseDate: '2020'
             })),
-            fetchChaptersList: vi.fn(async () => ({ data: [{}, {}] }))
+            getChapterList: vi.fn(async () => [{}, {}])
         }));
         Object.defineProperty(window, 'location', {
             value: { search: '' },
@@ -852,17 +829,15 @@ it('Sets formatSelector value from localStorage', async () => {
         const controller = new PopupController();
         global.serviceRegistry.getServiceByUrl = vi.fn(() => ({
             name: 'ranobelib',
-            fetchMangaMetadata: vi.fn(async () => ({
-                data: {
-                    rus_name: 'Title',
-                    summary: 'Summary',
-                    cover: { md: 'md-cover.png' },
-                    authors: ['Author'],
-                    ageRestriction: { label: '18+' },
-                    releaseDate: '2020'
-                }
+            getManga: vi.fn(async () => ({
+                rus_name: 'Title',
+                summary: 'Summary',
+                cover: { md: 'md-cover.png' },
+                authors: ['Author'],
+                ageRestriction: { label: '18+' },
+                releaseDate: '2020'
             })),
-            fetchChaptersList: vi.fn(async () => ({ data: [{}, {}] }))
+            getChapterList: vi.fn(async () => [{}, {}])
         }));
         Object.defineProperty(window, 'location', {
             value: { search: '' },
@@ -877,17 +852,15 @@ it('Sets formatSelector value from localStorage', async () => {
         const controller = new PopupController();
         global.serviceRegistry.getServiceByUrl = vi.fn(() => ({
             name: 'ranobelib',
-            fetchMangaMetadata: vi.fn(async () => ({
-                data: {
-                    rus_name: 'Title',
-                    summary: 'Summary',
-                    cover: { url: 'url-cover.png' },
-                    authors: ['Author'],
-                    ageRestriction: { label: '18+' },
-                    releaseDate: '2020'
-                }
+            getManga: vi.fn(async () => ({
+                rus_name: 'Title',
+                summary: 'Summary',
+                cover: { url: 'url-cover.png' },
+                authors: ['Author'],
+                ageRestriction: { label: '18+' },
+                releaseDate: '2020'
             })),
-            fetchChaptersList: vi.fn(async () => ({ data: [{}, {}] }))
+            getChapterList: vi.fn(async () => [{}, {}])
         }));
         Object.defineProperty(window, 'location', {
             value: { search: '' },
@@ -902,17 +875,15 @@ it('Sets formatSelector value from localStorage', async () => {
         const controller = new PopupController();
         global.serviceRegistry.getServiceByUrl = vi.fn(() => ({
             name: 'ranobelib',
-            fetchMangaMetadata: vi.fn(async () => ({
-                data: {
-                    rus_name: 'Title',
-                    summary: 'Summary',
-                    image: 'meta-image.png',
-                    authors: ['Author'],
-                    ageRestriction: { label: '18+' },
-                    releaseDate: '2020'
-                }
+            getManga: vi.fn(async () => ({
+                rus_name: 'Title',
+                summary: 'Summary',
+                image: 'meta-image.png',
+                authors: ['Author'],
+                ageRestriction: { label: '18+' },
+                releaseDate: '2020'
             })),
-            fetchChaptersList: vi.fn(async () => ({ data: [{}, {}] }))
+            getChapterList: vi.fn(async () => [{}, {}])
         }));
         Object.defineProperty(window, 'location', {
             value: { search: '' },
@@ -927,16 +898,14 @@ it('Sets formatSelector value from localStorage', async () => {
         const controller = new PopupController();
         global.serviceRegistry.getServiceByUrl = vi.fn(() => ({
             name: 'ranobelib',
-            fetchMangaMetadata: vi.fn(async () => ({
-                data: {
-                    rus_name: 'Title',
-                    summary: 'Summary',
-                    authors: ['Author'],
-                    ageRestriction: { label: '18+' },
-                    releaseDate: '2020'
-                }
+            getManga: vi.fn(async () => ({
+                rus_name: 'Title',
+                summary: 'Summary',
+                authors: ['Author'],
+                ageRestriction: { label: '18+' },
+                releaseDate: '2020'
             })),
-            fetchChaptersList: vi.fn(async () => ({ data: [{}, {}] }))
+            getChapterList: vi.fn(async () => [{}, {}])
         }));
         Object.defineProperty(window, 'location', {
             value: { search: '' },
@@ -953,17 +922,15 @@ it('Sets formatSelector value from localStorage', async () => {
         const controller = new PopupController();
         global.serviceRegistry.getServiceByUrl = vi.fn(() => ({
             name: 'ranobelib',
-            fetchMangaMetadata: vi.fn(async () => ({
-                data: {
-                    rus_name: 'Title',
-                    summary: 'Summary',
-                    cover: 'cover.png',
-                    authors: [null, undefined, '', 'Author'],
-                    ageRestriction: { label: '18+' },
-                    releaseDate: '2020'
-                }
+            getManga: vi.fn(async () => ({
+                rus_name: 'Title',
+                summary: 'Summary',
+                cover: 'cover.png',
+                authors: [null, undefined, '', 'Author'],
+                ageRestriction: { label: '18+' },
+                releaseDate: '2020'
             })),
-            fetchChaptersList: vi.fn(async () => ({ data: [{}, {}] }))
+            getChapterList: vi.fn(async () => [{}, {}])
         }));
         Object.defineProperty(window, 'location', {
             value: { search: '' },
@@ -978,17 +945,15 @@ it('Sets formatSelector value from localStorage', async () => {
         const controller = new PopupController();
         global.serviceRegistry.getServiceByUrl = vi.fn(() => ({
             name: 'ranobelib',
-            fetchMangaMetadata: vi.fn(async () => ({
-                data: {
-                    rus_name: 'Title',
-                    summary: 'Summary',
-                    cover: 'cover.png',
-                    authors: [{ foo: 'bar' }, 'Author'],
-                    ageRestriction: { label: '18+' },
-                    releaseDate: '2020'
-                }
+            getManga: vi.fn(async () => ({
+                rus_name: 'Title',
+                summary: 'Summary',
+                cover: 'cover.png',
+                authors: [{ foo: 'bar' }, 'Author'],
+                ageRestriction: { label: '18+' },
+                releaseDate: '2020'
             })),
-            fetchChaptersList: vi.fn(async () => ({ data: [{}, {}] }))
+            getChapterList: vi.fn(async () => [{}, {}])
         }));
         Object.defineProperty(window, 'location', {
             value: { search: '' },
@@ -1003,17 +968,15 @@ it('Sets formatSelector value from localStorage', async () => {
         const controller = new PopupController();
         global.serviceRegistry.getServiceByUrl = vi.fn(() => ({
             name: 'ranobelib',
-            fetchMangaMetadata: vi.fn(async () => ({
-                data: {
-                    rus_name: 'Title',
-                    summary: 'Summary',
-                    cover: 'cover.png',
-                    authors: 'Ivan',
-                    ageRestriction: { label: '18+' },
-                    releaseDate: '2020'
-                }
+            getManga: vi.fn(async () => ({
+                rus_name: 'Title',
+                summary: 'Summary',
+                cover: 'cover.png',
+                authors: 'Ivan',
+                ageRestriction: { label: '18+' },
+                releaseDate: '2020'
             })),
-            fetchChaptersList: vi.fn(async () => ({ data: [{}, {}] }))
+            getChapterList: vi.fn(async () => [{}, {}])
         }));
         Object.defineProperty(window, 'location', {
             value: { search: '' },
@@ -1028,17 +991,15 @@ it('Sets formatSelector value from localStorage', async () => {
         const controller = new PopupController();
         global.serviceRegistry.getServiceByUrl = vi.fn(() => ({
             name: 'ranobelib',
-            fetchMangaMetadata: vi.fn(async () => ({
-                data: {
-                    rus_name: 'Title',
-                    summary: 'Summary',
-                    cover: 'cover.png',
-                    authors: ['Author'],
-                    ageRestriction: {},
-                    releaseDate: '2020'
-                }
+            getManga: vi.fn(async () => ({
+                rus_name: 'Title',
+                summary: 'Summary',
+                cover: 'cover.png',
+                authors: ['Author'],
+                ageRestriction: {},
+                releaseDate: '2020'
             })),
-            fetchChaptersList: vi.fn(async () => ({ data: [{}, {}] }))
+            getChapterList: vi.fn(async () => [{}, {}])
         }));
         Object.defineProperty(window, 'location', {
             value: { search: '' },
@@ -1056,17 +1017,15 @@ it('Sets formatSelector value from localStorage', async () => {
 
         global.serviceRegistry.getServiceByUrl = vi.fn(() => ({
             name: 'ranobelib',
-            fetchMangaMetadata: vi.fn(async () => ({
-                data: {
-                    rus_name: 'Title',
-                    summary: 'Summary',
-                    cover: 'cover.png',
-                    authors: ['Author'],
-                    ageRestriction: { label: '18+' },
-                    releaseDate: '2022-01-01'
-                }
+            getManga: vi.fn(async () => ({
+                rus_name: 'Title',
+                summary: 'Summary',
+                cover: 'cover.png',
+                authors: ['Author'],
+                ageRestriction: { label: '18+' },
+                releaseDate: '2022-01-01'
             })),
-            fetchChaptersList: vi.fn(async () => ({ data: [{}, {}] }))
+            getChapterList: vi.fn(async () => [{}, {}])
         }));
         global.extensionApi.tabs.query = vi.fn(async () => ([{ url: 'https://ranobelib.me/manga/slug1' }]));
         await controller.loadMetadata();
@@ -1074,17 +1033,15 @@ it('Sets formatSelector value from localStorage', async () => {
 
         global.serviceRegistry.getServiceByUrl = vi.fn(() => ({
             name: 'ranobelib',
-            fetchMangaMetadata: vi.fn(async () => ({
-                data: {
-                    rus_name: 'Title',
-                    summary: 'Summary',
-                    cover: 'cover.png',
-                    authors: ['Author'],
-                    ageRestriction: { label: '18+' },
-                    releaseDateString: '2023-02-02'
-                }
+            getManga: vi.fn(async () => ({
+                rus_name: 'Title',
+                summary: 'Summary',
+                cover: 'cover.png',
+                authors: ['Author'],
+                ageRestriction: { label: '18+' },
+                releaseDateString: '2023-02-02'
             })),
-            fetchChaptersList: vi.fn(async () => ({ data: [{}, {}] }))
+            getChapterList: vi.fn(async () => [{}, {}])
         }));
         global.extensionApi.tabs.query = vi.fn(async () => ([{ url: 'https://ranobelib.me/manga/slug2' }]));
         await controller.loadMetadata();
@@ -1092,17 +1049,15 @@ it('Sets formatSelector value from localStorage', async () => {
 
         global.serviceRegistry.getServiceByUrl = vi.fn(() => ({
             name: 'ranobelib',
-            fetchMangaMetadata: vi.fn(async () => ({
-                data: {
-                    rus_name: 'Title',
-                    summary: 'Summary',
-                    cover: 'cover.png',
-                    authors: ['Author'],
-                    ageRestriction: { label: '18+' },
-                    release_date: '2024-03-03'
-                }
+            getManga: vi.fn(async () => ({
+                rus_name: 'Title',
+                summary: 'Summary',
+                cover: 'cover.png',
+                authors: ['Author'],
+                ageRestriction: { label: '18+' },
+                release_date: '2024-03-03'
             })),
-            fetchChaptersList: vi.fn(async () => ({ data: [{}, {}] }))
+            getChapterList: vi.fn(async () => [{}, {}])
         }));
         global.extensionApi.tabs.query = vi.fn(async () => ([{ url: 'https://ranobelib.me/manga/slug3' }]));
         await controller.loadMetadata();
@@ -1110,17 +1065,15 @@ it('Sets formatSelector value from localStorage', async () => {
 
         global.serviceRegistry.getServiceByUrl = vi.fn(() => ({
             name: 'ranobelib',
-            fetchMangaMetadata: vi.fn(async () => ({
-                data: {
-                    rus_name: 'Title',
-                    summary: 'Summary',
-                    cover: 'cover.png',
-                    authors: ['Author'],
-                    ageRestriction: { label: '18+' },
-                    published: '2025-04-04'
-                }
+            getManga: vi.fn(async () => ({
+                rus_name: 'Title',
+                summary: 'Summary',
+                cover: 'cover.png',
+                authors: ['Author'],
+                ageRestriction: { label: '18+' },
+                published: '2025-04-04'
             })),
-            fetchChaptersList: vi.fn(async () => ({ data: [{}, {}] }))
+            getChapterList: vi.fn(async () => [{}, {}])
         }));
         global.extensionApi.tabs.query = vi.fn(async () => ([{ url: 'https://ranobelib.me/manga/slug4' }]));
         await controller.loadMetadata();
@@ -1128,17 +1081,15 @@ it('Sets formatSelector value from localStorage', async () => {
 
         global.serviceRegistry.getServiceByUrl = vi.fn(() => ({
             name: 'ranobelib',
-            fetchMangaMetadata: vi.fn(async () => ({
-                data: {
-                    rus_name: 'Title',
-                    summary: 'Summary',
-                    cover: 'cover.png',
-                    authors: ['Author'],
-                    ageRestriction: { label: '18+' },
-                    year: '2026'
-                }
+            getManga: vi.fn(async () => ({
+                rus_name: 'Title',
+                summary: 'Summary',
+                cover: 'cover.png',
+                authors: ['Author'],
+                ageRestriction: { label: '18+' },
+                year: '2026'
             })),
-            fetchChaptersList: vi.fn(async () => ({ data: [{}, {}] }))
+            getChapterList: vi.fn(async () => [{}, {}])
         }));
         global.extensionApi.tabs.query = vi.fn(async () => ([{ url: 'https://ranobelib.me/manga/slug5' }]));
         await controller.loadMetadata();
@@ -1146,17 +1097,15 @@ it('Sets formatSelector value from localStorage', async () => {
 
         global.serviceRegistry.getServiceByUrl = vi.fn(() => ({
             name: 'ranobelib',
-            fetchMangaMetadata: vi.fn(async () => ({
-                data: {
-                    rus_name: 'Title',
-                    summary: 'Summary',
-                    cover: 'cover.png',
-                    authors: ['Author'],
-                    ageRestriction: { label: '18+' },
-                    date: '2027-06-06'
-                }
+            getManga: vi.fn(async () => ({
+                rus_name: 'Title',
+                summary: 'Summary',
+                cover: 'cover.png',
+                authors: ['Author'],
+                ageRestriction: { label: '18+' },
+                date: '2027-06-06'
             })),
-            fetchChaptersList: vi.fn(async () => ({ data: [{}, {}] }))
+            getChapterList: vi.fn(async () => [{}, {}])
         }));
         global.extensionApi.tabs.query = vi.fn(async () => ([{ url: 'https://ranobelib.me/manga/slug6' }]));
         await controller.loadMetadata();
@@ -1164,16 +1113,14 @@ it('Sets formatSelector value from localStorage', async () => {
 
         global.serviceRegistry.getServiceByUrl = vi.fn(() => ({
             name: 'ranobelib',
-            fetchMangaMetadata: vi.fn(async () => ({
-                data: {
-                    rus_name: 'Title',
-                    summary: 'Summary',
-                    cover: 'cover.png',
-                    authors: ['Author'],
-                    ageRestriction: { label: '18+' }
-                }
+            getManga: vi.fn(async () => ({
+                rus_name: 'Title',
+                summary: 'Summary',
+                cover: 'cover.png',
+                authors: ['Author'],
+                ageRestriction: { label: '18+' }
             })),
-            fetchChaptersList: vi.fn(async () => ({ data: [{}, {}] }))
+            getChapterList: vi.fn(async () => [{}, {}])
         }));
         global.extensionApi.tabs.query = vi.fn(async () => ([{ url: 'https://ranobelib.me/manga/slug7' }]));
         await controller.loadMetadata();
@@ -1184,17 +1131,15 @@ it('Sets formatSelector value from localStorage', async () => {
         const controller = new PopupController();
         global.serviceRegistry.getServiceByUrl = vi.fn(() => ({
             name: 'ranobelib',
-            fetchMangaMetadata: vi.fn(async () => ({
-                data: {
-                    rus_name: 'Title',
-                    summary: 'Summary',
-                    cover: 'cover.png',
-                    authors: ['Author'],
-                    ageRestriction: { label: '18+' },
-                    releaseDate: '2020'
-                }
+            getManga: vi.fn(async () => ({
+                rus_name: 'Title',
+                summary: 'Summary',
+                cover: 'cover.png',
+                authors: ['Author'],
+                ageRestriction: { label: '18+' },
+                releaseDate: '2020'
             })),
-            fetchChaptersList: vi.fn(async () => ({ data: [{}, {}] }))
+            getChapterList: vi.fn(async () => [{}, {}])
         }));
         Object.defineProperty(window, 'location', {
             value: { search: '' },
@@ -1213,17 +1158,15 @@ it('Sets formatSelector value from localStorage', async () => {
         const controller = new PopupController();
         global.serviceRegistry.getServiceByUrl = vi.fn(() => ({
             name: 'ranobelib',
-            fetchMangaMetadata: vi.fn(async () => ({
-                data: {
-                    rus_name: 'Title',
-                    summary: 'Summary',
-                    cover: 'cover.png',
-                    authors: ['Author'],
-                    ageRestriction: { label: '18+' },
-                    releaseDate: '2020'
-                }
+            getManga: vi.fn(async () => ({
+                rus_name: 'Title',
+                summary: 'Summary',
+                cover: 'cover.png',
+                authors: ['Author'],
+                ageRestriction: { label: '18+' },
+                releaseDate: '2020'
             })),
-            fetchChaptersList: vi.fn(async () => ({ data: [{}, {}] }))
+            getChapterList: vi.fn(async () => [{}, {}])
         }));
         Object.defineProperty(window, 'location', {
             value: { search: '' },
@@ -1380,8 +1323,8 @@ it('Sets formatSelector value from localStorage', async () => {
 
     it('splitPagesContainer shown for mangalib service in loadMetadata', async () => {
         global.MangaLibService = class {
-            fetchMangaMetadata = vi.fn(async () => ({ data: { rus_name: 'Title', summary: 'Summary', cover: 'cover.png', authors: ['Author'], ageRestriction: { label: '18+' }, releaseDate: '2020' } }));
-            fetchChaptersList = vi.fn(async () => ({ data: [{}, {}] }));
+            getManga = vi.fn(async () => ({ rus_name: 'Title', summary: 'Summary', cover: 'cover.png', authors: ['Author'], ageRestriction: { label: '18+' }, releaseDate: '2020' }));
+            getChapterList = vi.fn(async () => [{}, {}]);
         };
         const controller = new PopupController();
         Object.defineProperty(window, 'location', {
@@ -1408,8 +1351,8 @@ it('Sets formatSelector value from localStorage', async () => {
     it('splitPages URL param applied to checkbox and localStorage', async () => {
         const controller = new PopupController();
         global.MangaLibService = class {
-            fetchMangaMetadata = vi.fn(async () => ({ data: { rus_name: 'Title', summary: 'Summary', cover: 'cover.png', authors: ['Author'], ageRestriction: { label: '18+' }, releaseDate: '2020' } }));
-            fetchChaptersList = vi.fn(async () => ({ data: [{}, {}] }));
+            getManga = vi.fn(async () => ({ rus_name: 'Title', summary: 'Summary', cover: 'cover.png', authors: ['Author'], ageRestriction: { label: '18+' }, releaseDate: '2020' }));
+            getChapterList = vi.fn(async () => [{}, {}]);
         };
         Object.defineProperty(window, 'location', {
             value: { search: '?download=true&slug=testslug&service=mangalib&splitPages=false' },

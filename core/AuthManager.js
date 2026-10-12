@@ -123,19 +123,17 @@ export const AuthManager = {
 
     /**
      * Получает токен авторизации сервиса и, если он найден, подставляет его
-     * в заголовок Authorization конфигурации переданного сервиса.
+     * в заголовки экземпляра сервиса (service.setAuthToken).
      * @param {string} serviceKey - Ключ сервиса.
      * @param {?number} activeTabId - id активной вкладки для извлечения токена.
-     * @param {object} service - Экземпляр сервиса, в config.headers которого
-     * будет подставлен токен.
+     * @param {{setAuthToken: function(?string): void}} service - Экземпляр сервиса.
      * @returns {Promise<?string>} Применённый токен, либо null, если токен не найден.
      */
     async apply(serviceKey, activeTabId, service) {
         try {
             const token = await this.getToken(serviceKey, activeTabId);
             if (token) {
-                service.config = service.config || {};
-                service.config.headers = { ...service.config.headers, 'Authorization': `Bearer ${token}` };
+                service.setAuthToken(token);
                 console.log('[AuthManager] Auth token applied');
                 return token;
             }

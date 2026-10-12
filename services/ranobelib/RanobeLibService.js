@@ -7,10 +7,10 @@
  * @version 1.1.0
  */
 
-import { fetchPageImage, loadImageOrDefer } from '../../core/DownloadManager.js';
 import { BaseService } from '../BaseService.js';
 import { ImageCompressor } from '../../core/ImageCompressor.js';
-import { NoServiceTabError } from '../../core/BrowserApi.js';
+import { NoServiceTabError } from '../../core/TabNetwork.js';
+import { decodeEntities, escapeHtml } from '../../core/text.js';
 import { ranobelibConfig } from './config.js';
 
 console.log('[RanobeLibService] Loading...');
@@ -39,22 +39,17 @@ export class RanobeLibService extends BaseService {
     /**
      * Удаляет HTML-разметку из строки, превращая её в чистый текст: заменяет
      * &lt;br&gt;/&lt;/p&gt; переносами строк, вырезает остальные теги и декодирует
-     * основные HTML-сущности.
+     * основные HTML-сущности (&amp;amp; — последней, см. text.decodeEntities).
      * @param {?string} str - Исходная HTML-строка.
      * @returns {string} Очищенный текст, либо пустая строка для falsy-значений.
      */
     stripHtml(str) {
         if (!str) return '';
-        return str
+        const text = str
             .replace(/<br\s*\/?>/gi, '\n')
             .replace(/<\/p>/gi, '\n')
-            .replace(/<[^>]*>/g, '')
-            .replace(/&nbsp;/gi, ' ')
-            .replace(/&amp;/gi, '&')
-            .replace(/&lt;/gi, '<')
-            .replace(/&gt;/gi, '>')
-            .replace(/&quot;/gi, '"')
-            .replace(/&#039;/g, '\'')
+            .replace(/<[^>]*>/g, '');
+        return decodeEntities(text)
             .replace(/\n{3,}/g, '\n\n')
             .trim();
     }
@@ -86,12 +81,10 @@ export class RanobeLibService extends BaseService {
      */
     _nodeToHtml(node) {
         if (!node) return '';
-        if (typeof node === 'string')
-            return String(node).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+        if (typeof node === 'string') return escapeHtml(node);
         if (node.type === 'text') {
             if (!node.text) return '';
-            let escaped = node.text
-                .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+            let escaped = escapeHtml(node.text);
             if (Array.isArray(node.marks)) {
                 for (const mark of node.marks) {
                     const tag = this._inlineTagFor(mark.type);
@@ -336,13 +329,9 @@ export class RanobeLibService extends BaseService {
      */
     async _fetchImageWithExt(baseUrl, ext) {
         const url = `${baseUrl}.${ext}`;
-        if (!this.extensionApi?.runtime?.sendMessage) {
-            console.error('[RanobeLibService] browser.runtime not available!');
-            return null;
-        }
-        const response = await fetchPageImage(url, 'ranobelib');
-        if (!response || !response.ok) {
-            console.warn(`[RanobeLibService] Failed to fetch ${url}:`, response?.error);
+        const response = await this.fetchImage(url);
+        if (!response.ok) {
+            console.warn(`[RanobeLibService] Failed to fetch ${url}:`, response.error);
             return null;
         }
         return { base64: response.base64, contentType: response.contentType || 'image/png' };
@@ -381,7 +370,7 @@ export class RanobeLibService extends BaseService {
                     return { type: 'image', data };
                 }
             } catch (e) {
-                if (e instanceof NoServiceTabError) throw e;
+                if (e instanceof NoServiceTabError || e?.aborted) throw e;
                 console.warn('[RanobeLibService] Failed ext:', ext, e);
             }
         }
@@ -436,7 +425,7 @@ export class RanobeLibService extends BaseService {
                         block, attachmentMap, mangaId, chapterId, compressOpts);
                     return imageResult ? [imageResult] : null;
                 };
-                const blocks = await loadImageOrDefer(number, load);
+                const blocks = await this.loadImageOrDefer(number, load);
                 if (blocks) slot.push(...blocks);
             }
         };

@@ -1,8 +1,10 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
+import { withServiceFactory } from '../helpers/serviceRegistryMock.js';
 
 vi.mock('../../core/AuthManager.js', async () => (await import('../helpers/globalBridge.js')).globalBridge('AuthManager'));
 vi.mock('../../core/BrowserApi.js', async () => (await import('../helpers/globalBridge.js'))
-    .globalBridge('extensionApi', 'browserEnv', 'fetchViaTab', 'setServiceTab'));
+    .globalBridge('extensionApi', 'browserEnv'));
+vi.mock('../../core/TabNetwork.js', async () => (await import('../helpers/globalBridge.js')).globalBridge('fetchViaTab', 'setServiceTab'));
 vi.mock('../../core/DownloadHistory.js', async () => (await import('../helpers/globalBridge.js')).globalBridge('DownloadHistory'));
 vi.mock('../../core/DownloadManager.js', async () => (await import('../helpers/globalBridge.js')).globalBridge('DownloadManager'));
 vi.mock('../../core/PluginManager.js', async () => (await import('../helpers/globalBridge.js')).globalBridge('PluginManager'));
@@ -65,13 +67,12 @@ beforeEach(async () => {
     global.serviceRegistry = {
         getServiceByUrl: vi.fn(() => ({
             name: 'ranobelib',
-            fetchMangaMetadata: vi.fn(async () => ({
-                data: { rus_name: 'T', summary: 'S', cover: null, authors: [], ageRestriction: null }
-            })),
-            fetchChaptersList: vi.fn(async () => ({ data: [] }))
+            getManga: vi.fn(async () => ({ rus_name: 'T', summary: 'S', cover: null, authors: [], ageRestriction: null })),
+            getChapterList: vi.fn(async () => [])
         })),
         getService: vi.fn(() => null),
     };
+    withServiceFactory(global.serviceRegistry);
     global.extensionApi = {
         runtime: { sendMessage: vi.fn(async () => ({ ok: true })), getURL: vi.fn(() => 'popup.html') },
         windows: { getCurrent: vi.fn(async () => ({ type: 'normal' })), create: vi.fn(async () => ({ id: 1 })), update: vi.fn() },
@@ -84,7 +85,7 @@ beforeEach(async () => {
     global.ChapterController = class { loadAndPopulate = vi.fn(async () => 0); };
     global.TemplateLoader = { init: vi.fn(), show: vi.fn(async () => {}), current: vi.fn(() => null) };
     global.HistoryController = { init: vi.fn() };
-    global.fetchViaTab = vi.fn(async () => null);
+    global.fetchViaTab = vi.fn(async () => ({ ok: false, status: 0, noTab: true }));
     global.setServiceTab = vi.fn();
     global.fetch = vi.fn(async () => ({ json: async () => ({ workflow_runs: [] }) }));
     global.browserEnv = { isFirefox: true };
@@ -272,10 +273,8 @@ describe('loadMetadata tabId URL param', () => {
         const fakeService = {
             name: 'customsvc',
             config: {},
-            fetchMangaMetadata: vi.fn(async () => ({
-                data: { rus_name: 'T', summary: 'S', cover: null, authors: [], ageRestriction: null }
-            })),
-            fetchChaptersList: vi.fn(async () => ({ data: [] })),
+            getManga: vi.fn(async () => ({ rus_name: 'T', summary: 'S', cover: null, authors: [], ageRestriction: null })),
+            getChapterList: vi.fn(async () => []),
         };
         global.serviceRegistry.getService = vi.fn(() => fakeService);
         const controller = new PopupController();

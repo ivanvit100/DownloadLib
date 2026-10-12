@@ -1,8 +1,10 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
+import { withServiceFactory } from '../helpers/serviceRegistryMock.js';
 
 vi.mock('../../core/AuthManager.js', async () => (await import('../helpers/globalBridge.js')).globalBridge('AuthManager'));
 vi.mock('../../core/BrowserApi.js', async () => (await import('../helpers/globalBridge.js'))
-    .globalBridge('extensionApi', 'browserEnv', 'fetchViaTab', 'setServiceTab'));
+    .globalBridge('extensionApi', 'browserEnv'));
+vi.mock('../../core/TabNetwork.js', async () => (await import('../helpers/globalBridge.js')).globalBridge('fetchViaTab', 'setServiceTab'));
 vi.mock('../../core/DownloadHistory.js', async () => (await import('../helpers/globalBridge.js')).globalBridge('DownloadHistory'));
 vi.mock('../../core/DownloadManager.js', async () => (await import('../helpers/globalBridge.js')).globalBridge('DownloadManager'));
 vi.mock('../../core/PluginManager.js', async () => (await import('../helpers/globalBridge.js')).globalBridge('PluginManager'));
@@ -101,17 +103,15 @@ beforeEach(async () => {
     global.serviceRegistry = {
         getServiceByUrl: vi.fn(() => ({
             name: 'ranobelib',
-            fetchMangaMetadata: vi.fn(async () => ({
-                data: {
-                    rus_name: 'Title', summary: 'Summary', cover: 'cover.png',
-                    authors: ['Author'], ageRestriction: { label: '18+' }, releaseDate: '2020'
-                },
-                image: 'cover.png'
+            getManga: vi.fn(async () => ({
+                rus_name: 'Title', summary: 'Summary', cover: 'cover.png',
+                authors: ['Author'], ageRestriction: { label: '18+' }, releaseDate: '2020'
             })),
-            fetchChaptersList: vi.fn(async () => ({ data: [{}, {}] }))
+            getChapterList: vi.fn(async () => [{}, {}])
         })),
         getService: vi.fn(() => null),
     };
+    withServiceFactory(global.serviceRegistry);
     global.extensionApi = {
         runtime: {
             sendMessage: vi.fn(async () => ({ ok: true, downloads: [{ slug: 'slug', status: 'active', progress: 50 }] })),
@@ -187,6 +187,45 @@ describe('PopupController second test file', () => {
         eventHandlers['download:failed']({ error: { message: 'fail' } });
         expect(showErrorSpy).toHaveBeenCalledWith('fail');
         expect(resetUISpy).toHaveBeenCalled();
+    });
+
+    it('Shows the page progress of a chapter from download:pages, but not while paused', () => {
+        const controller = new PopupController();
+        const eventHandlers = {};
+        controller.downloadManager.eventBus.on = (event, handler) => { eventHandlers[event] = handler; };
+        controller.subscribeToEvents();
+        const status = document.getElementById('status');
+
+        eventHandlers['download:pages']({ id: 'd', done: 3, total: 10 });
+        expect(status.textContent).toBe('Загружено страниц: 3/10');
+
+        controller.isPaused = true;
+        status.textContent = 'Пауза...';
+        eventHandlers['download:pages']({ id: 'd', done: 4, total: 10 });
+        expect(status.textContent).toBe('Пауза...');
+    });
+
+    it('Creates its own service instance through the registry for the active tab', async () => {
+        const controller = new PopupController();
+        global.extensionApi.tabs.query = vi.fn(async () => [{ url: 'https://ranobelib.me/ru/book/slug', id: 3 }]);
+        const resolved = await controller._resolveService({ autoDownload: false });
+        expect(global.serviceRegistry.findServiceKey).toHaveBeenCalledWith('https://ranobelib.me/ru/book/slug');
+        expect(global.serviceRegistry.createService).toHaveBeenCalledWith('ranobelib');
+        expect(resolved).toMatchObject({ slug: 'slug', serviceKey: 'ranobelib', activeTabId: 3 });
+    });
+
+    it('Creates the service of the download window from the URL parameters through the registry', async () => {
+        const controller = new PopupController();
+        global.serviceRegistry.createService = vi.fn(key => ({ name: key }));
+        const resolved = await controller._resolveService({
+            autoDownload: true, slugFromUrl: 's', serviceFromUrl: 'hlib', tabIdFromUrl: 9
+        });
+        expect(global.serviceRegistry.createService).toHaveBeenCalledWith('hlib');
+        expect(resolved).toEqual({ slug: 's', serviceKey: 'hlib', service: { name: 'hlib' }, activeTabId: 9 });
+
+        global.serviceRegistry.createService = vi.fn(() => null);
+        await expect(controller._resolveService({ autoDownload: true, slugFromUrl: 's', serviceFromUrl: 'nope' }))
+            .rejects.toThrow('Unknown service: nope');
     });
 
     it('Shows the default rate limit of 85 and leaves the limit to the background', async () => {
@@ -295,7 +334,7 @@ describe('PopupController second test file', () => {
         await expect(controller.startDownload()).resolves.not.toThrow();
     });
 
-    it('Controller callbacks correctly reflect and mutate pause and stop state', async () => {
+    it('Passes a promise-based controller that pauses without polling and stops with stopDownload', async () => {
         const controller = new PopupController();
         controller.currentSlug = 'slug';
         controller.currentServiceKey = 'ranobelib';
@@ -308,32 +347,24 @@ describe('PopupController second test file', () => {
             return {};
         });
 
-        controller.isPaused = false;
-        controller.shouldStop = false;
-
         await controller.startDownload();
 
-        expect(capturedController).toBeDefined();
-
+        expect(capturedController).toBe(controller.controller);
         expect(capturedController.isPaused()).toBe(false);
-        controller.isPaused = true;
-        expect(capturedController.isPaused()).toBe(true);
-
         expect(capturedController.shouldStop()).toBe(false);
-        controller.shouldStop = true;
+
+        capturedController.pause();
+        let resumed = false;
+        const waiting = capturedController.waitIfPaused().then(() => { resumed = true; });
+        await new Promise(resolve => setTimeout(resolve, 20));
+        expect(resumed).toBe(false);
+        capturedController.resume();
+        await waiting;
+        expect(resumed).toBe(true);
+
+        controller.stopDownload();
         expect(capturedController.shouldStop()).toBe(true);
-
-        controller.shouldStop = false;
-        capturedController.stop();
-        expect(controller.shouldStop).toBe(true);
-
-        controller.isPaused = true;
-        controller.shouldStop = false;
-        const waitPromise = capturedController.waitIfPaused();
-        await new Promise(resolve => setTimeout(resolve, 120));
-        controller.isPaused = false;
-        await waitPromise;
-        expect(controller.isPaused).toBe(false);
+        await expect(capturedController.waitIfPaused()).resolves.toBeUndefined();
     });
 
     it('Handles error in download and calls error display and UI reset', async () => {
@@ -803,7 +834,7 @@ describe('PopupController second test file', () => {
         const tc = document.getElementById('translatorContainer');
         if (tc) tc.parentNode.removeChild(tc);
 
-        const service = { fetchChaptersList: vi.fn(async () => ({ data: [{ volume: 1, number: 1 }] })) };
+        const service = { getChapterList: vi.fn(async () => [{ volume: 1, number: 1 }]) };
         const cc = new RealChapterController();
         const result = await cc.loadAndPopulate(service, 'slug', null, null);
 
@@ -818,7 +849,7 @@ describe('PopupController second test file', () => {
             ]},
             { volume: 1, number: 2, branches: [{ branch_id: 1, teams: [{ name: 'Team A' }] }] }
         ];
-        const service = { fetchChaptersList: vi.fn(async () => ({ data: chapters })) };
+        const service = { getChapterList: vi.fn(async () => chapters) };
 
         const cc = new RealChapterController();
         const count = await cc.loadAndPopulate(service, 'slug', null, null);
@@ -831,14 +862,12 @@ describe('PopupController second test file', () => {
     it('_renderMeta handles empty authors array (covers false branches of secondLine ternaries)', async () => {
         global.serviceRegistry.getServiceByUrl = vi.fn(() => ({
             name: 'ranobelib',
-            fetchMangaMetadata: vi.fn(async () => ({
-                data: {
-                    rus_name: 'Title', summary: 'Summary', cover: 'cover.png',
-                    authors: [], artists: [],
-                    ageRestriction: { label: '18+' }, releaseDate: '2020'
-                }
+            getManga: vi.fn(async () => ({
+                rus_name: 'Title', summary: 'Summary', cover: 'cover.png',
+                authors: [], artists: [],
+                ageRestriction: { label: '18+' }, releaseDate: '2020'
             })),
-            fetchChaptersList: vi.fn(async () => ({ data: [] }))
+            getChapterList: vi.fn(async () => [])
         }));
 
         const controller = new PopupController();

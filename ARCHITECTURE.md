@@ -28,8 +28,10 @@
 |---|---|
 | Ограничение частоты запросов к сервису для всех окон | фон, `background/rateLimitService.js`; окна обращаются через `core/RateLimitClient.js` |
 | Токены авторизации | фон, `background/tokenStore.js` (`storage.session`) |
-| Сетевой запрос в контексте вкладки сервиса | `core/BrowserApi.js` (`fetchViaTab`, `requestViaTab`) |
+| Сетевой запрос в контексте вкладки сервиса | `core/TabNetwork.js` (`fetchViaTab`, `requestViaTab`); перед каждым запросом — `RateLimitClient.acquire` |
 | Движок загрузки, экспорт, сохранение | окно загрузки (`DownloadManager`) |
+| Пауза, остановка, отложенные загрузки и колбэки одной загрузки | `core/DownloadContext.js`: свой контекст у каждой загрузки, сервис получает его через `service.attach(ctx)` |
+| Экземпляр сервиса загрузки (заголовки, токен) | `serviceRegistry.createService(key)`: свой экземпляр у каждой загрузки и у окна, конфиг копируется |
 
 ### Сообщения
 
@@ -87,7 +89,7 @@ ExporterRegistry.register('fb2', FB2Exporter, { label: 'FB2' });
 - **Устаревшие, но поддерживаемые глобалы:** то, что было доступно плагинам до версии 1.1. Они не удаляются:
   - классы и объекты: `ImageCompressor`, `MangaPatcher`, `EventBus`, `RateLimiter`, `globalRateLimiter`, `ServiceRegistry`. `globalRateLimiter` — обёртка над `RateLimitClient`: `acquire`/`trackRequest` ждут разрешения общего ограничителя фона, `throttle` блокирует запросы всех окон, `setLimit` сохраняет лимит в настройки;
   - встроенные экспортеры и сервисы, их конфиги `mangalibConfig`, `ranolibConfig`;
-  - функции: `fetchPageImage`, `loadImageOrDefer`, `NoServiceTabError`, `getExtensionApi`/`getBrowserEnv`/`extensionApi`/`browserEnv`, `fetchViaTab`/`requestViaTab`/`hasServiceTab`/`setServiceTab`. Они опубликованы обёртками: при изменениях внутри расширения правятся обёртки, а имена и формы результатов остаются прежними.
+  - функции: `fetchPageImage`, `loadImageOrDefer`, `NoServiceTabError`, `getExtensionApi`/`getBrowserEnv`/`extensionApi`/`browserEnv`, `fetchViaTab`/`requestViaTab`/`hasServiceTab`/`setServiceTab`. Они опубликованы обёртками: при изменениях внутри расширения правятся обёртки, а имена и формы результатов остаются прежними. Например, `fetchViaTab` для плагинов по-прежнему возвращает `{ok, base64, contentType}` или `null`, хотя `TabNetwork.fetchViaTab` при неудаче возвращает `{ok: false, error}`. `fetchPageImage(url, serviceKey)` загружает картинку через `TabNetwork` и возвращает `{ok, base64, contentType}` или `{ok: false, error}`, а без вкладки сервиса бросает `NoServiceTabError`. `loadImageOrDefer(label, load)` откладывает картинку в текущей загрузке (`DownloadContext.current`), а вне загрузки просто выполняет `load()`.
 
 Контракт плагинов (метаданные `@dl-*`, поля `@dl-service-config`, данные `export()`, публичные методы базовых классов, API песочницы, глобалы) проверяют тесты `tests/plugins/` на настоящих файлах из `plugins/`.
 
@@ -95,33 +97,45 @@ ExporterRegistry.register('fb2', FB2Exporter, { label: 'FB2' });
 
 ```
 PopupController.loadMetadata()
-    → AuthManager.apply(serviceKey, tabId, service)
+    → serviceRegistry.findServiceKey(url) → createService(key)   [свой экземпляр сервиса]
+    → AuthManager.apply(serviceKey, tabId, service)             [service.setAuthToken]
         → runtime.sendMessage({ action: MSG.GET_AUTH_TOKEN })     [фон: tokenStore]
         ↓  если не найден:
         → scripting.executeScript(tabId, findTokenInPageStorage)  [localStorage/sessionStorage вкладки]
         → runtime.sendMessage({ action: MSG.CACHE_AUTH_TOKEN })   [фон: tokenStore]
-    → service.fetchMangaMetadata(slug)     [BaseService → requestViaTab]
-        → scripting.executeScript(tabId, fetch)                   [вкладка сервиса]
-    → MangaPatcher.patch(rawMeta)          [core]
+    → service.getManga(slug)               [BaseService: fetchMangaMetadata → _request → .data]
+        → TabNetwork.requestViaTab(url, init, serviceKey)
+            → RateLimitClient.acquire(serviceKey)
+                → runtime.sendMessage({ action: MSG.RATE_ACQUIRE })  [фон: rateLimitService]
+            → scripting.executeScript(tabId, tabFetch, 'text')    [вкладка сервиса]
+    → MangaPatcher.patch(meta)             [core]
     → ChapterController.loadAndPopulate(service, slug, …)
-        → service.fetchChaptersList(slug)
+        → service.getChapterList(slug)     [тот же путь запроса]
 
-PopupController.startDownload()
+PopupController.startDownload()                             [controller = createController()]
     → DownloadManager.startDownload(options)
-        → service.fetchChapter(slug, num, vol, branchId)
+        → serviceRegistry.createService(key), service.setAuthToken(token)
+        → service.attach(new DownloadContext({controller, settings, onPageProgress, on429}))
+        → service.getChapter(slug, num, vol, branchId)
         → service.extractText(rawContent)
-        → service.processChapterContent(extracted, …)
-            → fetchPageImage(url, serviceKey)
-                → RateLimitClient.acquire(serviceKey)
-                    → runtime.sendMessage({ action: MSG.RATE_ACQUIRE })  [фон: rateLimitService]
-                → fetchViaTab(url, serviceKey)                    [вкладка сервиса: fetch → base64]
+        → service.processChapterContent(extracted, null, opts)
+            → ctx.loadImageOrDefer(n, load)                     [срок, метка, фоновая догрузка]
+                → service.fetchImage(url)                       [контрольные точки ctx]
+                    → TabNetwork.fetchViaTab(url, serviceKey)
+                        → RateLimitClient.acquire(serviceKey)
+                        → scripting.executeScript(tabId, tabFetch, 'base64')  [вкладка сервиса: fetch → base64]
+                → ImageCompressor.process(...)                  [вписывание, нарезка, одно кодирование]
+            → ctx.onPageProgress(done, total) → событие download:pages → статус в окне
         → ExporterRegistry.create(format).export(manga, chapters, cover)
         → DownloadHistory.add(entry)
         → saveFile(blob, filename)
 
-Ответ HTTP 429 (BaseService.fetchWithRateLimitRetry)
+Ответ HTTP 429 (BaseService._request)
     → RateLimitClient.throttle(ms)
         → runtime.sendMessage({ action: MSG.RATE_THROTTLE, ms })  [фон: блокировка для всех окон]
+Ответ HTTP 401 (BaseService._request)
+    → AuthManager.invalidate(serviceKey)
+        → runtime.sendMessage({ action: MSG.AUTH_INVALIDATE })    [фон: tokenStore]
 ```
 
 ---
@@ -134,9 +148,65 @@ PopupController.startDownload()
 - `extensionApi` — `globalThis.browser ?? globalThis.chrome ?? null`. Обёртки над callback-API не нужны: в MV3 методы `chrome.*` сами возвращают промисы.
 - `browserEnv` — объект `{ isFirefox, isChromium, supportsDnr, nativeName }` для условной логики. Вычисляется только здесь.
 - `extensionOrigin()` и `isExtensionUrl(url)` — origin страниц расширения и проверка, что URL ведёт на них. Origin берётся из `runtime.getURL('')`, а не из `URL.origin`: по стандарту origin нестандартных схем (`moz-extension:`, `chrome-extension:`) непрозрачен (`'null'`).
-- Сетевые функции через вкладку сервиса: `setServiceTab`, `fetchViaTab`, `requestViaTab`, `hasServiceTab` и класс ошибки `NoServiceTabError`.
 
 Остальные модули импортируют `extensionApi` и `browserEnv` отсюда и не обращаются к `browser`/`chrome` напрямую.
+
+---
+
+### `core/TabNetwork.js`
+
+Единственный сетевой слой расширения: все запросы к сервису (API, изображения, обложки) выполняются в контексте открытой вкладки сервиса. Браузер сам подставляет cookies, Referer и Origin сайта, подделывать заголовки не нужно.
+- `tabFetch(url, init, mode)` — одна функция, которую `scripting.executeScript` внедряет во вкладку. Она самодостаточна и не обращается ни к чему вне своего тела. Режим `'text'` возвращает `{ok, status, retryAfter, text}`, режим `'base64'` — `{ok, status, retryAfter, base64, contentType}`. Ошибки `fetch` и `FileReader` (`onerror`, `onabort`) превращаются в `{ok: false, status, error}`; `status: 0` означает, что ответа нет.
+- `requestViaTab(url, init, serviceKey, {beforeSend})` и `fetchViaTab(url, serviceKey, {init, beforeSend})` — тонкие обёртки. Перед каждым запросом они ждут `RateLimitClient.acquire(serviceKey)`, так что лимит действует на все запросы из любого окна. `beforeSend` вызывается после разрешения ограничителя, прямо перед отправкой; через него загрузка проверяет, не остановлена ли она. Результат всегда объект, а не `null`. Поле `noTab: true` означает, что вкладки сервиса нет и запрос не выполнялся.
+- Поиск вкладки: `setServiceTab(tabId)`, `hasServiceTab(serviceKey)`. Найденная вкладка запоминается на час. Шаблоны берутся из `hosts.tabPatterns`, для сервисных плагинов — по хостам из `custom_plugins`. Если запомненная вкладка закрыта, она забывается, и запрос один раз повторяется через другую открытую вкладку сервиса. Если вкладок больше нет, результат — `noTab`.
+- `NoServiceTabError` — ошибка «нет открытой вкладки сервиса». Её бросают `BaseService` (`_request`, `fetchImage`) и устаревший глобал `fetchPageImage`, чтобы прервать операцию целиком, а не терять страницу за страницей.
+
+---
+
+### `core/encoding.js`
+
+Преобразования для кода, который не внедряется во вкладку: `blobToDataUrl(blob)`, `blobToBase64(blob)` (оба с обработкой `onerror`/`onabort` у `FileReader`) и `base64ToBytes(base64)`.
+
+---
+
+### `core/text.js`
+
+Общие для сервисов и экспортёров функции: `escapeXml`, `escapeHtml`, `decodeEntities` (основные HTML-сущности, `&amp;` — последней, поэтому `&amp;lt;` превращается в текст «&lt;», а не в «<») и `sanitizeFilename` (запрещённые в именах файлов и управляющие символы → `_`, длина до 200). `BaseExporter`, `PDFExporter` и `RanobeLibService` делегируют сюда.
+
+---
+
+### `core/DownloadContext.js`
+
+Объект одной загрузки тайтла. `DownloadManager` создаёт его на каждую загрузку и передаёт сервису через `service.attach(ctx)`, поэтому у каждой загрузки свои пауза, остановка, фоновые загрузки и колбэки. Модульного «активного шлюза» больше нет.
+- `createController()` — контроллер `{pause, resume, stop, isPaused, shouldStop, waitIfPaused}`. `waitIfPaused` не опрашивает состояние по таймеру: на паузе он возвращает промис, который разрешается при `resume()` или `stop()`.
+- `checkpoint()` — ждёт снятия паузы и бросает ошибку с `aborted: true`, если загрузку остановили (`interrupted` становится `true`).
+- `isHeldBack()` — пауза или ожидание в ограничителе запросов (`RateLimitClient.isHeldBack()`); пока это так, сроки отложенной загрузки не истекают.
+- `deferred` — `DeferredQueue` этой загрузки; `loadImageOrDefer(label, load)` — отложенная загрузка картинки с учётом `isHeldBack`.
+- `onPageProgress(done, total)`, `on429(ms)` — колбэки прогресса страниц главы и ожидания после 429.
+- `settings` — `{splitPages, imageFit, format}`.
+- `DownloadContext.current` — контекст идущей загрузки, нужен только устаревшему глобалу `loadImageOrDefer`.
+
+---
+
+### `core/DeferredQueue.js`
+
+Фоновая (отложенная) загрузка картинок и глав, не успевших загрузиться за `DEFERRED_SETTINGS.deferAfterMs`: `DeferredQueue`, `loadImageOrDefer(label, load, isHeldBack)`, `waitWithDeadline(promise, ms, isHeldBack)`, `estimateContentSize(chapter)`. Признак «загрузка придержана» передаётся из контекста загрузки, глобального состояния у модуля нет. Подробности — в описании `DownloadManager` ниже.
+
+---
+
+### `core/ImageCompressor.js`
+
+`ImageCompressor.process(base64, contentType, {maxWidth, maxHeight, splitAspect, maxPartHeight, format, quality})` → массив частей `{base64, contentType}`. Изображение декодируется один раз (`createImageBitmap`). При нарезке оно делится по высоте на равные части не выше `min(ширина × splitAspect, maxPartHeight)` (длинная страница режется, если превышает этот предел больше чем на 10%). Каждая часть вписывается в габариты без увеличения, рисуется на `OffscreenCanvas` и кодируется один раз (`convertToBlob`). `document` не нужен, кодирование не блокирует главный поток. Если изображение не декодируется, возвращается исходное. `PAGE_ASPECT` — соотношение сторон A4 для нарезки.
+
+`ImageCompressor.compress(base64, contentType, options)` — прежняя подпись и форма результата (одно изображение без нарезки), обёртка над `process`.
+
+---
+
+### `core/PluginManager.js`
+
+Хранит, включает и загружает плагины пользователей.
+- Сервисный плагин регистрируется как `PluginServiceProxy extends CdnLibsService` с конфигом из `@dl-service-config` и хостами из `@dl-host`. Код сервисного плагина не исполняется. Страницы глав такой сервис загружает, режет и сжимает так же, как MangaLib, в том числе учитывает `splitLongImages`/`maxImageHeight` и галочку «разбивать страницы».
+- Плагин формата исполняется через `plugin:exec` во вкладке расширения, иначе через `/plugin-runtime/` (service worker) или blob-модуль, а в крайнем случае — в песочнице. Заглушки API и протокол `sb-exec`/`sb-export` песочницы описаны один раз в `sandbox.js`: Chrome загружает его через `sandbox.html`, Firefox встраивает его текст (`fetch(runtime.getURL('sandbox.js'))`) в `srcdoc`.
 
 ---
 
@@ -170,7 +240,7 @@ PopupController.startDownload()
 
 `getToken(serviceKey, tabId)` — сначала запрашивает токен у фона (`getAuthToken`). Если его нет и передан `tabId`, ищет токен в `localStorage`/`sessionStorage` страницы через `scripting.executeScript` и сохраняет найденный в фоне (`cacheAuthToken`). При поиске принимаются только JWT с действующим `exp` (с запасом 30 с). Сначала проверяются ключи, похожие на хранилище токена (`/auth|token/i`), затем остальные.
 
-`apply(serviceKey, tabId, service)` — вызывает `getToken`, при успехе добавляет `Authorization: Bearer <token>` в `service.config.headers`.
+`apply(serviceKey, tabId, service)` — вызывает `getToken`, при успехе подставляет токен в заголовки экземпляра сервиса через `service.setAuthToken(token)`.
 
 `invalidate(serviceKey)` — просит фон удалить токен сервиса (`authInvalidate`), например после ответа 401.
 
@@ -220,7 +290,7 @@ PopupController.startDownload()
 
 Нормализует сырой объект метаданных тайтла из API в единый контракт, который могут использовать все экспортеры и UI без знания о специфике конкретного сервиса.
 
-Реализован как пайплайн независимых статических классов-модулей. `MangaPatcher.patch(obj)` последовательно применяет каждый.
+Реализован как пайплайн независимых статических классов-модулей. `MangaPatcher.patch(obj)` последовательно применяет каждый. Имена авторов, художников, жанров и тегов извлекаются одной функцией `resolveName(item)`: строка как есть, у объекта — первое непустое из `name`/`rus_name`/`title`.
 
 ---
 
@@ -236,12 +306,16 @@ PopupController.startDownload()
 4. Загружает список глав через `ChapterController`, применяет фильтры `branchId` и `chapterRange`.
 5. `downloadWithSizeLimit()` — итерирует главы, разбивая на части при превышении `maxSizeMB`.
 
-**`downloadSingleChapter()`** — вызывает `service.fetchChapter()` → `service.extractText()` → `service.processChapterContent()`.
+**`downloadSingleChapter()`** — вызывает `service.getChapter()` → `service.extractText()` → `service.processChapterContent()`.
 
-**`createController()`** — фабрика объекта `{ pause(), resume(), stop(), isPaused(), shouldStop(), waitIfPaused() }`. `waitIfPaused()` — асинхронный spin-lock, вызывается перед каждой главой.
+Метаданные, список глав и главу `DownloadManager` и `PopupController` получают через `getManga`, `getChapterList`, `getChapter` сервиса — уже без обёртки `{data: …}` ответа API.
 
-**Фоновая загрузка медленного контента.** Ни изображение, ни глава не задерживают загрузку дольше `deferredLoadSettings.deferAfterMs` (30 с). Пока загрузка на паузе или запросы стоят в очереди rate limiter'а (в т.ч. после 429), срок не идёт.
-- *Изображения.* Сервис загружает каждое изображение через `loadImageOrDefer(label, load)`. Срок считается на всю загрузку изображения (перебор расширений, сжатие). Если он истёк, в главу кладётся метка `[Изображение N загружается в фоне]`, а сама загрузка продолжается в фоне.
+**Сервис и контекст загрузки.** `_resolveService` создаёт собственный экземпляр сервиса (`serviceRegistry.createService`, по URL — через `findServiceKey`) и подставляет токен через `setAuthToken`. `_createDownloadState` создаёт `DownloadContext` загрузки: контроллер, настройки, `onPageProgress` (событие `download:pages {id, done, total}`) и `on429` (статус «Ожидание разрешения от сервера...»). На время загрузки сервис привязан к контексту (`service.attach(ctx)`) и отвязывается в конце. В `processChapterContent` передаётся `null` вместо DOM-элемента статуса.
+
+**`createController()`** — контроллер из `DownloadContext.createController()`: `{ pause(), resume(), stop(), isPaused(), shouldStop(), waitIfPaused() }` с промисным `waitIfPaused()` без опроса.
+
+**Фоновая загрузка медленного контента** (`core/DeferredQueue.js`). Ни изображение, ни глава не задерживают загрузку дольше `DEFERRED_SETTINGS.deferAfterMs` (30 с). Пока загрузка на паузе или запросы стоят в очереди ограничителя (в т.ч. после 429), срок не идёт (`ctx.isHeldBack()`).
+- *Изображения.* Сервис загружает каждое изображение через `this.loadImageOrDefer(label, load)` (контекст загрузки). Срок считается на всю загрузку изображения (перебор расширений, сжатие). Если он истёк, в главу кладётся метка `[Изображение N загружается в фоне]`, а сама загрузка продолжается в фоне.
 - *Главы.* `_loadChapterOrDefer()` так же откладывает главу целиком и ставит на её место в пакете главу-метку. Одновременно в фоне грузится не больше `maxDeferredChapters` глав, дальше глава ждётся как обычно.
 - *Очередь.* `DeferredQueue` (`downloadState.deferred`) вставляет результат на место метки, как только фоновая загрузка завершится. Неудачная попытка повторяется через `retryDelayMs`. Попытка, висящая дольше `backgroundAttemptTimeoutMs`, дублируется новой; засчитывается первый успех. После `maxAttempts` на месте метки остаётся `[Ошибка загрузки изображения N]` / `[Ошибка загрузки главы: …]`.
 - *Размер.* Метки учитываются в `estimateChapterSize()` по среднему размеру уже загруженных изображений/глав.
@@ -256,21 +330,47 @@ PopupController.startDownload()
 
 Методы:
 - `register(ServiceClass)` — создаёт экземпляр, сохраняет `{ class, instance, matcher }`.
-- `getServiceByUrl(url)` — перебирает сервисы, возвращает экземпляр первого, чей `matches(url)` вернул `true`.
-- `getService(name)` — возвращает существующий экземпляр по имени.
-- `createService(name)` — создаёт **новый** экземпляр (используется в `DownloadManager` для каждой загрузки).
+- `findServiceKey(url)` — ключ первого сервиса, чей `matches(url)` вернул `true`, либо `null`.
+- `createService(name)` — создаёт **новый** экземпляр. Им пользуются `PopupController` и `DownloadManager`: у окна и у каждой загрузки свой экземпляр (и свой токен в заголовках).
+- `getServiceByUrl(url)` / `getService(name)` — общий экземпляр-синглтон (контракт плагинов; для загрузки не используется).
 
 ---
 
 ### `services/BaseService.js`
 
-Базовый класс. Принимает объект `config` в конструктор.
+Базовый класс. Принимает объект `config` в конструктор и копирует его вместе с `headers`, поэтому токен одного экземпляра не попадает в общий конфиг и в другие экземпляры (остальные поля конфига остаются теми же объектами).
+- `setAuthToken(token)` — единственное место, где токен попадает в заголовки (`Authorization: Bearer …`), `null` убирает его.
+- `attach(ctx)` — привязка к загрузке (`DownloadContext`). Через неё работают `checkpoint()`, `interruptibleDelay()`, `loadImageOrDefer(label, load)` и `_reportPages(done, total)`. Вне загрузки контрольных точек нет, а `loadImageOrDefer` просто выполняет `load()`.
+- `fetchImage(url)` — загрузка картинки во вкладке сервиса с контрольными точками до запроса, после разрешения ограничителя и после ответа; без вкладки — `NoServiceTabError`, при ошибке — `{ok: false, error}`.
 
-Запросы к API выполняются в контексте открытой вкладки сервиса через `requestViaTab`: браузер сам подставляет cookies, Referer и Origin сайта. Если вкладки нет, бросается ошибка с просьбой открыть страницу тайтла. При ответе 429 `fetchWithRateLimitRetry` ждёт `Retry-After` (по умолчанию 30 с) и вызывает `RateLimitClient.throttle`, чтобы остановить запросы всех окон.
+Все запросы к API идут через один метод `_request(url, {as, what})`, который выполняет их во вкладке сервиса (`TabNetwork.requestViaTab`):
+- нет вкладки сервиса — `NoServiceTabError` с просьбой открыть страницу тайтла;
+- сетевая ошибка (`status 0`) или 5xx — до трёх попыток с нарастающей паузой (1 с, 2 с);
+- 429 — пауза по `Retry-After` (секунды или HTTP-дата, по умолчанию 30 с), `RateLimitClient.throttle` для всех окон, `ctx.on429` для статуса загрузки, повтор (до пяти попыток);
+- 401 — токен убирается из заголовков экземпляра, `AuthManager.invalidate(serviceKey)`, понятная ошибка с просьбой войти на сайт;
+- пустое тело или невалидный JSON — ошибка `Ошибка разбора ответа API (<что запрашивалось>)`.
 
-- `fetchMangaMetadata(slug)` — `GET /api/manga/{slug}?fields[]=...`
-- `fetchChaptersList(slug)` — `GET /api/manga/{slug}/chapters`
-- `fetchChapter(slug, number, volume, branchId)` — `GET /api/manga/{slug}/chapter?number=...`
+`as` задаёт результат: `'json'` (по умолчанию), `'text'` или Response-подобный объект `'response'` без проверки статуса.
+
+Методы API (контракт плагинов: сигнатуры и форма ответа `{data: …}` не меняются):
+- `fetchMangaMetadata(slug)` — `GET /api/manga/{slug}?fields[]=...`, при 403/404 пробует URL без полей и по числовому id;
+- `fetchChaptersList(slug)` — `GET /api/manga/{slug}/chapters`;
+- `fetchChapter(slug, number, volume, branchId, extraParams)` — `GET /api/manga/{slug}/chapter?number=...`.
+
+Для кода расширения — те же данные без обёртки ответа: `getManga(slug)`, `getChapterList(slug)` (всегда массив), `getChapter(slug, number, volume, branchId)`. Они вызывают `fetch*`-методы, поэтому учитывают их переопределение в подклассах и плагинах.
+
+Сохранены для плагинов: `fetchWithRetry` и `fetchWithRateLimitRetry` — обёртки над `_request` в режиме `'response'`; `loadPageAsBase64(url, opts)` — загружает страницу через `fetchImage` и возвращает data-URL; `blobToBase64(blob)` — data-URL через `encoding.blobToDataUrl`.
+
+---
+
+### `services/CdnLibsService.js`
+
+Общая база сервисов манги на API cdnlibs.org: `MangaLibService` и `PluginServiceProxy` (сервисные плагины с `@dl-service-config`). Наследники задают только конфиг; MangaLib ещё запрашивает главы с `server=compress`.
+- `resolvePageUrl(ref)` — одна нормализация ссылки на страницу: строка либо объект страницы с `filename`/`url`/`image`/`src`; готовый URL как есть, путь (в том числе `//путь` из ответа API) — на домене сервера изображений.
+- `_activeServer()` — сервер изображений: выбранный пользователем (`localStorage['<name>_image_server']`), иначе `defaultImageServer`, иначе `compression` из `imageServers`; без `imageServers` — `imagesDomain` со сжатием.
+- `loadPage(ref, opts, cache)` — загрузка страницы (`fetchImage`) и обработка через `ImageCompressor.process`: вписывание в `imageFit`, формат и качество, нарезка длинных страниц. Режет, только если `splitLongImages` включён и в конфиге, и в загрузке (галочка «разбивать страницы»): части не выше страницы A4 и не выше `maxImageHeight`. Сервер с `compress: false` отдаёт страницу без обработки.
+- `processChapterContent(extracted, status, opts)` — страницы главы (из данных главы, иначе из `extractText`) по 5 одновременно через `loadImageOrDefer`, кэш страниц только в пределах главы, прогресс — `ctx.onPageProgress`. Разрезанная страница даёт несколько блоков с `partIndex`/`totalParts`.
+- `extractText`, `loadPageAsBase64(ref, opts)` — прежний интерфейс (одно изображение, массив частей или `null`).
 
 `static matches(url)` по умолчанию проверяет хост URL по `hosts` статического конфига класса (`static config = mangalibConfig`): совпадение или поддомен. Подкласс без статического конфига должен переопределить метод.
 
@@ -316,7 +416,7 @@ PopupController.startDownload()
 
 ### `exporters/BaseExporter.js`
 
-Базовый класс. Предоставляет утилиты: `escapeXml()`, `escapeHtml()`, `stripHtml()`, `sanitizeText()`, `extractText()`.
+Базовый класс. Предоставляет утилиты: `escapeXml()`, `escapeHtml()`, `stripHtml()`, `sanitizeText()`, `extractText()`. Экранирование и раскодирование сущностей делегируются `core/text.js`.
 
 Обязательный метод для переопределения: `async export(manga, chapters, coverBase64)` — должен вернуть `{ blob, filename, mimeType }`.
 
@@ -418,7 +518,7 @@ Origin запроса запоминается в `onBeforeSendHeaders` и за�
 
 Управляет выбором диапазона глав и переводчика.
 
-`loadAndPopulate(service, slug, chapterFromUrl, chapterToUrl, branchIdUrl)` — загружает список глав через `service.fetchChaptersList()`, заполняет `<select>` элементы и при наличии нескольких переводов показывает `translatorSelect`.
+`loadAndPopulate(service, slug, chapterFromUrl, chapterToUrl, branchIdUrl)` — загружает список глав через `service.getChapterList()`, заполняет `<select>` элементы и при наличии нескольких переводов показывает `translatorSelect`.
 
 `getFilteredChapters(branchId)` — возвращает главы, принадлежащие нужной ветке перевода.
 
@@ -444,7 +544,9 @@ Origin запроса запоминается в `onBeforeSendHeaders` и за�
 3. Загружает шаблон `title`, привязывает события формы (`_bindTitleEvents`), настраивает слушатели.
 4. Вызывает `loadMetadata()` и `checkApiHealth()`.
 
-**`loadMetadata()`** — определяет активную вкладку, парсит slug из URL, применяет auth-токен, загружает метаданные тайтла, заполняет UI обложкой/описанием, передаёт управление главами в `ChapterController`. Читает URL-параметр `download=true` для автозапуска.
+**`loadMetadata()`** — определяет активную вкладку, парсит slug из URL, создаёт свой экземпляр сервиса через `serviceRegistry` (`findServiceKey` + `createService`), применяет auth-токен, загружает метаданные тайтла, заполняет UI обложкой/описанием, передаёт управление главами в `ChapterController`. Читает URL-параметр `download=true` для автозапуска.
+
+**Загрузка.** `startDownload` создаёт контроллер (`createController()`), кнопка паузы вызывает его `pause()`/`resume()`, `stopDownload` — `stop()`. Прогресс страниц главы приходит событием `download:pages` и показывается в статусе.
 
 **`openInNewContext(url)`** — открывает popup.html в новом окне/вкладке через `openWindowWithUrl` сообщение в background. Используется кнопкой «Скачать» (открывает новое окно с `download=true`).
 
@@ -511,7 +613,6 @@ export const newsiteConfig = {
 2. Создать модуль `services/newsite/NewSiteService.js`:
 
 ```js
-import { fetchPageImage, loadImageOrDefer } from '../../core/DownloadManager.js';
 import { BaseService } from '../BaseService.js';
 import { newsiteConfig } from './config.js';
 
@@ -526,16 +627,17 @@ export class NewSiteService extends BaseService {
         return [];
     }
 
-    async processChapterContent(extracted, _statusEl, opts) {
+    async processChapterContent(extracted, _status, opts) {
         const result = [];
         for (const [index, block] of extracted.entries()) {
             if (block.type !== 'image') {
                 result.push(block);
                 continue;
             }
-            const blocks = await loadImageOrDefer(index + 1, async () => {
-                const resp = await fetchPageImage(block.src, this.name);
-                return resp?.ok
+            // Контекст загрузки: срок, метка «загружается в фоне», пауза и остановка.
+            const blocks = await this.loadImageOrDefer(index + 1, async () => {
+                const resp = await this.fetchImage(block.src);
+                return resp.ok
                     ? [{ type: 'image', id: `img_${Date.now()}`, data: { base64: resp.base64, contentType: resp.contentType } }]
                     : null;
             });
@@ -545,6 +647,8 @@ export class NewSiteService extends BaseService {
     }
 }
 ```
+
+Если сервис работает на API cdnlibs.org и главы — это страницы-картинки, достаточно унаследоваться от `CdnLibsService` и передать конфиг: загрузка, нарезка и сборка главы уже там.
 
 3. Импортировать класс в `services/index.js` и вызвать `serviceRegistry.register(NewSiteService)`.
 

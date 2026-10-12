@@ -113,28 +113,20 @@ describe('AuthManager.getToken', () => {
 });
 
 describe('AuthManager.apply', () => {
-    it('applies token to service config headers', async () => {
+    it('applies the token through service.setAuthToken', async () => {
         mockRuntime.sendMessage.mockResolvedValue({ token: 'my-jwt' });
-        const service = { name: 'mangalib' };
+        const service = { name: 'mangalib', setAuthToken: vi.fn() };
         const token = await AuthManager.apply('mangalib', null, service);
         expect(token).toBe('my-jwt');
-        expect(service.config.headers['Authorization']).toBe('Bearer my-jwt');
-    });
-
-    it('merges with existing config headers', async () => {
-        mockRuntime.sendMessage.mockResolvedValue({ token: 'my-jwt' });
-        const service = { name: 'mangalib', config: { headers: { 'X-Site-Id': '1' } } };
-        await AuthManager.apply('mangalib', null, service);
-        expect(service.config.headers['X-Site-Id']).toBe('1');
-        expect(service.config.headers['Authorization']).toBe('Bearer my-jwt');
+        expect(service.setAuthToken).toHaveBeenCalledWith('my-jwt');
     });
 
     it('returns null when no token found', async () => {
         mockRuntime.sendMessage.mockResolvedValue({ token: null });
-        const service = { name: 'mangalib' };
+        const service = { name: 'mangalib', setAuthToken: vi.fn() };
         const token = await AuthManager.apply('mangalib', null, service);
         expect(token).toBeNull();
-        expect(service.config).toBeUndefined();
+        expect(service.setAuthToken).not.toHaveBeenCalled();
     });
 
     it('returns null and warns when getToken throws', async () => {

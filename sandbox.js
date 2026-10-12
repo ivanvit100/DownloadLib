@@ -40,6 +40,51 @@ global.BaseExporter.prototype.sanitizeText = function(t) {
     return String(t).trim();
 };
 
+/**
+ * Удаляет HTML-разметку из строки, как BaseExporter.stripHtml расширения:
+ * вырезает script/style, заменяет теги переносами строк и раскодирует основные
+ * HTML-сущности (&amp;amp; — последней).
+ * @param {*} html - Исходная HTML-строка.
+ * @returns {string} Очищенный текст, либо пустая строка для falsy-значений.
+ */
+global.BaseExporter.prototype.stripHtml = function(html) {
+    if (!html) return '';
+    return String(html)
+        .replace(/<script[^>]*>[\s\S]*?<\/script>/gi, '')
+        .replace(/<style[^>]*>[\s\S]*?<\/style>/gi, '')
+        .replace(/<[^>]+>/g, '\n')
+        .replace(/&nbsp;/gi, ' ')
+        .replace(/&quot;/gi, '"')
+        .replace(/&(?:apos|#0*39);/gi, '\'')
+        .replace(/&lt;/gi, '<')
+        .replace(/&gt;/gi, '>')
+        .replace(/&amp;/gi, '&')
+        .replace(/\n{3,}/g, '\n\n')
+        .trim();
+};
+
+/**
+ * Извлекает текст главы, как BaseExporter.extractText расширения: HTML-строку
+ * очищает от разметки, rich-text блоки объединяет через пустую строку.
+ * @param {string|Array} content - Исходное содержимое главы.
+ * @returns {string} Объединённый текст.
+ */
+global.BaseExporter.prototype.extractText = function(content) {
+    if (typeof content === 'string') return this.stripHtml(content);
+    if (!Array.isArray(content)) return '';
+    return content.map(block => {
+        if (block.type === 'paragraph' && Array.isArray(block.content)) {
+            return block.content
+                .filter(t => t.type === 'text' && t.text)
+                .map(t => t.text)
+                .join('');
+        }
+        if (block.type === 'text' && block.text) return block.text;
+        if (block.type === 'text' && block.content) return String(block.content);
+        return '';
+    }).filter(Boolean).join('\n\n');
+};
+
 global.ExporterRegistry = {
     /**
      * Регистрирует класс экспортёра плагина в локальном реестре песочницы

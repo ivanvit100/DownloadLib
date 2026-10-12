@@ -1,10 +1,10 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 
 vi.mock('../../core/BrowserApi.js', async () => (await import('../helpers/globalBridge.js'))
-    .globalBridge('extensionApi', 'browserEnv', 'NoServiceTabError'));
-vi.mock('../../core/DownloadManager.js', async () => (await import('../helpers/globalBridge.js'))
-    .globalBridge('fetchPageImage', 'loadImageOrDefer'));
-vi.mock('../../core/ImageCompressor.js', async () => (await import('../helpers/globalBridge.js')).globalBridge('ImageCompressor'));
+    .globalBridge('extensionApi', 'browserEnv'));
+vi.mock('../../core/TabNetwork.js', async () => (await import('../helpers/globalBridge.js')).globalBridge('NoServiceTabError'));
+vi.mock('../../core/ImageCompressor.js', async () => (await import('../helpers/globalBridge.js'))
+    .globalBridge('ImageCompressor', 'PAGE_ASPECT'));
 vi.mock('../../exporters/BaseExporter.js', async () => (await import('../helpers/globalBridge.js')).globalBridge('BaseExporter'));
 vi.mock('../../exporters/ExporterRegistry.js', async () => (await import('../helpers/globalBridge.js')).globalBridge('ExporterRegistry'));
 vi.mock('../../services/BaseService.js', async () => (await import('../helpers/globalBridge.js')).globalBridge('BaseService'));
@@ -13,7 +13,7 @@ vi.mock('../../services/ServiceRegistry.js', async () => (await import('../helpe
 let PluginManager;
 
 class MockBaseService {
-    constructor(config) { this.config = config; this.extensionApi = null; }
+    constructor(config) { this.config = config; this.name = config?.name; this.extensionApi = null; }
     extractPages(content) { return content || []; }
 }
 
@@ -32,7 +32,6 @@ beforeEach(async () => {
     delete globalThis.serviceRegistry;
     globalThis.browserEnv = { isFirefox: false };
     globalThis.NoServiceTabError = class NoServiceTabError extends Error {};
-    globalThis.loadImageOrDefer = (label, load) => load();
     globalThis.ImageCompressor = { compress: vi.fn(async (base64, contentType) => ({ base64, contentType })) };
     await loadModule();
 });
@@ -544,82 +543,30 @@ describe('_loadServiceProxy()', () => {
         expect(inst.resolvePageUrl('/img.jpg')).toBe('/img.jpg');
     });
 
-    it('PluginServiceProxy.loadPageAsBase64: returns null when resolvePageUrl returns null', async () => {
+    it('PluginServiceProxy is a CdnLibsService with the config of the plugin', async () => {
         const getClass = setupBaseService();
-        PluginManager._loadServiceProxy({ service: 'svc', hosts: [] });
+        const serviceConfig = { name: 'svc', imagesDomain: 'https://cdn.ex.com', splitLongImages: true, maxImageHeight: 1800 };
+        PluginManager._loadServiceProxy({ service: 'svc', hosts: [], serviceConfig });
+        const { CdnLibsService } = await import('../../services/CdnLibsService.js');
         const inst = new (getClass())();
-        inst.resolvePageUrl = () => null;
-        expect(await inst.loadPageAsBase64(null)).toBeNull();
+        expect(inst).toBeInstanceOf(CdnLibsService);
+        expect(inst.config).toBe(serviceConfig);
+        expect(typeof inst.loadPage).toBe('function');
     });
 
-    it('PluginServiceProxy.loadPageAsBase64: does not depend on instance.extensionApi (goes through fetchPageImage)', async () => {
-        const getClass = setupBaseService();
-        PluginManager._loadServiceProxy({ service: 'svc', hosts: [] });
-        const inst = new (getClass())();
-        inst.extensionApi = null;
-        globalThis.fetchPageImage = vi.fn().mockResolvedValue({ ok: true, base64: 'b64', contentType: 'image/jpeg' });
-        expect(await inst.loadPageAsBase64('https://cdn.ex.com/img.jpg')).toEqual({ base64: 'b64', contentType: 'image/jpeg' });
-        delete globalThis.fetchPageImage;
-    });
-
-    it('PluginServiceProxy.loadPageAsBase64: returns null and warns when response not ok', async () => {
-        const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
-        const getClass = setupBaseService();
-        PluginManager._loadServiceProxy({ service: 'svc', hosts: [] });
-        const inst = new (getClass())();
-        globalThis.fetchPageImage = vi.fn().mockResolvedValue({ ok: false, error: 'err' });
-        expect(await inst.loadPageAsBase64('https://cdn.ex.com/img.jpg')).toBeNull();
-        expect(warn).toHaveBeenCalled();
-        delete globalThis.fetchPageImage;
-    });
-
-    it('PluginServiceProxy.loadPageAsBase64: compresses to JPEG 0.92 by default', async () => {
-        const getClass = setupBaseService();
-        PluginManager._loadServiceProxy({ service: 'svc', hosts: [] });
-        const inst = new (getClass())();
-        globalThis.fetchPageImage = vi.fn().mockResolvedValue({ ok: true, base64: 'b64', contentType: 'image/png' });
-        const result = await inst.loadPageAsBase64('https://cdn.ex.com/img.jpg');
-        expect(result).toEqual({ base64: 'b64', contentType: 'image/png' });
-        expect(globalThis.ImageCompressor.compress)
-            .toHaveBeenCalledWith('b64', 'image/png', { format: 'image/jpeg', quality: 0.92 });
-        delete globalThis.fetchPageImage;
-    });
-
-    it('PluginServiceProxy._getActiveServer: returns null when no imageServers in config', () => {
-        const getClass = setupBaseService();
-        PluginManager._loadServiceProxy({ service: 'svc', hosts: [] });
-        const inst = new (getClass())();
-        expect(inst._getActiveServer()).toBeNull();
-    });
-
-    it('PluginServiceProxy._getActiveServer: uses defaultImageServer when no localStorage key', () => {
+    it('PluginServiceProxy uses the image server chosen for the plugin', () => {
         const getClass = setupBaseService();
         PluginManager._loadServiceProxy({ service: 'svc', hosts: [], serviceConfig: {
-            imageServers: { compression: { domain: 'https://img3.cdnlibs.org', compress: true } },
-            defaultImageServer: 'compression'
+            name: 'svc',
+            imageServers: {
+                compression: { domain: 'https://img3.cdnlibs.org', compress: true },
+                alt: { domain: 'https://img1.cdnlibs.org', compress: false }
+            }
         } });
         const inst = new (getClass())();
-        expect(inst._getActiveServer()).toEqual({ domain: 'https://img3.cdnlibs.org', compress: true });
-    });
-
-    it('PluginServiceProxy._getActiveServer: falls back to compression when key not found in imageServers', () => {
-        const getClass = setupBaseService();
-        PluginManager._loadServiceProxy({ service: 'svc', hosts: [], serviceConfig: {
-            imageServers: { compression: { domain: 'https://img3.cdnlibs.org', compress: true } }
-        } });
-        const inst = new (getClass())();
-        localStorage.setItem('svc_image_server', 'nonexistent');
-        expect(inst._getActiveServer()).toEqual({ domain: 'https://img3.cdnlibs.org', compress: true });
+        localStorage.setItem('svc_image_server', 'alt');
+        expect(inst._activeServer()).toEqual({ domain: 'https://img1.cdnlibs.org', compress: false });
         localStorage.clear();
-    });
-
-    it('PluginServiceProxy._getActiveServer: returns null when imageServers has no matching key and no compression', () => {
-        const getClass = setupBaseService();
-        PluginManager._loadServiceProxy({ service: 'svc', hosts: [], serviceConfig: {
-            imageServers: { alt: { domain: 'https://img1.cdnlibs.org', compress: false } }
-        } });
-        const inst = new (getClass())();
-        expect(inst._getActiveServer()).toBeNull();
     });
 
     it('PluginServiceProxy.resolvePageUrl: uses active server domain when imageServers configured', () => {
@@ -646,109 +593,6 @@ describe('_loadServiceProxy()', () => {
         PluginManager._loadServiceProxy({ service: 'svc', hosts: [] });
         const inst = new (getClass())();
         expect(inst.resolvePageUrl('/img.jpg')).toBe('/img.jpg');
-    });
-
-    it('PluginServiceProxy.loadPageAsBase64: returns {base64,contentType} when server.compress === false', async () => {
-        const getClass = setupBaseService();
-        PluginManager._loadServiceProxy({ service: 'svc', hosts: [], serviceConfig: {
-            imageServers: { alt: { domain: 'https://img1.cdnlibs.org', compress: false } },
-            defaultImageServer: 'alt'
-        } });
-        const inst = new (getClass())();
-        globalThis.fetchPageImage = vi.fn().mockResolvedValue({ ok: true, base64: 'raw', contentType: 'image/png' });
-        globalThis.ImageCompressor = { compress: vi.fn() };
-        const result = await inst.loadPageAsBase64('https://img1.cdnlibs.org/img.jpg');
-        expect(result).toEqual({ base64: 'raw', contentType: 'image/png' });
-        expect(globalThis.ImageCompressor.compress).not.toHaveBeenCalled();
-        delete globalThis.fetchPageImage;
-    });
-
-    it('PluginServiceProxy.loadPageAsBase64: uses ImageCompressor when available', async () => {
-        const getClass = setupBaseService();
-        PluginManager._loadServiceProxy({ service: 'svc', hosts: [] });
-        const inst = new (getClass())();
-        globalThis.fetchPageImage = vi.fn().mockResolvedValue({ ok: true, base64: 'b64', contentType: 'image/jpeg' });
-        globalThis.ImageCompressor = { compress: vi.fn().mockResolvedValue({ base64: 'compressed', contentType: 'image/jpeg' }) };
-        const result = await inst.loadPageAsBase64('https://cdn.ex.com/img.jpg');
-        expect(globalThis.ImageCompressor.compress).toHaveBeenCalled();
-        expect(result).toEqual({ base64: 'compressed', contentType: 'image/jpeg' });
-        delete globalThis.fetchPageImage;
-    });
-
-    it('PluginServiceProxy.processChapterContent: loads pages with concurrency', async () => {
-        const getClass = setupBaseService();
-        PluginManager._loadServiceProxy({ service: 'svc', hosts: [] });
-        const inst = new (getClass())();
-        globalThis.fetchPageImage = vi.fn().mockResolvedValue({ ok: true, base64: 'b64', contentType: 'image/jpeg' });
-        const pages = [{ src: 'https://cdn.ex.com/1.jpg' }, { src: 'https://cdn.ex.com/2.jpg' }];
-        const result = await inst.processChapterContent(pages, null);
-        expect(result).toHaveLength(2);
-        expect(result[0].type).toBe('image');
-        delete globalThis.fetchPageImage;
-    });
-
-    it('PluginServiceProxy.processChapterContent: inserts error text when page load fails', async () => {
-        const getClass = setupBaseService();
-        PluginManager._loadServiceProxy({ service: 'svc', hosts: [] });
-        const inst = new (getClass())();
-        globalThis.fetchPageImage = vi.fn().mockRejectedValue(new Error('fail'));
-        const result = await inst.processChapterContent([{ src: 'https://cdn.ex.com/1.jpg' }], null);
-        expect(result[0].type).toBe('text');
-        expect(result[0].text).toContain('Ошибка');
-        delete globalThis.fetchPageImage;
-    });
-
-    it('PluginServiceProxy.processChapterContent: aborts the whole batch when a page throws NoServiceTabError', async () => {
-        const getClass = setupBaseService();
-        PluginManager._loadServiceProxy({ service: 'svc', hosts: [] });
-        const inst = new (getClass())();
-        class NoServiceTabError extends Error {}
-        globalThis.NoServiceTabError = NoServiceTabError;
-        globalThis.fetchPageImage = vi.fn().mockRejectedValue(new NoServiceTabError('no tab'));
-        await expect(inst.processChapterContent([{ src: 'https://cdn.ex.com/1.jpg' }], null))
-            .rejects.toBeInstanceOf(NoServiceTabError);
-        delete globalThis.fetchPageImage;
-        delete globalThis.NoServiceTabError;
-    });
-
-    it('PluginServiceProxy.processChapterContent: loads pages through loadImageOrDefer', async () => {
-        const getClass = setupBaseService();
-        PluginManager._loadServiceProxy({ service: 'svc', hosts: [] });
-        const inst = new (getClass())();
-        const placeholder = { type: 'text', text: 'pending 2' };
-        globalThis.loadImageOrDefer = vi.fn(async (label, load) => (label === 2 ? [placeholder] : load()));
-        globalThis.fetchPageImage = vi.fn()
-            .mockResolvedValueOnce({ ok: true, base64: 'b64', contentType: 'image/jpeg' })
-            .mockResolvedValueOnce({ ok: false });
-        const pages = [{ src: 'https://cdn.ex.com/1.jpg' }, { src: 'https://cdn.ex.com/2.jpg' }, { src: 'https://cdn.ex.com/3.jpg' }];
-        const result = await inst.processChapterContent(pages, null);
-        expect(result[0]).toEqual(expect.objectContaining({
-            type: 'image', data: { base64: 'b64', contentType: 'image/jpeg' }, originalIndex: 0
-        }));
-        expect(result[1]).toBe(placeholder);
-        expect(result[2].text).toContain('Ошибка загрузки изображения 3');
-        expect(globalThis.loadImageOrDefer.mock.calls.map(c => c[0])).toEqual([1, 2, 3]);
-        delete globalThis.fetchPageImage;
-        delete globalThis.loadImageOrDefer;
-    });
-
-    it('PluginServiceProxy.processChapterContent: updates status.textContent', async () => {
-        const getClass = setupBaseService();
-        PluginManager._loadServiceProxy({ service: 'svc', hosts: [] });
-        const inst = new (getClass())();
-        globalThis.fetchPageImage = vi.fn().mockResolvedValue({ ok: true, base64: 'b64', contentType: 'image/jpeg' });
-        const status = { textContent: '' };
-        await inst.processChapterContent([{ src: 'https://cdn.ex.com/1.jpg' }], status);
-        expect(status.textContent).toContain('1/1');
-        delete globalThis.fetchPageImage;
-    });
-
-    it('PluginServiceProxy.processChapterContent: handles non-array extracted', async () => {
-        const getClass = setupBaseService();
-        PluginManager._loadServiceProxy({ service: 'svc', hosts: [] });
-        const inst = new (getClass())();
-        const result = await inst.processChapterContent(null, null);
-        expect(result).toEqual([]);
     });
 
     it('uses plugin.service as config name when serviceConfig absent', () => {
@@ -926,13 +770,28 @@ describe('FormatSandboxProxy.export() + _createSandbox', () => {
         expect(result.blob).toBeInstanceOf(Blob);
     });
 
-    it('_createSandbox: builds Firefox iframe.srcdoc when browserEnv.isFirefox is true', async () => {
+    it('_createSandbox: builds the Firefox iframe.srcdoc from sandbox.js of the extension', async () => {
         globalThis.browserEnv = { isFirefox: true };
+        const sandboxCode = 'global.ExporterRegistry = {}; /* </script> */';
+        vi.stubGlobal('fetch', vi.fn(async url => (url === 'chrome-extension://abc/sandbox.js'
+            ? { ok: true, status: 200, text: async () => sandboxCode }
+            : { ok: false, status: 404 })));
         const inst = new CapturedProxy();
         const result = await inst.export({}, [], null);
         expect(result.filename).toBe('out.fb2');
-        expect(fakeIframe.srcdoc).toContain('window.addEventListener("message"');
-        expect(fakeIframe.srcdoc).toContain('ExporterRegistry');
+        expect(fetch).toHaveBeenCalledWith('chrome-extension://abc/sandbox.js');
+        expect(fakeIframe.srcdoc).toBe(
+            '<!DOCTYPE html><html><body><script>global.ExporterRegistry = {}; /* <\\/script> */</script></body></html>');
+        vi.unstubAllGlobals();
+        delete globalThis.browserEnv;
+    });
+
+    it('_createSandbox: fails when sandbox.js cannot be read in Firefox', async () => {
+        globalThis.browserEnv = { isFirefox: true };
+        vi.stubGlobal('fetch', vi.fn(async () => ({ ok: false, status: 404 })));
+        const inst = new CapturedProxy();
+        await expect(inst.export({}, [], null)).rejects.toThrow('Failed to load sandbox.js: HTTP 404');
+        vi.unstubAllGlobals();
         delete globalThis.browserEnv;
     });
 
@@ -996,26 +855,15 @@ describe('FormatSandboxProxy.export() + _createSandbox', () => {
         delete globalThis.fetch;
     });
 
-    it('export() skips jszip fetch entirely when the extension api has no runtime.getURL', async () => {
+    it('export() fails clearly without runtime.getURL and fetches nothing', async () => {
         globalThis.browserEnv = { isFirefox: true };
         globalThis.extensionApi = { runtime: { sendMessage: vi.fn().mockResolvedValue({ ok: true }) } };
         const fetchSpy = vi.fn();
-        globalThis.fetch = fetchSpy;
-        fakeContentWindow.postMessage.mockImplementation(msg => {
-            setTimeout(() => {
-                const onMsg = getCapturedOnMsg();
-                if (!onMsg) return;
-                if (msg._t === 'sb-exec')
-                    onMsg({ source: fakeContentWindow, data: { _t: 'sb-ok', _id: msg._id, c: {} } });
-                if (msg._t === 'sb-export')
-                    onMsg({ source: fakeContentWindow, data: { _t: 'sb-export-ok', _id: msg._id, buf: new ArrayBuffer(4), filename: 'out.fb2', mimeType: 'application/xml' } });
-            }, 0);
-        });
+        vi.stubGlobal('fetch', fetchSpy);
         const inst = new CapturedProxy();
-        const result = await inst.export({}, [], null);
+        await expect(inst.export({}, [], null)).rejects.toThrow('Cannot resolve sandbox URL');
         expect(fetchSpy).not.toHaveBeenCalled();
-        expect(result.filename).toBe('out.fb2');
-        delete globalThis.fetch;
+        vi.unstubAllGlobals();
         delete globalThis.browserEnv;
     });
 
@@ -1057,14 +905,12 @@ describe('FormatSandboxProxy.export() + _createSandbox', () => {
                     onMsg({ source: fakeContentWindow, data: { _t: 'sb-ok', _id: msg._id, c: {} } });
             }, 0);
         });
+        vi.stubGlobal('fetch', vi.fn(async () => { throw new Error('offline'); }));
         const inst = new CapturedProxy();
-        const exportPromise = inst.export({}, [], null);
-        vi.advanceTimersByTime(1);
-        await Promise.resolve(); await Promise.resolve();
-        vi.advanceTimersByTime(1);
-        await Promise.resolve(); await Promise.resolve(); await Promise.resolve();
-        vi.advanceTimersByTime(130000);
-        await expect(exportPromise).rejects.toThrow('Sandbox export timeout');
+        const settled = expect(inst.export({}, [], null)).rejects.toThrow('Sandbox export timeout');
+        await vi.advanceTimersByTimeAsync(130000);
+        await settled;
+        vi.unstubAllGlobals();
         vi.useRealTimers();
     });
 
@@ -1146,12 +992,12 @@ describe('FormatSandboxProxy.export() + _createSandbox', () => {
             if (el === fakeIframe) setTimeout(() => capturedLoadListener2?.(), 0);
         });
         fakeIframe.addEventListener = (evt, cb) => { if (evt === 'load') capturedLoadListener2 = cb; };
+        vi.stubGlobal('fetch', vi.fn(async () => { throw new Error('offline'); }));
         const inst = new CapturedProxy();
-        const exportPromise = inst.export({}, [], null);
-        vi.advanceTimersByTime(1);
-        await Promise.resolve(); await Promise.resolve();
-        vi.advanceTimersByTime(9000);
-        await expect(exportPromise).rejects.toThrow('Sandbox exec timeout');
+        const settled = expect(inst.export({}, [], null)).rejects.toThrow('Sandbox exec timeout');
+        await vi.advanceTimersByTimeAsync(9000);
+        await settled;
+        vi.unstubAllGlobals();
         vi.useRealTimers();
     });
 

@@ -7,20 +7,19 @@
  * @version 1.1.0
  */
 
-import { extensionApi, fetchViaTab, hasServiceTab, NoServiceTabError } from './BrowserApi.js';
+import { extensionApi } from './BrowserApi.js';
+import { DEFERRED_SETTINGS, estimateContentSize, waitWithDeadline } from './DeferredQueue.js';
+import { createController, DownloadContext } from './DownloadContext.js';
 import { EventBus } from './EventBus.js';
 import { ImageCompressor } from './ImageCompressor.js';
 import { MangaPatcher } from './MangaPatcher.js';
 import { PORT_KEEP_ALIVE } from './messages.js';
 import { PluginManager } from './PluginManager.js';
-import { RateLimitClient } from './RateLimitClient.js';
 import { ExporterRegistry } from '../exporters/ExporterRegistry.js';
 import { extractSlug } from '../services/hosts.js';
 import { serviceRegistry } from '../services/ServiceRegistry.js';
 
 console.log('[DownloadManager] Loading...');
-
-let activeGate = null;
 
 /**
  * Габариты, в которые вписываются изображения FB2 при включённой настройке.
@@ -28,490 +27,6 @@ let activeGate = null;
  * не помещающиеся по высоте; запас по высоте — на отступы абзаца и строки.
  */
 const FB2_IMAGE_FIT = { maxWidth: 560, maxHeight: 740 };
-
-/**
- * Параметры фоновой (отложенной) загрузки изображений и глав.
- * deferAfterMs — сколько ждать изображение или главу, прежде чем отложить её
- * и продолжить загрузку остального контента; backgroundAttemptTimeoutMs — сколько
- * ждать фоновую попытку, прежде чем параллельно запустить следующую; retryDelayMs —
- * пауза перед повтором после неудачной фоновой попытки; maxAttempts — сколько всего
- * попыток (включая первую) даётся элементу, прежде чем на его месте останется текст
- * ошибки; maxDeferredChapters — сколько глав может одновременно грузиться в фоне;
- * defaultImageBytes/defaultChapterBytes — оценка размера, пока не загружено ни одного
- * изображения/главы; pollIntervalMs — период проверки при ожидании фоновых загрузок.
- */
-const DEFERRED_SETTINGS = {
-    deferAfterMs: 30000,
-    backgroundAttemptTimeoutMs: 180000,
-    retryDelayMs: 15000,
-    maxAttempts: 5,
-    maxDeferredChapters: 3,
-    defaultImageBytes: 300 * 1024,
-    defaultChapterBytes: 2 * 1024 * 1024,
-    pollIntervalMs: 250
-};
-
-/**
- * Переводит миллисекунды в секунды для логов.
- * @param {number} ms - Длительность в миллисекундах.
- * @returns {number} Длительность в секундах.
- */
-function seconds(ms) {
-    return ms / 1000;
-}
-
-/**
- * Подпись главы для логов.
- * @param {{title?: string}} chapter - Глава.
- * @returns {string}
- */
-function chapterName(chapter) {
-    return chapter.title ? `Chapter "${chapter.title}"` : 'Chapter';
-}
-
-/**
- * Проверяет, что загрузка сейчас медленная по нашей же причине: она на паузе,
- * либо запросы ждут своей очереди в rate limiter'е (в т.ч. после ответа 429).
- * Пока это так, сроки ожидания не истекают — откладывать контент из-за
- * собственного ограничения бессмысленно.
- * @returns {boolean}
- */
-function isHeldBack() {
-    if (activeGate?.controller?.isPaused?.()) return true;
-    return RateLimitClient.isHeldBack();
-}
-
-/**
- * Ждёт операцию не дольше ms; пока загрузка придержана (isHeldBack), срок продлевается.
- * @param {Promise<*>} promise - Ожидаемая операция.
- * @param {number} ms - Срок ожидания.
- * @returns {Promise<{done: boolean, value?: *}>} done=true и результат, если операция
- * завершилась в срок; done=false, если срок истёк (операция продолжает выполняться).
- * @throws {*} Ошибку операции, если она завершилась ошибкой до истечения срока.
- */
-function waitWithDeadline(promise, ms) {
-    return new Promise((resolve, reject) => {
-        let timer;
-        const arm = () => {
-            timer = setTimeout(() => {
-                if (isHeldBack()) arm();
-                else resolve({ done: false });
-            }, ms);
-        };
-        arm();
-        promise.then(value => {
-            clearTimeout(timer);
-            resolve({ done: true, value });
-        }, error => {
-            clearTimeout(timer);
-            reject(error);
-        });
-    });
-}
-
-/**
- * Оценивает приблизительный размер содержимого главы в байтах. Метки фоновых
- * загрузок учитываются по оценочному размеру того, что окажется на их месте.
- * @param {?{content: Array, pendingChapter?: object}} chapter - Обработанное содержимое главы.
- * @returns {number} Оценочный размер в байтах.
- */
-function estimateContentSize(chapter) {
-    if (!chapter || !Array.isArray(chapter.content)) return 0;
-    if (chapter.pendingChapter) return chapter.pendingChapter.estimatedBytes || 0;
-    let bytes = 0;
-    for (const block of chapter.content) {
-        if (block.pendingImage)
-            bytes += block.pendingImage.estimatedBytes || 0;
-        else if (block.type === 'text' && block.text)
-            bytes += block.text.length * 2;
-        else if (block.type === 'image') {
-            const b64 = (block.data && block.data.base64) ? block.data.base64 : '';
-            if (b64) bytes += Math.ceil(b64.length * 3 / 4);
-        }
-    }
-    return bytes;
-}
-
-/**
- * Загружает изображение, не задерживая главу дольше deferAfterMs: если load() не
- * успела, вместо изображения возвращается метка, а загрузка продолжается в фоне.
- * DownloadManager подхватывает метку из содержимого главы и вставляет изображение
- * на её место, как только фоновая загрузка завершится (при неудаче — повторяет её).
- * @param {string|number} label - Подпись изображения (обычно номер страницы).
- * @param {function(): Promise<?object[]>} load - Загрузка изображения: готовые блоки
- * содержимого, либо null при ошибке.
- * @returns {Promise<?object[]>} Блоки изображения, null при ошибке, либо [метка].
- * @throws {*} Ошибку load(), если она случилась до истечения срока.
- */
-export async function loadImageOrDefer(label, load) {
-    const running = Promise.resolve().then(load);
-    const outcome = await waitWithDeadline(running, DEFERRED_SETTINGS.deferAfterMs);
-    if (outcome.done) return outcome.value;
-    console.warn(`[DownloadManager] Image ${label} not loaded within ${seconds(DEFERRED_SETTINGS.deferAfterMs)} s, ` +
-        'temporarily skipped, it keeps loading in background');
-    return [{
-        type: 'text',
-        text: `[Изображение ${label} загружается в фоне]`,
-        pendingImage: { label, load, running, estimatedBytes: 0 }
-    }];
-}
-
-/**
- * Фоновые загрузки одной загрузки тайтла — изображения и главы, не успевшие
- * загрузиться за deferAfterMs. Каждая продолжает загружаться в фоне и, как только
- * завершится, вставляется на место своей метки. Неудачная попытка повторяется
- * через retryDelayMs; попытка, висящая дольше backgroundAttemptTimeoutMs, дублируется
- * новой (старая продолжает работать, засчитывается первый успех). После maxAttempts
- * попыток на месте метки остаётся текст ошибки.
- */
-export class DeferredQueue {
-    /**
-     * Создаёт пустую очередь.
-     */
-    constructor() {
-        this.entries = [];
-        this.observed = new WeakSet();
-        this.imageBytes = 0;
-        this.imageCount = 0;
-        this.chapterBytes = 0;
-        this.chapterCount = 0;
-    }
-
-    /**
-     * Количество незавершённых фоновых загрузок.
-     * @returns {number}
-     */
-    get size() {
-        return this.entries.length;
-    }
-
-    /**
-     * Количество незавершённых фоновых загрузок, относящихся к указанным главам.
-     * @param {?object[]} chapters - Главы, либо null — все загрузки.
-     * @returns {number}
-     */
-    countFor(chapters) {
-        if (!chapters) return this.entries.length;
-        const owners = new Set(chapters);
-        return this.entries.filter(e => owners.has(e.owner)).length;
-    }
-
-    /**
-     * Количество глав, загружающихся в фоне целиком.
-     * @returns {number}
-     */
-    countChapters() {
-        return this.entries.filter(e => e.kind === 'chapter').length;
-    }
-
-    /**
-     * Средний размер загруженного изображения в байтах (или оценка по умолчанию).
-     * @returns {number}
-     */
-    averageImageBytes() {
-        return this.imageCount > 0
-            ? Math.ceil(this.imageBytes / this.imageCount)
-            : DEFERRED_SETTINGS.defaultImageBytes;
-    }
-
-    /**
-     * Средний размер загруженной главы в байтах (или оценка по умолчанию).
-     * @returns {number}
-     */
-    averageChapterBytes() {
-        return this.chapterCount > 0
-            ? Math.ceil(this.chapterBytes / this.chapterCount)
-            : DEFERRED_SETTINGS.defaultChapterBytes;
-    }
-
-    /**
-     * Учитывает загруженную главу: обновляет средние размеры и ставит в фоновую
-     * загрузку её отложенные изображения, резервируя под них оценочный размер.
-     * @param {?{content: Array}} chapter - Обработанное содержимое главы.
-     * @returns {void}
-     */
-    observe(chapter) {
-        if (!chapter || !Array.isArray(chapter.content) || chapter.pendingChapter) return;
-        if (this.observed.has(chapter)) return;
-        this.observed.add(chapter);
-
-        const skipped = [];
-        for (const block of chapter.content) {
-            if (block.type === 'image') this._countImage(block);
-            else if (block.pendingImage) {
-                block.pendingImage.estimatedBytes = this.averageImageBytes();
-                this._addImage(chapter, block);
-                skipped.push(block.pendingImage.label);
-            }
-        }
-        this.chapterBytes += estimateContentSize(chapter);
-        this.chapterCount += 1;
-
-        if (skipped.length === 0) return;
-        const estimateKb = Math.round(this.averageImageBytes() / 1024);
-        console.warn(`[DownloadManager] ${chapterName(chapter)}: ${skipped.length} image(s) loading ` +
-            `in background (${skipped.join(', ')}), ~${estimateKb} KB each reserved`);
-    }
-
-    /**
-     * Добавляет размер блока изображения в статистику среднего размера.
-     * @param {object} block - Блок изображения.
-     * @returns {void}
-     */
-    _countImage(block) {
-        const b64 = block.data?.base64;
-        if (!b64) return;
-        this.imageBytes += Math.ceil(b64.length * 3 / 4);
-        this.imageCount += 1;
-    }
-
-    /**
-     * Ставит в фоновую загрузку отложенное изображение главы.
-     * @param {object} chapter - Глава, в содержимом которой стоит метка.
-     * @param {object} block - Метка изображения.
-     * @returns {void}
-     */
-    _addImage(chapter, block) {
-        const { label, load, running } = block.pendingImage;
-        this._add({
-            kind: 'image',
-            owner: chapter,
-            name: chapter.title ? `Image ${label} of chapter "${chapter.title}"` : `Image ${label}`,
-            load,
-            running,
-            isSuccess: blocks => Array.isArray(blocks) && blocks.length > 0,
-            apply: blocks => {
-                const index = chapter.content.indexOf(block);
-                if (index !== -1) chapter.content.splice(index, 1, ...blocks);
-                blocks.forEach(b => { if (b.type === 'image') this._countImage(b); });
-            },
-            fail: () => {
-                block.text = `[Ошибка загрузки изображения ${label}]`;
-                delete block.pendingImage;
-            }
-        });
-    }
-
-    /**
-     * Откладывает главу, не загрузившуюся за deferAfterMs: возвращает главу-метку,
-     * которая занимает место главы в пакете сохранения и заполняется содержимым,
-     * как только фоновая загрузка главы завершится.
-     * @param {object} chapter - Метаданные главы (name, volume, number).
-     * @param {string} title - Заголовок главы.
-     * @param {function(): Promise<object>} load - Загрузка содержимого главы.
-     * @param {Promise<object>} running - Уже идущая загрузка главы.
-     * @returns {object} Глава-метка.
-     */
-    deferChapter(chapter, title, load, running) {
-        const placeholder = {
-            title,
-            content: [{ type: 'text', text: '[Глава загружается в фоне]' }],
-            volume: chapter.volume,
-            number: chapter.number,
-            pendingChapter: { estimatedBytes: this.averageChapterBytes() }
-        };
-        console.warn(`[DownloadManager] ${chapterName(placeholder)} not loaded within ` +
-            `${seconds(DEFERRED_SETTINGS.deferAfterMs)} s, temporarily skipped, it keeps loading in background ` +
-            `(~${Math.round(placeholder.pendingChapter.estimatedBytes / 1024)} KB reserved)`);
-        this._add({
-            kind: 'chapter',
-            owner: placeholder,
-            name: chapterName(placeholder),
-            load,
-            running,
-            isSuccess: result => !!result,
-            apply: result => {
-                delete placeholder.pendingChapter;
-                Object.assign(placeholder, result);
-                this.observe(placeholder);
-            },
-            fail: reason => {
-                delete placeholder.pendingChapter;
-                placeholder.content = [{ type: 'text', text: `[Ошибка загрузки главы: ${reason}]` }];
-            }
-        });
-        return placeholder;
-    }
-
-    /**
-     * Регистрирует фоновую загрузку и начинает следить за уже идущей попыткой.
-     * @param {object} spec - Описание загрузки (kind, owner, name, load, running,
-     * isSuccess, apply, fail).
-     * @returns {void}
-     */
-    _add(spec) {
-        const entry = { ...spec, attempts: 1, done: false, timer: null };
-        this.entries.push(entry);
-        this._watch(entry, spec.running, 1);
-    }
-
-    /**
-     * Следит за попыткой загрузки: первый успех вставляется на место метки,
-     * неудача последней попытки планирует повтор.
-     * @param {object} entry - Фоновая загрузка.
-     * @param {Promise<*>} promise - Попытка загрузки.
-     * @param {number} attempt - Номер попытки.
-     * @returns {void}
-     */
-    _watch(entry, promise, attempt) {
-        promise.then(result => {
-            if (entry.done) return;
-            if (entry.isSuccess(result)) this._succeed(entry, result, attempt);
-            else if (attempt === entry.attempts) this._retryLater(entry, 'source returned an error');
-        }, error => {
-            if (entry.done || attempt !== entry.attempts) return;
-            // Прерванная остановкой загрузка не повторяется: метки снимает cancelAll.
-            if (error?.aborted) {
-                clearTimeout(entry.timer);
-                return;
-            }
-            this._retryLater(entry, error?.message || String(error));
-        });
-        this._armAttemptTimeout(entry);
-    }
-
-    /**
-     * Запускает отсчёт времени текущей попытки: если она висит дольше
-     * backgroundAttemptTimeoutMs, параллельно запускается следующая. Таймер
-     * снимается при завершении загрузки и заменяется при каждой новой попытке.
-     * @param {object} entry - Фоновая загрузка.
-     * @returns {void}
-     */
-    _armAttemptTimeout(entry) {
-        clearTimeout(entry.timer);
-        entry.timer = setTimeout(() => {
-            if (isHeldBack()) {
-                this._armAttemptTimeout(entry);
-                return;
-            }
-            const waited = seconds(DEFERRED_SETTINGS.backgroundAttemptTimeoutMs);
-            if (entry.attempts >= DEFERRED_SETTINGS.maxAttempts) {
-                this._giveUp(entry, `still not loaded ${waited} s after attempt ${entry.attempts}`);
-                return;
-            }
-            console.warn(`[DownloadManager] ${entry.name}: still loading after ${waited} s, ` +
-                'starting another attempt, the previous one keeps running');
-            this._startAttempt(entry);
-        }, DEFERRED_SETTINGS.backgroundAttemptTimeoutMs);
-    }
-
-    /**
-     * Планирует повтор после неудачной попытки, либо сдаётся, если попытки исчерпаны.
-     * @param {object} entry - Фоновая загрузка.
-     * @param {string} reason - Причина неудачи (для лога).
-     * @returns {void}
-     */
-    _retryLater(entry, reason) {
-        const { maxAttempts, retryDelayMs } = DEFERRED_SETTINGS;
-        if (entry.attempts >= maxAttempts) {
-            this._giveUp(entry, `${reason}, ${entry.attempts} attempt(s) made`, reason);
-            return;
-        }
-        console.warn(`[DownloadManager] ${entry.name}: background attempt ${entry.attempts}/${maxAttempts} ` +
-            `failed (${reason}), retrying in ${seconds(retryDelayMs)} s`);
-        clearTimeout(entry.timer);
-        entry.timer = setTimeout(() => this._startAttempt(entry), retryDelayMs);
-    }
-
-    /**
-     * Запускает очередную попытку фоновой загрузки.
-     * @param {object} entry - Фоновая загрузка.
-     * @returns {void}
-     */
-    _startAttempt(entry) {
-        entry.attempts += 1;
-        console.log(`[DownloadManager] ${entry.name}: retrying download in background ` +
-            `(attempt ${entry.attempts}/${DEFERRED_SETTINGS.maxAttempts})...`);
-        this._watch(entry, Promise.resolve().then(() => entry.load()), entry.attempts);
-    }
-
-    /**
-     * Вставляет загруженный результат на место метки.
-     * @param {object} entry - Фоновая загрузка.
-     * @param {*} result - Результат загрузки.
-     * @param {number} attempt - Номер успешной попытки.
-     * @returns {void}
-     */
-    _succeed(entry, result, attempt) {
-        this._finish(entry);
-        entry.apply(result);
-        console.log(`[DownloadManager] ${entry.name}: loaded in background (attempt ${attempt}), inserted into place`);
-        if (entry.kind === 'image' && !this.entries.some(e => e.owner === entry.owner))
-            console.log(`[DownloadManager] ${chapterName(entry.owner)}: all background images inserted`);
-    }
-
-    /**
-     * Отказывается от фоновой загрузки, оставляя на месте метки текст ошибки.
-     * @param {object} entry - Фоновая загрузка.
-     * @param {string} reason - Причина отказа (для лога).
-     * @param {string} [cause] - Причина для текста ошибки главы (по умолчанию reason).
-     * @returns {void}
-     */
-    _giveUp(entry, reason, cause = reason) {
-        this._finish(entry);
-        console.warn(`[DownloadManager] ${entry.name}: giving up (${reason}), leaving error marker`);
-        entry.fail(cause);
-    }
-
-    /**
-     * Снимает загрузку с учёта и останавливает её таймеры.
-     * @param {object} entry - Фоновая загрузка.
-     * @returns {void}
-     */
-    _finish(entry) {
-        entry.done = true;
-        clearTimeout(entry.timer);
-        this.entries = this.entries.filter(e => e !== entry);
-    }
-
-    /**
-     * Отменяет все фоновые загрузки (при остановке загрузки тайтла), оставляя на
-     * местах меток текст ошибки, чтобы уже загруженное можно было сохранить.
-     * @param {string} reason - Причина отмены.
-     * @returns {void}
-     */
-    cancelAll(reason) {
-        if (this.entries.length === 0) return;
-        console.log(`[DownloadManager] Download stopped, cancelling ${this.entries.length} background load(s)`);
-        this.entries.slice().forEach(entry => this._giveUp(entry, reason));
-    }
-
-    /**
-     * Молча снимает все фоновые загрузки и их таймеры (по завершении загрузки тайтла).
-     * @returns {void}
-     */
-    dispose() {
-        this.entries.forEach(entry => {
-            entry.done = true;
-            clearTimeout(entry.timer);
-        });
-        this.entries = [];
-    }
-}
-
-/**
- * Функция, прерывающая загрузку при паузе или завершении загрузки.
- * @param { DownloadManager } controller - Контроллер загрузки,
- * предоставляющий методы для проверки состояния загрузки.
- * @returns {interrupted: boolean, checkpoint: function(): Promise<void> } - Флаги состояния загрузки
- * и функция для проверки состояния загрузки.
- */
-function createGate(controller) {
-    const gate = {
-        controller,
-        interrupted: false,
-        async checkpoint() {
-            await controller.waitIfPaused();
-            if (controller.shouldStop()) {
-                gate.interrupted = true;
-                const error = new Error('Download aborted');
-                error.aborted = true;
-                throw error;
-            }
-        }
-    };
-    return gate;
-}
 
 /**
  * Оркестрирует полный жизненный цикл загрузки тайтла с сервиса: получение
@@ -543,28 +58,21 @@ export class DownloadManager {
     }
 
     /**
-     * Определяет экземпляр сервиса по ключу или по URL и, при наличии токена,
-     * подставляет его в заголовок Authorization конфигурации сервиса.
+     * Создаёт собственный экземпляр сервиса загрузки (по ключу или по URL тайтла)
+     * и, при наличии токена, подставляет его в заголовки этого экземпляра.
      * @param {?string} serviceKey - Ключ сервиса (приоритетнее url).
      * @param {?string} url - URL тайтла, используется, если serviceKey не передан.
-     * @param {?string} authToken - Токен авторизации для подстановки в заголовки.
-     * @returns {object} Экземпляр сервиса.
+     * @param {?string} authToken - Токен авторизации.
+     * @returns {object} Новый экземпляр сервиса.
      */
     _resolveService(serviceKey, url, authToken) {
-        let service;
-        if (serviceKey) {
-            service = serviceRegistry.createService(serviceKey);
-            if (!service) throw new Error(`Unknown service: ${serviceKey}`);
-        } else if (url)
-            service = serviceRegistry.getServiceByUrl(url);
-        else
-            throw new Error('Either serviceKey or url must be provided');
+        if (!serviceKey && !url) throw new Error('Either serviceKey or url must be provided');
+        const key = serviceKey || serviceRegistry.findServiceKey(url);
+        if (!key) throw new Error('Unsupported service');
 
-        if (!service) throw new Error('Unsupported service');
-
-        if (authToken)
-            service.config.headers = { ...service.config.headers, 'Authorization': `Bearer ${authToken}` };
-
+        const service = serviceRegistry.createService(key);
+        if (!service) throw new Error(`Unknown service: ${key}`);
+        if (authToken) service.setAuthToken(authToken);
         return service;
     }
 
@@ -575,10 +83,11 @@ export class DownloadManager {
      * @returns {object} Начальное состояние загрузки, регистрируемое в activeDownloads.
      */
     _createDownloadState(options, service) {
-        const { url, format = 'fb2', slug, serviceKey, controller,
+        const { url, format = 'fb2', slug, serviceKey, controller = this.createController(),
             maxSizeMB = 200, splitPages = true, fitFb2Images = false } = options;
         const downloadId = this.generateId();
-        return {
+        const imageFit = fitFb2Images && format === 'fb2' ? FB2_IMAGE_FIT : null;
+        const state = {
             id: downloadId,
             service: service.name,
             serviceKey,
@@ -586,18 +95,25 @@ export class DownloadManager {
             format,
             maxSizeMB,
             splitPages,
-            imageFit: fitFb2Images && format === 'fb2' ? FB2_IMAGE_FIT : null,
+            imageFit,
             status: 'initializing',
             progress: 0,
-            controller: controller || this.createController(),
+            controller,
             manga: null,
             mangaId: null,
             coverBase64: null,
             chapterContents: [],
             chapters: [],
-            currentChapterIndex: 0,
-            deferred: new DeferredQueue()
+            currentChapterIndex: 0
         };
+        state.ctx = new DownloadContext({
+            controller,
+            settings: { splitPages, imageFit, format },
+            onPageProgress: (done, total) => this.eventBus.emit('download:pages', { id: downloadId, done, total }),
+            on429: () => this.updateStatus(downloadId, 'Ожидание разрешения от сервера...', state.progress)
+        });
+        state.deferred = state.ctx.deferred;
+        return state;
     }
 
     /**
@@ -662,8 +178,7 @@ export class DownloadManager {
      * @returns {Promise<object[]>} Отфильтрованный и отсортированный список глав.
      */
     async _fetchAndFilterChapters(service, downloadState, branchId, chapterRange) {
-        const chaptersData = await service.fetchChaptersList(downloadState.slug);
-        let chapters = this.sortChapters(chaptersData.data || []);
+        let chapters = this.sortChapters(await service.getChapterList(downloadState.slug));
 
         if (branchId != null) {
             chapters = chapters
@@ -762,17 +277,16 @@ export class DownloadManager {
         this.eventBus.emit('download:started', downloadState);
 
         const keepAlive = this._startKeepAlive();
-        const gate = createGate(downloadState.controller);
-        downloadState.gate = gate;
-        service._gate = gate;
-        activeGate = gate;
+        const { ctx } = downloadState;
+        service.attach(ctx);
+        ctx.activate();
 
         try {
             this.updateStatus(downloadId, 'Загрузка метаданных...', 5);
-            const metadata = await service.fetchMangaMetadata(downloadState.slug);
+            const metadata = await service.getManga(downloadState.slug);
             console.log('[DownloadManager] Metadata:', metadata);
 
-            const patched = MangaPatcher.patch(metadata.data || metadata);
+            const patched = MangaPatcher.patch(metadata);
             downloadState.manga = patched;
             downloadState.mangaId = patched.id || null;
 
@@ -800,16 +314,17 @@ export class DownloadManager {
             throw error;
         } finally {
             downloadState.deferred.dispose();
-            if (activeGate === gate) activeGate = null;
-            if (service._gate === gate) service._gate = null;
+            ctx.deactivate();
+            if (service.ctx === ctx) service.attach(null);
             this._stopKeepAlive(keepAlive);
             setTimeout(() => this.activeDownloads.delete(downloadId), 5000);
         }
     }
 
     /**
-     * Загружает обложку тайтла и кодирует её в data-URL с base64-содержимым.
-     * @param {object} service - Экземпляр сервиса (используется для rate limiting по имени).
+     * Загружает обложку тайтла через сервис (service.fetchImage) и кодирует её
+     * в data-URL с base64-содержимым.
+     * @param {object} service - Экземпляр сервиса.
      * @param {?string} cover - URL обложки.
      * @param {?{maxWidth: number, maxHeight: number}} [imageFit] - Габариты, в которые
      * вписывается обложка; без них обложка сохраняется как есть.
@@ -819,14 +334,14 @@ export class DownloadManager {
     async _fetchCoverBase64(service, cover, imageFit = null) {
         if (!cover || typeof cover !== 'string') return '';
         try {
-            const result = await fetchViaTab(cover, service.name);
-            if (result?.ok) {
+            const result = await service.fetchImage(cover);
+            if (result.ok) {
                 const { base64, contentType } = imageFit
                     ? await ImageCompressor.compress(result.base64, result.contentType, imageFit)
                     : result;
                 return `data:${contentType};base64,${base64}`;
             }
-            console.warn('[DownloadManager] fetchViaTab returned no result for cover');
+            console.warn('[DownloadManager] Failed to load cover:', result.error);
             return '';
         } catch (e) {
             console.warn('[DownloadManager] Failed to load cover:', e);
@@ -887,7 +402,7 @@ export class DownloadManager {
         const resolveCover = async () => {
             if (cover !== null) return cover;
             const outcome = await waitWithDeadline(Promise.resolve(coverBase64),
-                DEFERRED_SETTINGS.backgroundAttemptTimeoutMs);
+                DEFERRED_SETTINGS.backgroundAttemptTimeoutMs, this._heldBack(downloadState));
             if (!outcome.done) console.warn('[DownloadManager] Cover is still not loaded, saving without it');
             cover = outcome.done ? outcome.value : '';
             return cover;
@@ -947,46 +462,37 @@ export class DownloadManager {
             currentBatch = [];
         };
 
-        service._on429 = () => {
-            const dl = this.activeDownloads.get(downloadId);
-            this.updateStatus(downloadId, 'Ожидание разрешения от сервера...', dl ? dl.progress : 0);
-        };
+        for (let i = 0; i < chapters.length; i++) {
+            await downloadState.controller.waitIfPaused();
+            if (downloadState.controller.shouldStop()) break;
 
-        try {
-            for (let i = 0; i < chapters.length; i++) {
-                await downloadState.controller.waitIfPaused();
-                if (downloadState.controller.shouldStop()) break;
+            downloadState.currentChapterIndex = i;
+            const chapter = chapters[i];
+            const progress = Math.floor((i / chapters.length) * 80) + 10;
+            this.updateStatus(downloadId, this._withPendingInfo(downloadState,
+                `Глава ${i + 1}/${chapters.length}: ${chapter.name || chapter.number}`), progress);
 
-                downloadState.currentChapterIndex = i;
-                const chapter = chapters[i];
-                const progress = Math.floor((i / chapters.length) * 80) + 10;
-                this.updateStatus(downloadId, this._withPendingInfo(downloadState,
-                    `Глава ${i + 1}/${chapters.length}: ${chapter.name || chapter.number}`), progress);
+            const chapterResult = await this._downloadChapterOrDefer(service, downloadState, chapter);
+            if (downloadState.ctx?.interrupted) break;
+            this._trackDeferred(downloadState, chapterResult);
+            const chapterSize = this.estimateChapterSize(chapterResult);
+            const chapterVolume = this._chapterVolume(chapter);
+            const currentSize = currentBatch.reduce((sum, ch) => sum + this.estimateChapterSize(ch), 0);
+            const volumeChanged = currentBatch.length > 0 && chapterVolume !== currentVolume;
+            const sizeExceeded = currentBatch.length > 0 && currentSize + chapterSize > maxSizeBytes;
 
-                const chapterResult = await this._downloadChapterOrDefer(service, downloadState, chapter);
-                if (downloadState.gate?.interrupted) break;
-                this._trackDeferred(downloadState, chapterResult);
-                const chapterSize = this.estimateChapterSize(chapterResult);
-                const chapterVolume = this._chapterVolume(chapter);
-                const currentSize = currentBatch.reduce((sum, ch) => sum + this.estimateChapterSize(ch), 0);
-                const volumeChanged = currentBatch.length > 0 && chapterVolume !== currentVolume;
-                const sizeExceeded = currentBatch.length > 0 && currentSize + chapterSize > maxSizeBytes;
-
-                if (volumeChanged || sizeExceeded) {
-                    flushBatch(progress);
-                    if (volumeChanged) volumePartIndex = 0;
-                }
-
-                if (currentBatch.length === 0) currentVolume = chapterVolume;
-                currentBatch.push(chapterResult);
-
-                downloadState.chapterContents.push(chapterResult);
+            if (volumeChanged || sizeExceeded) {
+                flushBatch(progress);
+                if (volumeChanged) volumePartIndex = 0;
             }
-        } finally {
-            service._on429 = null;
+
+            if (currentBatch.length === 0) currentVolume = chapterVolume;
+            currentBatch.push(chapterResult);
+
+            downloadState.chapterContents.push(chapterResult);
         }
 
-        if (downloadState.controller.shouldStop() || downloadState.gate?.interrupted)
+        if (downloadState.controller.shouldStop() || downloadState.ctx?.interrupted)
             downloadState.deferred?.cancelAll('download stopped');
         flushBatch(95);
         await this._waitForDeferred(downloadState, null, { report: true, progress: 95 });
@@ -1028,11 +534,8 @@ export class DownloadManager {
      * @throws {Error} При ошибке загрузки главы.
      */
     async _loadChapter(service, downloadState, chapter) {
-        const fetchArgs = [downloadState.slug, chapter.number, chapter.volume || '1'];
-        if (chapter.branchId != null) fetchArgs.push(chapter.branchId);
-        const chapterData = await service.fetchChapter(...fetchArgs);
-
-        const rawContent = chapterData.data || chapterData;
+        const rawContent = await service.getChapter(
+            downloadState.slug, chapter.number, chapter.volume || '1', chapter.branchId ?? null);
         const contentToExtract = rawContent.content || rawContent;
 
         const extractedContent = service.extractText
@@ -1042,7 +545,7 @@ export class DownloadManager {
         const processedContent = service.processChapterContent
             ? await service.processChapterContent(
                 extractedContent,
-                document.getElementById('status'),
+                null,
                 {
                     chapterMeta: rawContent,
                     chapterObj: chapter,
@@ -1079,7 +582,8 @@ export class DownloadManager {
 
         const running = load();
         for (;;) {
-            const outcome = await waitWithDeadline(running, DEFERRED_SETTINGS.deferAfterMs);
+            const outcome = await waitWithDeadline(
+                running, DEFERRED_SETTINGS.deferAfterMs, this._heldBack(downloadState));
             if (outcome.done) return outcome.value;
             if (queue.countChapters() < DEFERRED_SETTINGS.maxDeferredChapters)
                 return queue.deferChapter(chapter, this._chapterTitle(chapter), load, running);
@@ -1126,7 +630,7 @@ export class DownloadManager {
 
     /**
      * Возвращает публичный снимок состояния активной загрузки (без служебных
-     * полей вроде controller и gate).
+     * полей вроде controller и ctx).
      * @param {string} downloadId - id загрузки.
      * @returns {?object} Снимок состояния загрузки, либо null, если загрузка не найдена.
      */
@@ -1165,36 +669,27 @@ export class DownloadManager {
         const results = [];
         const total = totalChapters || chapters.length;
 
-        service._on429 = () => {
-            const dl = this.activeDownloads.get(downloadState.id);
-            this.updateStatus(downloadState.id, 'Ожидание разрешения от сервера...', dl ? dl.progress : 0);
-        };
+        for (let i = 0; i < chapters.length; i++) {
+            await downloadState.controller.waitIfPaused();
+            if (downloadState.controller.shouldStop()) break;
 
-        try {
-            for (let i = 0; i < chapters.length; i++) {
-                await downloadState.controller.waitIfPaused();
-                if (downloadState.controller.shouldStop()) break;
+            downloadState.currentChapterIndex = startIndex + i;
 
-                downloadState.currentChapterIndex = startIndex + i;
+            const chapter = chapters[i];
+            const globalIndex = startIndex + i;
+            const progress = Math.floor((globalIndex / total) * 80) + 10;
 
-                const chapter = chapters[i];
-                const globalIndex = startIndex + i;
-                const progress = Math.floor((globalIndex / total) * 80) + 10;
+            this.updateStatus(
+                downloadState.id,
+                `Глава ${globalIndex + 1}/${total}: ${chapter.name || chapter.number}`,
+                progress
+            );
 
-                this.updateStatus(
-                    downloadState.id,
-                    `Глава ${globalIndex + 1}/${total}: ${chapter.name || chapter.number}`,
-                    progress
-                );
-
-                const chapterResult = await this._downloadChapterOrDefer(service, downloadState, chapter);
-                if (downloadState.gate?.interrupted) break;
-                this._trackDeferred(downloadState, chapterResult);
-                results.push(chapterResult);
-                downloadState.chapterContents.push(chapterResult);
-            }
-        } finally {
-            service._on429 = null;
+            const chapterResult = await this._downloadChapterOrDefer(service, downloadState, chapter);
+            if (downloadState.ctx?.interrupted) break;
+            this._trackDeferred(downloadState, chapterResult);
+            results.push(chapterResult);
+            downloadState.chapterContents.push(chapterResult);
         }
 
         await this._waitForDeferred(downloadState, results, { report: true, progress: 90 });
@@ -1203,29 +698,23 @@ export class DownloadManager {
 
     /**
      * Создаёт контроллер паузы/остановки по умолчанию для загрузки, запущенной
-     * без собственного controller в опциях.
+     * без собственного controller в опциях (см. DownloadContext.createController).
      * @returns {{pause: function(): void, resume: function(): void, stop: function(): void,
      * isPaused: function(): boolean, shouldStop: function(): boolean,
      * waitIfPaused: function(): Promise<void>}} Контроллер загрузки.
      */
     createController() {
-        let paused = false;
-        let stopped = false;
+        return createController();
+    }
 
-        const isPaused = () => paused;
-        const shouldStop = () => stopped;
-
-        return {
-            pause: () => { paused = true; },
-            resume: () => { paused = false; },
-            stop: () => { stopped = true; },
-            isPaused,
-            shouldStop,
-            waitIfPaused: async () => {
-                while (isPaused() && !shouldStop())
-                    await new Promise(resolve => setTimeout(resolve, 100));
-            }
-        };
+    /**
+     * Возвращает проверку «загрузка придержана» (пауза, очередь ограничителя) для
+     * сроков отложенной загрузки.
+     * @param {object} downloadState - Текущее состояние загрузки.
+     * @returns {function(): boolean}
+     */
+    _heldBack(downloadState) {
+        return () => !!downloadState.ctx?.isHeldBack();
     }
 
     /**
@@ -1339,50 +828,5 @@ export class DownloadManager {
         return this.activeDownloads.get(downloadId) || null;
     }
 }
-
-/**
- * Загружает изображение страницы с проверкой контрольных точек прерывания
- * загрузки до и после сетевого запроса (позволяет прервать загрузку максимально
- * быстро, не дожидаясь завершения уже начатого запроса изображения).
- * @param {string} url - URL изображения.
- * @param {string} serviceKey - Ключ сервиса (для rate limiting).
- * @returns {Promise<{ok: boolean, base64?: string, contentType?: string, error?: string}>}
- * Результат загрузки изображения.
- */
-export async function fetchPageImage(url, serviceKey) {
-    const gate = activeGate;
-    if (gate) await gate.checkpoint();
-    const result = await fetchPageImageUngated(url, serviceKey);
-    if (gate) await gate.checkpoint();
-    return result;
-}
-
-/**
- * Загружает изображение страницы без проверки контрольных точек прерывания:
- * учитывает запрос в общем rate limiter'е и загружает его через вкладку сервиса
- * (fetchViaTab), чтобы браузер сам поставил настоящие Referer/Origin. Если открытой
- * вкладки сервиса нет вообще — бросает NoServiceTabError (а не тихо откатывается на
- * fetch из контекста расширения с подделанными заголовками); если вкладка есть,
- * но сама загрузка не удалась — возвращает ok:false для мягкой постраничной деградации.
- * @param {string} url - URL изображения.
- * @param {string} serviceKey - Ключ сервиса (для rate limiting и выбора вкладки).
- * @returns {Promise<{ok: boolean, base64?: string, contentType?: string, error?: string}>}
- * Результат загрузки изображения.
- * @throws {Error} NoServiceTabError, если не найдено открытой вкладки сервиса.
- */
-async function fetchPageImageUngated(url, serviceKey) {
-    await RateLimitClient.acquire(serviceKey || 'image');
-    if (activeGate) await activeGate.checkpoint();
-
-    const viaTab = await fetchViaTab(url, serviceKey);
-    if (viaTab?.ok) return viaTab;
-
-    if (!await hasServiceTab(serviceKey))
-        throw new NoServiceTabError('Откройте страницу сервиса в отдельной вкладке, чтобы продолжить загрузку');
-
-    return { ok: false, error: 'Image fetch failed' };
-}
-
-export { DEFERRED_SETTINGS as deferredLoadSettings };
 
 console.log('[DownloadManager] Loaded');

@@ -38,6 +38,22 @@ describe('sandbox.js', () => {
         expect(instance.escapeXml('<a>&"\'</a>')).toBe('&lt;a&gt;&amp;&quot;&apos;&lt;/a&gt;');
     });
 
+    it('stripHtml and extractText give the same results as BaseExporter of the extension', async () => {
+        const { BaseExporter } = await import('../exporters/BaseExporter.js');
+        const stub = new window.BaseExporter();
+        const real = new BaseExporter();
+        const inputs = [
+            '<script>x</script><p>a &amp;lt;b&amp;gt;</p><br><br><br><div>&quot;c&quot; &#39;d&#39;&nbsp;</div>',
+            [{ type: 'paragraph', content: [{ type: 'text', text: 'A' }, { type: 'image' }] }, { type: 'text', text: 'B' },
+                { type: 'text', content: 5 }, { type: 'other' }],
+            null,
+            42
+        ];
+        expect(stub.stripHtml(inputs[0])).toBe(real.stripHtml(inputs[0]));
+        inputs.forEach(input => expect(stub.extractText(input)).toBe(real.extractText(input)));
+        expect(stub.stripHtml('')).toBe('');
+    });
+
     it('escapeXml returns empty string for falsy input', () => {
         const instance = new window.BaseExporter();
         expect(instance.escapeXml('')).toBe('');

@@ -69,7 +69,12 @@ beforeAll(async () => {
     vi.spyOn(console, 'warn').mockImplementation(() => {});
     chromeStubCode = readFileSync(resolve(root, 'sandbox.js'), 'utf8');
 
-    globalThis.browser = { runtime: { id: 'ext', sendMessage: vi.fn(async () => ({ ok: true })) } };
+    globalThis.browser = {
+        runtime: { id: 'ext', sendMessage: vi.fn(async () => ({ ok: true })), getURL: path => `moz-extension://ext/${path}` }
+    };
+    vi.stubGlobal('fetch', vi.fn(async url => (url === 'moz-extension://ext/sandbox.js'
+        ? { ok: true, status: 200, text: async () => chromeStubCode }
+        : { ok: false, status: 404, text: async () => '' })));
     await import('../../core/pluginApi.js');
     const { PluginManager } = await import('../../core/PluginManager.js');
 
@@ -93,6 +98,7 @@ beforeAll(async () => {
 
 afterAll(() => {
     vi.restoreAllMocks();
+    vi.unstubAllGlobals();
     delete globalThis.browser;
 });
 

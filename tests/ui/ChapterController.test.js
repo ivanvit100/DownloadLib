@@ -41,7 +41,7 @@ describe('ChapterController', () => {
     describe('loadAndPopulate', () => {
         it('returns chapter count and populates selects', async () => {
             const chapters = makeChapters(3);
-            const svc = { fetchChaptersList: vi.fn(async () => ({ data: chapters })) };
+            const svc = { getChapterList: vi.fn(async () => chapters) };
             const cc = new ChapterController();
             const result = await cc.loadAndPopulate(svc, 'my-slug', null, null);
             expect(result).toBe(3);
@@ -52,7 +52,7 @@ describe('ChapterController', () => {
 
         it('sets fromSelect and toSelect values when chapterFromUrl and chapterToUrl are not null', async () => {
             const chapters = makeChapters(3);
-            const svc = { fetchChaptersList: vi.fn(async () => ({ data: chapters })) };
+            const svc = { getChapterList: vi.fn(async () => chapters) };
             const cc = new ChapterController();
             await cc.loadAndPopulate(svc, 'my-slug', '0', '2');
             expect(document.getElementById('chapterFromSelect').value).toBe('0');
@@ -61,7 +61,7 @@ describe('ChapterController', () => {
 
         it('sets toSelect.selectedIndex to last chapter when URLs are null', async () => {
             const chapters = makeChapters(3);
-            const svc = { fetchChaptersList: vi.fn(async () => ({ data: chapters })) };
+            const svc = { getChapterList: vi.fn(async () => chapters) };
             const cc = new ChapterController();
             await cc.loadAndPopulate(svc, 'my-slug', null, null);
             expect(document.getElementById('chapterToSelect').selectedIndex).toBe(2);
@@ -74,7 +74,7 @@ describe('ChapterController', () => {
                 { volume: 1, number: 2, branches: [{ branch_id: 1, teams: [{ name: 'A' }] }] },
                 { volume: 2, number: 1, branches: [{ branch_id: 1, teams: [{ name: 'A' }] }] }
             ];
-            const svc = { fetchChaptersList: vi.fn(async () => ({ data: chapters })) };
+            const svc = { getChapterList: vi.fn(async () => chapters) };
             const cc = new ChapterController();
             await cc.loadAndPopulate(svc, 'my-slug', null, null);
             const toSelect = document.getElementById('chapterToSelect');
@@ -85,15 +85,15 @@ describe('ChapterController', () => {
 
         it('hides translatorContainer when chapters have single branch', async () => {
             const chapters = makeChapters(2);
-            const svc = { fetchChaptersList: vi.fn(async () => ({ data: chapters })) };
+            const svc = { getChapterList: vi.fn(async () => chapters) };
             const cc = new ChapterController();
             await cc.loadAndPopulate(svc, 'slug', null, null);
             expect(document.getElementById('translatorContainer').style.display).toBe('none');
         });
 
-        it('returns null and logs warn when fetchChaptersList throws', async () => {
+        it('returns null and logs warn when getChapterList throws', async () => {
             const warnSpy = vi.spyOn(console, 'warn');
-            const svc = { fetchChaptersList: vi.fn(async () => { throw new Error('network fail'); }) };
+            const svc = { getChapterList: vi.fn(async () => { throw new Error('network fail'); }) };
             const cc = new ChapterController();
             const result = await cc.loadAndPopulate(svc, 'slug', null, null);
             expect(result).toBeNull();
@@ -101,8 +101,8 @@ describe('ChapterController', () => {
             warnSpy.mockRestore();
         });
 
-        it('returns 0 when chaptersData has no data field', async () => {
-            const svc = { fetchChaptersList: vi.fn(async () => ({})) };
+        it('returns 0 when the title has no chapters', async () => {
+            const svc = { getChapterList: vi.fn(async () => []) };
             const cc = new ChapterController();
             const result = await cc.loadAndPopulate(svc, 'slug', null, null);
             expect(result).toBe(0);
@@ -111,7 +111,7 @@ describe('ChapterController', () => {
         it('does not show chapterRangeContainer when selects are missing', async () => {
             document.body.innerHTML = '<div id="translatorContainer"><select id="translatorSelect"></select></div><div id="chapterRangeContainer"></div>';
             const chapters = makeChapters(2);
-            const svc = { fetchChaptersList: vi.fn(async () => ({ data: chapters })) };
+            const svc = { getChapterList: vi.fn(async () => chapters) };
             const cc = new ChapterController();
             await cc.loadAndPopulate(svc, 'slug', null, null);
             expect(document.getElementById('chapterRangeContainer').style.display).toBe('');
@@ -122,7 +122,7 @@ describe('ChapterController', () => {
                 { volume: 1, number: 1, branches: [{ branch_id: 1, teams: [{ name: 'Team A' }] }, { branch_id: 2, teams: [{ name: 'Team B' }] }] },
                 { volume: 1, number: 2, branches: [{ branch_id: 1, teams: [{ name: 'Team A' }] }] }
             ];
-            const svc = { fetchChaptersList: vi.fn(async () => ({ data: chapters })) };
+            const svc = { getChapterList: vi.fn(async () => chapters) };
             const cc = new ChapterController();
             await cc.loadAndPopulate(svc, 'slug', null, null);
             expect(document.getElementById('translatorContainer').style.display).toBe('block');
@@ -133,7 +133,7 @@ describe('ChapterController', () => {
             const chapters = [
                 { volume: 1, number: 1, branches: [{ branch_id: 1, teams: [{ name: 'Team A' }] }, { branch_id: 2, teams: [{ name: 'Team B' }] }] },
             ];
-            const svc = { fetchChaptersList: vi.fn(async () => ({ data: chapters })) };
+            const svc = { getChapterList: vi.fn(async () => chapters) };
             const cc = new ChapterController();
             await cc.loadAndPopulate(svc, 'slug', null, null, '2');
             expect(document.getElementById('translatorSelect').value).toBe('2');
@@ -419,7 +419,7 @@ describe('ChapterController', () => {
                 { volume: 1, number: 1, branches: [{ branch_id: 1, teams: [{ name: 'A' }] }, { branch_id: 2, teams: [{ name: 'B' }] }] },
                 { volume: 1, number: 2, branches: [{ branch_id: 1, teams: [{ name: 'A' }] }] }
             ];
-            const svc = { fetchChaptersList: vi.fn(async () => ({ data: chapters })) };
+            const svc = { getChapterList: vi.fn(async () => chapters) };
             const cc = new ChapterController();
             await cc.loadAndPopulate(svc, 'slug', null, null);
             const sel = document.getElementById('translatorSelect');
