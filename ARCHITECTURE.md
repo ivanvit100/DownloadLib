@@ -110,25 +110,29 @@ PopupController.loadMetadata()
             → scripting.executeScript(tabId, tabFetch, 'text')    [вкладка сервиса]
     → MangaPatcher.patch(meta)             [core]
     → ChapterController.loadAndPopulate(service, slug, …)
-        → service.getChapterList(slug)     [тот же путь запроса]
+        → service.fetchChapters(slug)      [getChapterList + сортировка; тот же путь запроса]
+        → <option value = chapterKey(глава)>
 
 PopupController.startDownload()                             [controller = createController()]
-    → DownloadManager.startDownload(options)
+    → DownloadManager.startDownload({chapters, chapterRange: {fromKey, toKey}, branchId, …})
         → serviceRegistry.createService(key), service.setAuthToken(token)
         → service.attach(new DownloadContext({controller, settings, onPageProgress, on429}))
-        → service.getChapter(slug, num, vol, branchId)
-        → service.extractText(rawContent)
-        → service.processChapterContent(extracted, null, opts)
-            → ctx.loadImageOrDefer(n, load)                     [срок, метка, фоновая догрузка]
-                → service.fetchImage(url)                       [контрольные точки ctx]
-                    → TabNetwork.fetchViaTab(url, serviceKey)
-                        → RateLimitClient.acquire(serviceKey)
-                        → scripting.executeScript(tabId, tabFetch, 'base64')  [вкладка сервиса: fetch → base64]
-                → ImageCompressor.process(...)                  [вписывание, нарезка, одно кодирование]
-            → ctx.onPageProgress(done, total) → событие download:pages → статус в окне
+        → selectRange(filterByBranch(chapters, branchId), chapterRange)   [core/chapters.js]
+        → service.fetchChapterBlocks(chapter, {slug, mangaId, splitLongImages, imageFit})
+            → service.getChapter(slug, num, vol, branchId)
+            → service.extractText(raw.content)
+            → service.processChapterContent(extracted, null, opts)
+                → ctx.loadImageOrDefer(n, load)                 [срок, метка, фоновая догрузка]
+                    → service.fetchImage(url)                   [контрольные точки ctx]
+                        → TabNetwork.fetchViaTab(url, serviceKey)
+                            → RateLimitClient.acquire(serviceKey)
+                            → scripting.executeScript(tabId, tabFetch, 'base64')  [вкладка сервиса: fetch → base64]
+                    → ImageCompressor.process(...)              [вписывание, нарезка, одно кодирование]
+                → ctx.onPageProgress(done, total) → событие download:pages → статус в окне
         → ExporterRegistry.create(format).export(manga, chapters, cover)
-        → DownloadHistory.add(entry)
-        → saveFile(blob, filename)
+        → saveFile(blob, filename) → downloads.download({url: blob-URL, filename, conflictAction: 'uniquify'})
+        → content глав пакета освобождается
+    → DownloadHistory.add(entry)
 
 Ответ HTTP 429 (BaseService._request)
     → RateLimitClient.throttle(ms)
@@ -171,14 +175,26 @@ PopupController.startDownload()                             [controller = create
 
 ### `core/text.js`
 
-Общие для сервисов и экспортёров функции: `escapeXml`, `escapeHtml`, `decodeEntities` (основные HTML-сущности, `&amp;` — последней, поэтому `&amp;lt;` превращается в текст «&lt;», а не в «<») и `sanitizeFilename` (запрещённые в именах файлов и управляющие символы → `_`, длина до 200). `BaseExporter`, `PDFExporter` и `RanobeLibService` делегируют сюда.
+Общие для сервисов и экспортёров функции: `escapeXml`, `escapeHtml`, `decodeEntities` (основные HTML-сущности, `&amp;` — последней, поэтому `&amp;lt;` превращается в текст «&lt;», а не в «<») и `sanitizeFilename` (запрещённые в именах файлов и управляющие символы → `_`, длина до 200). `BaseExporter`, `PDFExporter`, `SimpleExporter`, `RanobeLibService` и `DownloadManager.saveFile` делегируют сюда.
+
+---
+
+### `core/chapters.js`
+
+Список глав и выбранный диапазон — одни и те же функции для попапа и загрузки:
+- `chapterKey(chapter)` — ключ главы: `id`, а без него `v{volume}_ch{number}`. Ключи — значения `<option>` диапазона и параметров `chapterFrom`/`chapterTo` окна загрузки, поэтому диапазон не зависит от порядка и фильтров списка.
+- `sortChapters(chapters)` — копия, отсортированная по тому, затем по номеру главы. Вызывается только из `BaseService.fetchChapters`.
+- `filterByBranch(chapters, branchId)` — главы ветки перевода с полем `branchId` (нужно запросу главы); без ветки — список как есть.
+- `selectRange(chapters, {fromKey, toKey})` — главы между ключами включительно. Если ключа нет в списке или начало позже конца — понятная ошибка вместо пустого или чужого файла.
 
 ---
 
 ### `core/DownloadContext.js`
 
 Объект одной загрузки тайтла. `DownloadManager` создаёт его на каждую загрузку и передаёт сервису через `service.attach(ctx)`, поэтому у каждой загрузки свои пауза, остановка, фоновые загрузки и колбэки. Модульного «активного шлюза» больше нет.
-- `createController()` — контроллер `{pause, resume, stop, isPaused, shouldStop, waitIfPaused}`. `waitIfPaused` не опрашивает состояние по таймеру: на паузе он возвращает промис, который разрешается при `resume()` или `stop()`.
+- `createController()` — контроллер `{pause, resume, stop, isPaused, shouldStop, waitIfPaused, whenStopped}`. Состояние не опрашивается по таймеру: на паузе `waitIfPaused` возвращает промис, который разрешается при `resume()` или `stop()`, а `whenStopped()` — промис, который разрешается при `stop()`.
+- `whenStopped()` — промис остановки загрузки. Берётся у контроллера; у стороннего контроллера без `whenStopped` остановка проверяется раз в `pollIntervalMs`.
+- `dispose()` — по завершении загрузки снимает фоновые загрузки, проверку остановки и делает контекст нетекущим.
 - `checkpoint()` — ждёт снятия паузы и бросает ошибку с `aborted: true`, если загрузку остановили (`interrupted` становится `true`).
 - `isHeldBack()` — пауза или ожидание в ограничителе запросов (`RateLimitClient.isHeldBack()`); пока это так, сроки отложенной загрузки не истекают.
 - `deferred` — `DeferredQueue` этой загрузки; `loadImageOrDefer(label, load)` — отложенная загрузка картинки с учётом `isHeldBack`.
@@ -190,7 +206,7 @@ PopupController.startDownload()                             [controller = create
 
 ### `core/DeferredQueue.js`
 
-Фоновая (отложенная) загрузка картинок и глав, не успевших загрузиться за `DEFERRED_SETTINGS.deferAfterMs`: `DeferredQueue`, `loadImageOrDefer(label, load, isHeldBack)`, `waitWithDeadline(promise, ms, isHeldBack)`, `estimateContentSize(chapter)`. Признак «загрузка придержана» передаётся из контекста загрузки, глобального состояния у модуля нет. Подробности — в описании `DownloadManager` ниже.
+Фоновая (отложенная) загрузка картинок и глав, не успевших загрузиться за `DEFERRED_SETTINGS.deferAfterMs`: `DeferredQueue`, `loadImageOrDefer(label, load, isHeldBack)`, `waitWithDeadline(promise, ms, isHeldBack)`, `estimateContentSize(chapter)`. Признак «загрузка придержана» передаётся из контекста загрузки, глобального состояния у модуля нет. `queue.onChange(listener)` сообщает о добавлении и завершении фоновых загрузок, `queue.whenSettled(chapters)` — промис, который разрешается, когда у указанных глав (или у всех, `null`) не осталось фоновых загрузок, а также при `dispose()`. Подробности — в описании `DownloadManager` ниже.
 
 ---
 
@@ -298,21 +314,25 @@ PopupController.startDownload()                             [controller = create
 
 Оркестрирует полный жизненный цикл загрузки.
 
-**`startDownload(options)`** — принимает `{ url?, serviceKey?, slug, format, controller, chapterRange, branchId, maxSizeMB }` и запускает flow:
+**`startDownload(options)`** — принимает `{ url?, serviceKey?, slug, format, controller, chapters, chapterRange: {fromKey, toKey}, branchId, maxSizeMB, splitPages, fitFb2Images, authToken }` и запускает flow:
 
-1. Применяет auth-токен через `AuthManager.apply()`.
+1. Создаёт свой экземпляр сервиса с токеном (`authToken`, его находит `AuthManager` попапа).
 2. Загружает метаданные → `MangaPatcher.patch()`.
-3. Загружает обложку как base64.
-4. Загружает список глав через `ChapterController`, применяет фильтры `branchId` и `chapterRange`.
-5. `downloadWithSizeLimit()` — итерирует главы, разбивая на части при превышении `maxSizeMB`.
+3. Загружает обложку в фоне.
+4. Берёт список глав, уже загруженный `ChapterController` (`chapters`), а без него — `service.fetchChapters(slug)`. Оставляет главы ветки `branchId` и диапазон по ключам (`core/chapters.js`). `branchId`, равный `NaN`, считается отсутствующим (с предупреждением). Если глава диапазона не найдена, начало позже конца или глав нет — ошибка с понятным текстом.
+5. `downloadWithSizeLimit()` — итерирует главы, разбивая на части при смене тома и превышении `maxSizeMB`.
 
-**`downloadSingleChapter()`** — вызывает `service.getChapter()` → `service.extractText()` → `service.processChapterContent()`.
+**Одна глава** — `_loadChapter()` вызывает `service.fetchChapterBlocks(chapter, opts)` и добавляет к результату `title`, `volume`, `number` и `key` (ключ главы). Разворачивание ответа и вызовы `extractText`/`processChapterContent` живут только в `BaseService`.
 
-Метаданные, список глав и главу `DownloadManager` и `PopupController` получают через `getManga`, `getChapterList`, `getChapter` сервиса — уже без обёртки `{data: …}` ответа API.
+Метаданные `DownloadManager` и `PopupController` получают через `getManga` сервиса — уже без обёртки `{data: …}` ответа API.
 
 **Сервис и контекст загрузки.** `_resolveService` создаёт собственный экземпляр сервиса (`serviceRegistry.createService`, по URL — через `findServiceKey`) и подставляет токен через `setAuthToken`. `_createDownloadState` создаёт `DownloadContext` загрузки: контроллер, настройки, `onPageProgress` (событие `download:pages {id, done, total}`) и `on429` (статус «Ожидание разрешения от сервера...»). На время загрузки сервис привязан к контексту (`service.attach(ctx)`) и отвязывается в конце. В `processChapterContent` передаётся `null` вместо DOM-элемента статуса.
 
-**`createController()`** — контроллер из `DownloadContext.createController()`: `{ pause(), resume(), stop(), isPaused(), shouldStop(), waitIfPaused() }` с промисным `waitIfPaused()` без опроса.
+**`createController()`** — контроллер из `DownloadContext.createController()`: `{ pause(), resume(), stop(), isPaused(), shouldStop(), waitIfPaused(), whenStopped() }` с промисными `waitIfPaused()` и `whenStopped()` без опроса.
+
+**Сохранение файла.** `saveFile(blob, filename)` сохраняет через `downloads.download({url: blob-URL, filename, conflictAction: 'uniquify'})`. Имя очищает `safeFilename`: недопустимые символы — через `text.sanitizeFilename`, пробелы и точки по краям убираются, расширение сохраняется, пустое имя заменяется на `download`. Blob-URL освобождается по `downloads.onChanged` (`complete` или `interrupted`), а если событие не пришло — через 10 минут. Без downloads API сохранение завершается понятной ошибкой.
+
+**Память.** Готовые главы хранятся только в пакете текущего файла. После `export()` и сохранения файла `content` глав пакета обнуляется, а сам пакет очищается, поэтому изображения сохранённых томов не держатся в памяти до конца загрузки. Экспортёр получает данные прежней формы; обнуление происходит только после того, как его промис разрешился.
 
 **Фоновая загрузка медленного контента** (`core/DeferredQueue.js`). Ни изображение, ни глава не задерживают загрузку дольше `DEFERRED_SETTINGS.deferAfterMs` (30 с). Пока загрузка на паузе или запросы стоят в очереди ограничителя (в т.ч. после 429), срок не идёт (`ctx.isHeldBack()`).
 - *Изображения.* Сервис загружает каждое изображение через `this.loadImageOrDefer(label, load)` (контекст загрузки). Срок считается на всю загрузку изображения (перебор расширений, сжатие). Если он истёк, в главу кладётся метка `[Изображение N загружается в фоне]`, а сама загрузка продолжается в фоне.
@@ -320,6 +340,7 @@ PopupController.startDownload()                             [controller = create
 - *Очередь.* `DeferredQueue` (`downloadState.deferred`) вставляет результат на место метки, как только фоновая загрузка завершится. Неудачная попытка повторяется через `retryDelayMs`. Попытка, висящая дольше `backgroundAttemptTimeoutMs`, дублируется новой; засчитывается первый успех. После `maxAttempts` на месте метки остаётся `[Ошибка загрузки изображения N]` / `[Ошибка загрузки главы: …]`.
 - *Размер.* Метки учитываются в `estimateChapterSize()` по среднему размеру уже загруженных изображений/глав.
 - *Сохранение.* Сохранение тома (`_createBatchSaver`) ждёт фоновые загрузки своих глав, не задерживая загрузку следующих; файлы сохраняются по порядку. Обложка тоже грузится в фоне и нужна только при сохранении.
+- *Ожидание.* `_waitForDeferred` не опрашивает очередь: он ждёт первое из `queue.whenSettled(chapters)` и `ctx.whenStopped()`. Статус «Дозагрузка в фоне: осталось N...» обновляется по `queue.onChange`, только когда N меняется.
 - *Остановка.* Фоновые загрузки отменяются, на местах меток остаётся текст ошибки, уже загруженное сохраняется.
 
 ---
@@ -357,7 +378,9 @@ PopupController.startDownload()                             [controller = create
 - `fetchChaptersList(slug)` — `GET /api/manga/{slug}/chapters`;
 - `fetchChapter(slug, number, volume, branchId, extraParams)` — `GET /api/manga/{slug}/chapter?number=...`.
 
-Для кода расширения — те же данные без обёртки ответа: `getManga(slug)`, `getChapterList(slug)` (всегда массив), `getChapter(slug, number, volume, branchId)`. Они вызывают `fetch*`-методы, поэтому учитывают их переопределение в подклассах и плагинах.
+Для кода расширения — те же данные без обёртки ответа: `getManga(slug)`, `getChapterList(slug)` (всегда массив, в порядке ответа API), `getChapter(slug, number, volume, branchId)`. Они вызывают `fetch*`-методы, поэтому учитывают их переопределение в подклассах и плагинах. Поверх них:
+- `fetchChapters(slug)` — список глав в порядке чтения (`chapters.sortChapters`); единственное место сортировки, им пользуются и попап, и загрузка;
+- `fetchChapterBlocks(chapter, {slug, mangaId, splitLongImages, imageFit})` — весь конвейер главы: `getChapter` (том по умолчанию `'1'`, ветка `chapter.branchId`), `raw.content || raw`, `extractText` и `processChapterContent(extracted, null, {chapterMeta, chapterObj, mangaSlug, mangaId, splitLongImages, imageFit})`, если сервис их поддерживает.
 
 Сохранены для плагинов: `fetchWithRetry` и `fetchWithRateLimitRetry` — обёртки над `_request` в режиме `'response'`; `loadPageAsBase64(url, opts)` — загружает страницу через `fetchImage` и возвращает data-URL; `blobToBase64(blob)` — data-URL через `encoding.blobToDataUrl`.
 
@@ -518,11 +541,13 @@ Origin запроса запоминается в `onBeforeSendHeaders` и за�
 
 Управляет выбором диапазона глав и переводчика.
 
-`loadAndPopulate(service, slug, chapterFromUrl, chapterToUrl, branchIdUrl)` — загружает список глав через `service.getChapterList()`, заполняет `<select>` элементы и при наличии нескольких переводов показывает `translatorSelect`.
+`loadAndPopulate(service, slug, chapterFromUrl, chapterToUrl, branchIdUrl)` — загружает список глав через `service.fetchChapters()` (уже в порядке чтения), заполняет `<select>` элементы и при наличии нескольких переводов показывает `translatorSelect`. Диапазон из URL восстанавливается по ключам глав; если ключа нет в списке — весь диапазон и предупреждение в консоли.
 
-`getFilteredChapters(branchId)` — возвращает главы, принадлежащие нужной ветке перевода.
+`getChapters()` — все загруженные главы; `PopupController` передаёт их в `DownloadManager.startDownload`, чтобы не запрашивать список повторно.
 
-`repopulateSelects(chapters, fromSelect, toSelect)` — пересобирает `<option>` в обоих селектах при смене переводчика.
+`getFilteredChapters(branchId)` — главы нужной ветки перевода (`chapters.filterByBranch`).
+
+`repopulateSelects(chapters, fromSelect, toSelect)` — пересобирает `<option>` в обоих селектах при смене переводчика. Значение опции — ключ главы (`chapters.chapterKey`); в режиме томов — ключ первой (в «от») и последней (в «до») главы тома. `PopupController` сравнивает выбор «от» и «до» по `selectedIndex`, а не по значению.
 
 ---
 

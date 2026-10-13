@@ -8,6 +8,7 @@
  */
 
 import { extensionApi } from './BrowserApi.js';
+import { chapterKey, filterByBranch, selectRange } from './chapters.js';
 import { DEFERRED_SETTINGS, estimateContentSize, waitWithDeadline } from './DeferredQueue.js';
 import { createController, DownloadContext } from './DownloadContext.js';
 import { EventBus } from './EventBus.js';
@@ -15,6 +16,7 @@ import { ImageCompressor } from './ImageCompressor.js';
 import { MangaPatcher } from './MangaPatcher.js';
 import { PORT_KEEP_ALIVE } from './messages.js';
 import { PluginManager } from './PluginManager.js';
+import { sanitizeFilename } from './text.js';
 import { ExporterRegistry } from '../exporters/ExporterRegistry.js';
 import { extractSlug } from '../services/hosts.js';
 import { serviceRegistry } from '../services/ServiceRegistry.js';
@@ -27,6 +29,29 @@ console.log('[DownloadManager] Loading...');
  * не помещающиеся по высоте; запас по высоте — на отступы абзаца и строки.
  */
 const FB2_IMAGE_FIT = { maxWidth: 560, maxHeight: 740 };
+
+/** Наибольшая длина имени сохраняемого файла вместе с расширением. */
+const MAX_FILENAME_LENGTH = 200;
+
+/**
+ * Через сколько освободить blob-URL сохранённого файла, если браузер так и не
+ * сообщил о завершении загрузки.
+ */
+const REVOKE_FALLBACK_MS = 10 * 60 * 1000;
+
+/**
+ * Очищает имя сохраняемого файла: убирает недопустимые символы, а также пробелы
+ * и точки по краям и ограничивает длину, сохраняя расширение.
+ * @param {?string} name - Имя файла от экспортёра.
+ * @returns {string} Безопасное имя файла.
+ */
+export function safeFilename(name) {
+    const raw = String(name ?? '').trim();
+    const extension = /\.[a-z0-9]{1,8}$/i.exec(raw)?.[0] || '';
+    const base = sanitizeFilename(raw.slice(0, raw.length - extension.length), MAX_FILENAME_LENGTH - extension.length)
+        .replace(/^[\s.]+|[\s.]+$/g, '');
+    return (base || 'download') + extension;
+}
 
 /**
  * Оркестрирует полный жизненный цикл загрузки тайтла с сервиса: получение
@@ -102,7 +127,6 @@ export class DownloadManager {
             manga: null,
             mangaId: null,
             coverBase64: null,
-            chapterContents: [],
             chapters: [],
             currentChapterIndex: 0
         };
@@ -128,8 +152,9 @@ export class DownloadManager {
 
     /**
      * Ждёт завершения фоновых загрузок указанных глав (или всех), не загружая
-     * ничего сам. Если загрузку остановили, отменяет фоновые загрузки, оставляя
-     * на их местах текст ошибки, чтобы уже загруженное можно было сохранить.
+     * ничего сам и не опрашивая очередь по таймеру. Если загрузку остановили,
+     * отменяет фоновые загрузки, оставляя на их местах текст ошибки, чтобы уже
+     * загруженное можно было сохранить.
      * @param {object} downloadState - Текущее состояние загрузки.
      * @param {?object[]} chapters - Главы, загрузки которых нужно дождаться, либо null — все.
      * @param {{report?: boolean, progress?: number}} [opts] - report — показывать в статусе,
@@ -140,20 +165,25 @@ export class DownloadManager {
         const queue = downloadState.deferred;
         if (!queue || queue.countFor(chapters) === 0) return;
         console.log(`[DownloadManager] Waiting for ${queue.countFor(chapters)} background load(s)`);
-        let reported = -1;
-        for (;;) {
-            const count = queue.countFor(chapters);
-            if (count === 0) return;
-            if (downloadState.controller.shouldStop()) {
-                queue.cancelAll('download stopped');
-                return;
-            }
 
-            if (report && count !== reported) {
-                reported = count;
-                this.updateStatus(downloadState.id, `Дозагрузка в фоне: осталось ${count}...`, progress);
-            }
-            await new Promise(resolve => setTimeout(resolve, DEFERRED_SETTINGS.pollIntervalMs));
+        let reported = -1;
+        const showRemaining = () => {
+            const count = queue.countFor(chapters);
+            if (count === 0 || count === reported) return;
+            reported = count;
+            this.updateStatus(downloadState.id, `Дозагрузка в фоне: осталось ${count}...`, progress);
+        };
+        const unsubscribe = report ? queue.onChange(showRemaining) : null;
+        if (report) showRemaining();
+
+        try {
+            const stopped = await Promise.race([
+                queue.whenSettled(chapters).then(() => false),
+                downloadState.ctx.whenStopped().then(() => true)
+            ]);
+            if (stopped) queue.cancelAll('download stopped');
+        } finally {
+            unsubscribe?.();
         }
     }
 
@@ -169,30 +199,36 @@ export class DownloadManager {
     }
 
     /**
-     * Загружает список глав тайтла у сервиса, сортирует их и фильтрует
-     * по ветке перевода и/или диапазону индексов.
-     * @param {object} service - Экземпляр сервиса.
-     * @param {object} downloadState - Текущее состояние загрузки (используется slug).
-     * @param {?number} branchId - id ветки перевода для фильтрации, либо null.
-     * @param {?{from: number, to: number}} chapterRange - Диапазон индексов глав, либо null.
-     * @returns {Promise<object[]>} Отфильтрованный и отсортированный список глав.
+     * Приводит id ветки перевода к числу: пустое значение — без ветки,
+     * нечисловое — без ветки с предупреждением.
+     * @param {*} branchId - id ветки перевода из опций загрузки.
+     * @returns {?number} id ветки, либо null.
      */
-    async _fetchAndFilterChapters(service, downloadState, branchId, chapterRange) {
-        let chapters = this.sortChapters(await service.getChapterList(downloadState.slug));
-
-        if (branchId != null) {
-            chapters = chapters
-                .filter(ch => ch.branches && ch.branches.some(b => b.branch_id === branchId))
-                .map(ch => ({ ...ch, branchId }));
-            console.log(`[DownloadManager] Filtered chapters by branch ${branchId}: ${chapters.length}`);
+    _normalizeBranchId(branchId) {
+        if (branchId == null || branchId === '') return null;
+        const id = Number(branchId);
+        if (Number.isNaN(id)) {
+            console.warn(`[DownloadManager] Invalid branch id "${branchId}", downloading without translator filter`);
+            return null;
         }
+        return id;
+    }
 
-        if (chapterRange && 'from' in chapterRange && 'to' in chapterRange) {
-            chapters = chapters.slice(chapterRange.from, chapterRange.to + 1);
-            console.log(`[DownloadManager] Filtered chapters: ${chapters.length} from ${chapterRange.from} to ${chapterRange.to}`);
-        }
-
-        return chapters;
+    /**
+     * Выбирает главы для загрузки: главы ветки перевода в выбранном диапазоне.
+     * @param {object[]} chapters - Все главы тайтла в порядке чтения.
+     * @param {?number} branchId - id ветки перевода, либо null.
+     * @param {?{fromKey: string, toKey: string}} chapterRange - Ключи первой и последней
+     * главы диапазона, либо null — все главы.
+     * @returns {object[]} Главы для загрузки.
+     * @throws {Error} Если глава диапазона не найдена, начало позже конца или глав нет.
+     */
+    _selectChapters(chapters, branchId, chapterRange) {
+        const selected = selectRange(filterByBranch(chapters, branchId), chapterRange);
+        const branch = branchId != null ? ` (branch ${branchId})` : '';
+        console.log(`[DownloadManager] Chapters selected: ${selected.length} of ${chapters.length}${branch}`);
+        if (selected.length === 0) throw new Error('Нет глав для загрузки');
+        return selected;
     }
 
     /**
@@ -252,20 +288,24 @@ export class DownloadManager {
     /**
      * Запускает полный цикл новой загрузки тайтла: разрешает сервис, создаёт
      * состояние загрузки и keep-alive порт, затем последовательно загружает
-     * метаданные, обложку, список глав и содержимое глав с разбиением
-     * на файлы по лимиту размера.
-     * @param {{url?: string, format?: string, chapterRange?: {from: number, to: number},
-     * branchId?: number, maxSizeMB?: number, authToken?: string,
-     * serviceKey?: string, slug?: string, controller?: object, splitPages?: boolean,
-     * fitFb2Images?: boolean}} options
-     * Параметры загрузки.
+     * метаданные, обложку, список глав (если он не передан) и содержимое глав
+     * с разбиением на файлы по лимиту размера.
+     * @param {{url?: string, format?: string, chapters?: object[],
+     * chapterRange?: {fromKey: string, toKey: string}, branchId?: number,
+     * maxSizeMB?: number, authToken?: string, serviceKey?: string, slug?: string,
+     * controller?: object, splitPages?: boolean, fitFb2Images?: boolean}} options
+     * Параметры загрузки. chapters — уже загруженный список глав тайтла
+     * (service.fetchChapters); без него (или если он пуст) список запрашивается заново.
+     * chapterRange — ключи первой и последней главы (chapterKey).
      * @returns {Promise<{success: boolean, downloadId: string}>} Результат загрузки.
      * @throws {Error} При ошибке на любом из этапов загрузки (после эмиссии download:failed).
      */
     async startDownload(options) {
-        console.log('[DownloadManager] Starting download with options:', options);
-        const { url, format = 'fb2', chapterRange, branchId = null, maxSizeMB = 200,
-            authToken = null, serviceKey } = options;
+        console.log('[DownloadManager] Starting download with options:',
+            { ...options, chapters: options.chapters?.length });
+        const { url, format = 'fb2', chapters: knownChapters = null, chapterRange = null,
+            maxSizeMB = 200, authToken = null, serviceKey } = options;
+        const branchId = this._normalizeBranchId(options.branchId);
 
         const service = this._resolveService(serviceKey, url, authToken);
         console.log('[DownloadManager] Using service:', service.name);
@@ -298,7 +338,10 @@ export class DownloadManager {
                 });
 
             this.updateStatus(downloadId, 'Загрузка списка глав...', 10);
-            const chapters = await this._fetchAndFilterChapters(service, downloadState, branchId, chapterRange);
+            const allChapters = Array.isArray(knownChapters) && knownChapters.length > 0
+                ? knownChapters
+                : await service.fetchChapters(downloadState.slug);
+            const chapters = this._selectChapters(allChapters, branchId, chapterRange);
             downloadState.chapters = chapters;
 
             await this.downloadWithSizeLimit(downloadState,
@@ -313,8 +356,7 @@ export class DownloadManager {
             this.eventBus.emit('download:failed', { downloadState, error });
             throw error;
         } finally {
-            downloadState.deferred.dispose();
-            ctx.deactivate();
+            ctx.dispose();
             if (service.ctx === ctx) service.attach(null);
             this._stopKeepAlive(keepAlive);
             setTimeout(() => this.activeDownloads.delete(downloadId), 5000);
@@ -381,9 +423,21 @@ export class DownloadManager {
     }
 
     /**
+     * Освобождает содержимое сохранённого пакета глав, чтобы изображения уже
+     * сохранённых файлов не держались в памяти до конца загрузки.
+     * @param {object[]} batch - Пакет глав.
+     * @returns {void}
+     */
+    _releaseBatch(batch) {
+        batch.forEach(chapter => { chapter.content = null; });
+        batch.length = 0;
+    }
+
+    /**
      * Создаёт последовательную очередь сохранения пакетов глав. Сохранение пакета
      * ждёт фоновые загрузки его глав (и обложку), но не задерживает загрузку
      * следующих глав; файлы сохраняются строго в порядке постановки в очередь.
+     * После сохранения содержимое глав пакета освобождается.
      * @param {object} downloadState - Текущее состояние загрузки.
      * @param {object} exporter - Экспортёр формата.
      * @param {object} manga - Нормализованные метаданные тайтла.
@@ -418,6 +472,7 @@ export class DownloadManager {
                     const batchCover = await resolveCover();
                     const file = await exporter.export({ ...manga, name: manga.name + suffix }, batch, batchCover);
                     await this.saveFile(file.blob, file.filename);
+                    this._releaseBatch(batch);
                 });
                 chain.catch(() => {});
             },
@@ -488,8 +543,6 @@ export class DownloadManager {
 
             if (currentBatch.length === 0) currentVolume = chapterVolume;
             currentBatch.push(chapterResult);
-
-            downloadState.chapterContents.push(chapterResult);
         }
 
         if (downloadState.controller.shouldStop() || downloadState.ctx?.interrupted)
@@ -512,56 +565,41 @@ export class DownloadManager {
      * Строит главу-заглушку с текстом ошибки загрузки.
      * @param {object} chapter - Метаданные главы.
      * @param {Error} error - Ошибка загрузки.
-     * @returns {{title: string, content: Array, volume: *, number: *}}
+     * @returns {{title: string, content: Array, volume: *, number: *, key: string}}
      */
     _errorChapter(chapter, error) {
         return {
             title: this._chapterTitle(chapter),
             content: [{ type: 'text', text: `[Ошибка загрузки главы: ${error.message}]` }],
             volume: chapter.volume,
-            number: chapter.number
+            number: chapter.number,
+            key: chapterKey(chapter)
         };
     }
 
     /**
-     * Загружает и обрабатывает содержимое одной главы: получает сырые данные
-     * от сервиса, извлекает страницы/текст и прогоняет через обработку контента.
+     * Загружает и обрабатывает содержимое одной главы через сервис
+     * (service.fetchChapterBlocks).
      * @param {object} service - Экземпляр сервиса.
      * @param {object} downloadState - Текущее состояние загрузки.
      * @param {object} chapter - Метаданные главы (number, volume, branchId, name).
-     * @returns {Promise<{title: string, content: Array, volume: *, number: *}>}
+     * @returns {Promise<{title: string, content: Array, volume: *, number: *, key: string}>}
      * Готовое содержимое главы для экспортёра.
      * @throws {Error} При ошибке загрузки главы.
      */
     async _loadChapter(service, downloadState, chapter) {
-        const rawContent = await service.getChapter(
-            downloadState.slug, chapter.number, chapter.volume || '1', chapter.branchId ?? null);
-        const contentToExtract = rawContent.content || rawContent;
-
-        const extractedContent = service.extractText
-            ? service.extractText(contentToExtract)
-            : contentToExtract;
-
-        const processedContent = service.processChapterContent
-            ? await service.processChapterContent(
-                extractedContent,
-                null,
-                {
-                    chapterMeta: rawContent,
-                    chapterObj: chapter,
-                    mangaSlug: downloadState.slug,
-                    mangaId: downloadState.mangaId,
-                    splitLongImages: downloadState.splitPages && downloadState.format !== 'simple',
-                    imageFit: downloadState.imageFit
-                }
-              )
-            : extractedContent;
-
+        const content = await service.fetchChapterBlocks(chapter, {
+            slug: downloadState.slug,
+            mangaId: downloadState.mangaId,
+            splitLongImages: downloadState.splitPages && downloadState.format !== 'simple',
+            imageFit: downloadState.imageFit
+        });
         return {
             title: this._chapterTitle(chapter),
-            content: processedContent,
+            content,
             volume: chapter.volume,
-            number: chapter.number
+            number: chapter.number,
+            key: chapterKey(chapter)
         };
     }
 
@@ -610,98 +648,12 @@ export class DownloadManager {
     }
 
     /**
-     * Загружает и обрабатывает содержимое одной главы (без откладывания в фон).
-     * При ошибке возвращает главу с текстом-заглушкой вместо содержимого,
-     * не прерывая общую загрузку.
-     * @param {object} service - Экземпляр сервиса.
-     * @param {object} downloadState - Текущее состояние загрузки.
-     * @param {object} chapter - Метаданные главы (number, volume, branchId, name).
-     * @returns {Promise<{title: string, content: Array, volume: *, number: *}>}
-     * Готовое содержимое главы для экспортёра.
-     */
-    async downloadSingleChapter(service, downloadState, chapter) {
-        try {
-            return await this._loadChapter(service, downloadState, chapter);
-        } catch (error) {
-            console.error(`[DownloadManager] Failed to download chapter ${chapter.number}:`, error);
-            return this._errorChapter(chapter, error);
-        }
-    }
-
-    /**
-     * Возвращает публичный снимок состояния активной загрузки (без служебных
-     * полей вроде controller и ctx).
-     * @param {string} downloadId - id загрузки.
-     * @returns {?object} Снимок состояния загрузки, либо null, если загрузка не найдена.
-     */
-    getDownloadState(downloadId) {
-        const state = this.activeDownloads.get(downloadId);
-        if (!state) return null;
-
-        return {
-            slug: state.slug,
-            serviceKey: state.serviceKey,
-            format: state.format,
-            manga: state.manga,
-            coverBase64: state.coverBase64,
-            chapterContents: state.chapterContents,
-            chapters: state.chapters,
-            currentChapterIndex: state.currentChapterIndex,
-            currentStatus: state.status,
-            currentProgress: state.progress
-        };
-    }
-
-    /**
-     * Загружает содержимое списка глав по порядку с учётом паузы/остановки,
-     * не выполняя разбиение на файлы по размеру (используется вызывающей
-     * стороной, которая сама управляет сохранением файлов).
-     * @param {object} service - Экземпляр сервиса.
-     * @param {object} downloadState - Текущее состояние загрузки.
-     * @param {object[]} chapters - Главы для загрузки в этом вызове.
-     * @param {?function} onProgress - Не используется напрямую (прогресс идёт через updateStatus);
-     * оставлено для совместимости сигнатуры.
-     * @param {number} [startIndex=0] - Смещение для расчёта общего прогресса и currentChapterIndex.
-     * @param {?number} [totalChapters] - Общее число глав для расчёта процента (по умолчанию chapters.length).
-     * @returns {Promise<object[]>} Список загруженного содержимого глав.
-     */
-    async downloadChapters(service, downloadState, chapters, onProgress, startIndex = 0, totalChapters = null) {
-        const results = [];
-        const total = totalChapters || chapters.length;
-
-        for (let i = 0; i < chapters.length; i++) {
-            await downloadState.controller.waitIfPaused();
-            if (downloadState.controller.shouldStop()) break;
-
-            downloadState.currentChapterIndex = startIndex + i;
-
-            const chapter = chapters[i];
-            const globalIndex = startIndex + i;
-            const progress = Math.floor((globalIndex / total) * 80) + 10;
-
-            this.updateStatus(
-                downloadState.id,
-                `Глава ${globalIndex + 1}/${total}: ${chapter.name || chapter.number}`,
-                progress
-            );
-
-            const chapterResult = await this._downloadChapterOrDefer(service, downloadState, chapter);
-            if (downloadState.ctx?.interrupted) break;
-            this._trackDeferred(downloadState, chapterResult);
-            results.push(chapterResult);
-            downloadState.chapterContents.push(chapterResult);
-        }
-
-        await this._waitForDeferred(downloadState, results, { report: true, progress: 90 });
-        return results;
-    }
-
-    /**
      * Создаёт контроллер паузы/остановки по умолчанию для загрузки, запущенной
      * без собственного controller в опциях (см. DownloadContext.createController).
      * @returns {{pause: function(): void, resume: function(): void, stop: function(): void,
      * isPaused: function(): boolean, shouldStop: function(): boolean,
-     * waitIfPaused: function(): Promise<void>}} Контроллер загрузки.
+     * waitIfPaused: function(): Promise<void>, whenStopped: function(): Promise<void>}}
+     * Контроллер загрузки.
      */
     createController() {
         return createController();
@@ -734,20 +686,6 @@ export class DownloadManager {
     }
 
     /**
-     * Сортирует главы по возрастанию номера тома, а внутри тома — по номеру главы.
-     * @param {object[]} chapters - Список глав (сортируется на месте).
-     * @returns {object[]} Тот же массив, отсортированный.
-     */
-    sortChapters(chapters) {
-        return chapters.sort((a, b) => {
-            const volA = parseInt(a.volume) || 0;
-            const volB = parseInt(b.volume) || 0;
-            if (volA !== volB) return volA - volB;
-            return (parseFloat(a.number) || 0) - (parseFloat(b.number) || 0);
-        });
-    }
-
-    /**
      * Генерирует уникальный id новой загрузки.
      * @returns {string} Строка вида "download_<timestamp>_<random>".
      */
@@ -756,28 +694,61 @@ export class DownloadManager {
     }
 
     /**
-     * Сохраняет готовый файл: через FileUtils.downloadBlob, если доступен,
-     * иначе через временную ссылку-скачивание.
+     * Сохраняет готовый файл через downloads API браузера. Имя файла очищается
+     * (с сохранением расширения), при совпадении имён браузер добавляет номер.
+     * Временный blob-URL освобождается, когда браузер сообщит о завершении
+     * или прерывании загрузки, но не позже чем через REVOKE_FALLBACK_MS.
      * @param {Blob} blob - Содержимое файла.
      * @param {string} filename - Имя сохраняемого файла.
      * @returns {Promise<void>}
+     * @throws {Error} Если downloads API недоступен или браузер отклонил загрузку.
      */
     async saveFile(blob, filename) {
-        if (globalThis.FileUtils)
-            await globalThis.FileUtils.downloadBlob(blob, filename);
-        else {
-            const url = URL.createObjectURL(blob);
-            const a = document.createElement('a');
-            a.href = url;
-            a.download = filename;
-            document.body.appendChild(a);
-            a.click();
+        const downloads = extensionApi?.downloads;
+        if (!downloads?.download)
+            throw new Error('Сохранение файла недоступно: у расширения нет доступа к загрузкам браузера');
 
-            setTimeout(() => {
-                URL.revokeObjectURL(url);
-                a.remove();
-            }, 10000);
+        const url = URL.createObjectURL(blob);
+        const release = this._revokeWhenDone(downloads, url);
+        try {
+            const id = await downloads.download({ url, filename: safeFilename(filename), conflictAction: 'uniquify' });
+            release.track(id);
+        } catch (error) {
+            release.now();
+            throw error;
         }
+    }
+
+    /**
+     * Готовит освобождение blob-URL сохраняемого файла: по событию downloads.onChanged
+     * о завершении или прерывании загрузки с известным id, либо по запасному таймауту.
+     * @param {object} downloads - downloads API браузера.
+     * @param {string} url - blob-URL файла.
+     * @returns {{track: function(number): void, now: function(): void}} track(id) — начать
+     * следить за загрузкой с этим id; now() — освободить сразу.
+     */
+    _revokeWhenDone(downloads, url) {
+        const watch = { downloadId: null, released: false, timer: null, onChanged: null };
+        const release = () => {
+            if (watch.released) return;
+            watch.released = true;
+            clearTimeout(watch.timer);
+            downloads.onChanged?.removeListener?.(watch.onChanged);
+            URL.revokeObjectURL(url);
+        };
+
+        watch.onChanged = delta => {
+            if (watch.downloadId == null || delta?.id !== watch.downloadId) return;
+            const state = delta.state?.current;
+            if (state === 'complete' || state === 'interrupted') release();
+        };
+        watch.timer = setTimeout(release, REVOKE_FALLBACK_MS);
+        downloads.onChanged?.addListener?.(watch.onChanged);
+
+        return {
+            track: id => { watch.downloadId = id; },
+            now: release
+        };
     }
 
     /**
@@ -817,15 +788,6 @@ export class DownloadManager {
             download.controller.stop();
             this.eventBus.emit('download:stopped', download);
         } else console.log(`[DownloadManager] No active download with ID: ${downloadId}`);
-    }
-
-    /**
-     * Возвращает полное (в т.ч. служебное) внутреннее состояние загрузки.
-     * @param {string} downloadId - id загрузки.
-     * @returns {?object} Внутреннее состояние загрузки, либо null, если не найдена.
-     */
-    getStatus(downloadId) {
-        return this.activeDownloads.get(downloadId) || null;
     }
 }
 

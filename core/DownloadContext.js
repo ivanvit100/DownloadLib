@@ -7,22 +7,26 @@
  * @version 1.1.0
  */
 
-import { DeferredQueue, loadImageOrDefer } from './DeferredQueue.js';
+import { DEFERRED_SETTINGS, DeferredQueue, loadImageOrDefer } from './DeferredQueue.js';
 import { RateLimitClient } from './RateLimitClient.js';
 
 /**
- * Создаёт контроллер паузы и остановки загрузки. waitIfPaused не опрашивает
- * состояние по таймеру: на паузе он возвращает промис, который разрешается
- * при resume() или stop().
+ * Создаёт контроллер паузы и остановки загрузки. waitIfPaused и whenStopped не
+ * опрашивают состояние по таймеру: на паузе waitIfPaused возвращает промис,
+ * который разрешается при resume() или stop(), а whenStopped — промис,
+ * который разрешается при stop().
  * @returns {{pause: function(): void, resume: function(): void, stop: function(): void,
  * isPaused: function(): boolean, shouldStop: function(): boolean,
- * waitIfPaused: function(): Promise<void>}} Контроллер загрузки.
+ * waitIfPaused: function(): Promise<void>, whenStopped: function(): Promise<void>}}
+ * Контроллер загрузки.
  */
 export function createController() {
     let paused = false;
     let stopped = false;
     let waiting = null;
     let wake = null;
+    let onStop = null;
+    const stopping = new Promise(resolve => { onStop = resolve; });
 
     const release = () => {
         if (!wake) return;
@@ -43,6 +47,7 @@ export function createController() {
             stopped = true;
             paused = false;
             release();
+            onStop();
         },
         isPaused: () => paused,
         shouldStop: () => stopped,
@@ -50,7 +55,8 @@ export function createController() {
             if (!paused || stopped) return Promise.resolve();
             waiting ??= new Promise(resolve => { wake = resolve; });
             return waiting;
-        }
+        },
+        whenStopped: () => stopping
     };
 }
 
@@ -87,7 +93,39 @@ export class DownloadContext {
         this.interrupted = false;
         this._onPageProgress = onPageProgress;
         this._on429 = on429;
+        this._stopPoll = null;
+        this._stopping = null;
         this.deferred = new DeferredQueue(() => this.isHeldBack());
+    }
+
+    /**
+     * Промис, который разрешается, когда загрузку остановят. Берётся у контроллера
+     * (whenStopped); у стороннего контроллера без него остановка проверяется
+     * по таймеру раз в pollIntervalMs, пока контекст не освободят (dispose).
+     * @returns {Promise<void>}
+     */
+    whenStopped() {
+        if (this.controller.whenStopped) return this.controller.whenStopped();
+        this._stopping ??= new Promise(resolve => {
+            const check = () => {
+                if (this.controller.shouldStop()) resolve();
+                else this._stopPoll = setTimeout(check, DEFERRED_SETTINGS.pollIntervalMs);
+            };
+            check();
+        });
+        return this._stopping;
+    }
+
+    /**
+     * Освобождает контекст по завершении загрузки: снимает фоновые загрузки
+     * и проверку остановки.
+     * @returns {void}
+     */
+    dispose() {
+        clearTimeout(this._stopPoll);
+        this._stopPoll = null;
+        this.deferred.dispose();
+        this.deactivate();
     }
 
     /**

@@ -298,6 +298,7 @@ describe('DeferredQueue', () => {
             content: [{ type: 'text', text: '[Глава загружается в фоне]' }],
             volume: '1',
             number: '2',
+            key: 'v1_ch2',
             pendingChapter: { estimatedBytes: 1000 }
         });
         expect(queue.countChapters()).toBe(1);
@@ -323,5 +324,52 @@ describe('DeferredQueue', () => {
         await vi.waitFor(() => expect(chapter.pendingChapter).toBeUndefined());
         expect(chapter.content).toEqual([{ type: 'text', text: '[Ошибка загрузки главы: api down]' }]);
         expect(queue.size).toBe(0);
+    });
+
+    it('notifies listeners when loads are added and finished until they unsubscribe', async () => {
+        const queue = new DeferredQueue();
+        const listener = vi.fn();
+        const unsubscribe = queue.onChange(listener);
+        const run = deferred();
+        queue.observe({ content: [placeholder(1, run.promise)] });
+        expect(listener).toHaveBeenCalledTimes(1);
+        run.resolve([image()]);
+        await vi.waitFor(() => expect(listener).toHaveBeenCalledTimes(2));
+        unsubscribe();
+        queue.observe({ content: [placeholder(2, never())] });
+        queue.cancelAll('stop');
+        expect(listener).toHaveBeenCalledTimes(2);
+    });
+
+    it('whenSettled resolves without a timer once the given chapters have no background loads', async () => {
+        vi.useFakeTimers();
+        try {
+            const queue = new DeferredQueue();
+            await expect(queue.whenSettled(null)).resolves.toBeUndefined();
+
+            const first = deferred();
+            const chapter = { content: [placeholder(1, first.promise)] };
+            const other = { content: [placeholder(2, never())] };
+            queue.observe(chapter);
+            queue.observe(other);
+            vi.clearAllTimers();
+
+            let settled = false;
+            const waiting = queue.whenSettled([chapter]).then(() => { settled = true; });
+            let allSettled = false;
+            queue.whenSettled(null).then(() => { allSettled = true; });
+            expect(vi.getTimerCount()).toBe(0);
+            first.resolve([image('A')]);
+            await waiting;
+            expect(settled).toBe(true);
+            expect(allSettled).toBe(false);
+
+            queue.dispose();
+            await Promise.resolve();
+            expect(allSettled).toBe(true);
+            await expect(queue.whenSettled(null)).resolves.toBeUndefined();
+        } finally {
+            vi.useRealTimers();
+        }
     });
 });

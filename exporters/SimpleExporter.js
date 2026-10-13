@@ -7,6 +7,7 @@
  * @version 1.1.0
  */
 
+import { sanitizeFilename } from '../core/text.js';
 import { BaseExporter } from './BaseExporter.js';
 
 console.log('[SimpleExporter] Loading...');
@@ -159,8 +160,7 @@ export class SimpleExporter extends BaseExporter {
      * @returns {string} Строка, безопасная для имени файла (не длиннее 180 символов).
      */
     sanitize(str) {
-        return String(str)
-            .replace(/[<>:"/\\|?*\x00-\x1F]/g, '_') // eslint-disable-line no-control-regex
+        return sanitizeFilename(str, Infinity)
             .replace(/\s+/g, '_')
             .replace(/_+/g, '_')
             .replace(/^_|_$/g, '')

@@ -57,6 +57,26 @@ describe('createController', () => {
         controller.pause();
         expect(controller.isPaused()).toBe(false);
     });
+
+    it('whenStopped resolves on stop without a timer', async () => {
+        vi.useFakeTimers();
+        try {
+            const controller = createController();
+            let stopped = false;
+            controller.whenStopped().then(() => { stopped = true; });
+            expect(vi.getTimerCount()).toBe(0);
+            controller.pause();
+            controller.resume();
+            await Promise.resolve();
+            expect(stopped).toBe(false);
+            controller.stop();
+            await Promise.resolve();
+            expect(stopped).toBe(true);
+            expect(controller.whenStopped()).toBe(controller.whenStopped());
+        } finally {
+            vi.useRealTimers();
+        }
+    });
 });
 
 describe('DownloadContext', () => {
@@ -129,6 +149,50 @@ describe('DownloadContext', () => {
         expect(on429).toHaveBeenCalledWith(3000);
         expect(() => new DownloadContext().onPageProgress(1, 1)).not.toThrow();
         expect(() => new DownloadContext().on429(1)).not.toThrow();
+    });
+
+    it('whenStopped uses the controller promise, or polls a controller that has none', async () => {
+        vi.useFakeTimers();
+        try {
+            const own = new DownloadContext();
+            expect(own.whenStopped()).toBe(own.controller.whenStopped());
+
+            let stopped = false;
+            const foreign = new DownloadContext({
+                controller: { isPaused: () => false, shouldStop: () => stopped, waitIfPaused: async () => {} }
+            });
+            let resolved = false;
+            const waiting = foreign.whenStopped().then(() => { resolved = true; });
+            expect(foreign.whenStopped()).toBe(foreign.whenStopped());
+            await vi.advanceTimersByTimeAsync(DEFERRED_SETTINGS.pollIntervalMs * 3);
+            expect(resolved).toBe(false);
+            stopped = true;
+            await vi.advanceTimersByTimeAsync(DEFERRED_SETTINGS.pollIntervalMs);
+            await waiting;
+            expect(resolved).toBe(true);
+            expect(vi.getTimerCount()).toBe(0);
+        } finally {
+            vi.useRealTimers();
+        }
+    });
+
+    it('dispose stops the polling, the background loads and the current context', () => {
+        vi.useFakeTimers();
+        try {
+            const ctx = new DownloadContext({
+                controller: { isPaused: () => false, shouldStop: () => false, waitIfPaused: async () => {} }
+            });
+            ctx.activate();
+            ctx.whenStopped();
+            expect(vi.getTimerCount()).toBe(1);
+            const dispose = vi.spyOn(ctx.deferred, 'dispose');
+            ctx.dispose();
+            expect(vi.getTimerCount()).toBe(0);
+            expect(dispose).toHaveBeenCalled();
+            expect(DownloadContext.current).toBeNull();
+        } finally {
+            vi.useRealTimers();
+        }
     });
 
     it('Tracks the current download', () => {

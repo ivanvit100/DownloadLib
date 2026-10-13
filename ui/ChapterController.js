@@ -7,9 +7,24 @@
  * @version 1.1.0
  */
 
+import { chapterKey, filterByBranch } from '../core/chapters.js';
+
 console.log('[ChapterController] Loading...');
 
 const RANGE_MODE_KEY = 'manga_parser_range_mode';
+
+/**
+ * Выбирает в select опцию с указанным значением, если она есть.
+ * @param {HTMLSelectElement} select - Элемент выбора.
+ * @param {string} value - Значение опции.
+ * @returns {boolean} true, если опция найдена и выбрана.
+ */
+function selectOption(select, value) {
+    const index = Array.from(select.options).findIndex(opt => opt.value === String(value));
+    if (index === -1) return false;
+    select.selectedIndex = index;
+    return true;
+}
 
 /**
  * Загружает список глав тайтла, настраивает выбор переводчика (ветки) и заполняет
@@ -32,18 +47,28 @@ export class ChapterController {
     }
 
     /**
-     * Загружает список глав тайтла у сервиса, при наличии нескольких переводов
-     * настраивает селектор переводчика и заполняет select-элементы диапазона.
-     * @param {object} service - Экземпляр сервиса с методом getChapterList.
+     * Все главы тайтла в порядке чтения, загруженные последним loadAndPopulate.
+     * Их передают в загрузку, чтобы не запрашивать список повторно.
+     * @returns {object[]}
+     */
+    getChapters() {
+        return this._allChapters;
+    }
+
+    /**
+     * Загружает список глав тайтла у сервиса (в порядке чтения), при наличии
+     * нескольких переводов настраивает селектор переводчика и заполняет
+     * select-элементы диапазона.
+     * @param {object} service - Экземпляр сервиса с методом fetchChapters.
      * @param {string} slug - Slug тайтла.
-     * @param {?string} chapterFromUrl - Сохранённый индекс начала диапазона из URL (или null).
-     * @param {?string} chapterToUrl - Сохранённый индекс конца диапазона из URL (или null).
+     * @param {?string} chapterFromUrl - Ключ первой главы диапазона из URL (или null).
+     * @param {?string} chapterToUrl - Ключ последней главы диапазона из URL (или null).
      * @param {?number} [branchIdFromUrl] - Заранее выбранный id ветки перевода из URL.
      * @returns {Promise<?number>} Количество загруженных глав, либо null при ошибке загрузки.
      */
     async loadAndPopulate(service, slug, chapterFromUrl, chapterToUrl, branchIdFromUrl = null) {
         try {
-            const chapters = await service.getChapterList(slug);
+            const chapters = await service.fetchChapters(slug);
             this._allChapters = chapters;
 
             const hasMultipleBranches = chapters.some(ch => ch.branches && ch.branches.length > 1);
@@ -68,12 +93,17 @@ export class ChapterController {
                 if (fromSelect && toSelect && chapterRangeContainer) {
                     this.repopulateSelects(filteredChapters, fromSelect, toSelect);
 
-                    if (chapterFromUrl !== null && chapterToUrl !== null) {
-                        fromSelect.value = chapterFromUrl;
-                        toSelect.value = chapterToUrl;
-                        console.log(`[ChapterController] Restored chapter range: ${chapterFromUrl} - ${chapterToUrl}`);
-                    } else
-                        toSelect.selectedIndex = toSelect.options.length - 1;
+                    toSelect.selectedIndex = toSelect.options.length - 1;
+                    if (chapterFromUrl != null && chapterToUrl != null) {
+                        if (selectOption(fromSelect, chapterFromUrl) && selectOption(toSelect, chapterToUrl))
+                            console.log(`[ChapterController] Restored chapter range: ${chapterFromUrl} - ${chapterToUrl}`);
+                        else {
+                            console.warn(`[ChapterController] Chapter range ${chapterFromUrl} - ${chapterToUrl} ` +
+                                'not found in the chapter list, using the full range');
+                            fromSelect.selectedIndex = 0;
+                            toSelect.selectedIndex = toSelect.options.length - 1;
+                        }
+                    }
 
                     chapterRangeContainer.style.display = 'block';
                 }
@@ -293,19 +323,18 @@ export class ChapterController {
 
     /**
      * Фильтрует ранее загруженные главы, оставляя только те, что относятся
-     * к указанной ветке перевода.
+     * к указанной ветке перевода (см. chapters.filterByBranch).
      * @param {number} branchId - id ветки перевода.
      * @returns {object[]} Отфильтрованный список глав.
      */
     getFilteredChapters(branchId) {
-        return this._allChapters.filter(
-            ch => ch.branches && ch.branches.some(b => b.branch_id === branchId)
-        );
+        return filterByBranch(this._allChapters, branchId);
     }
 
     /**
      * Очищает и заново заполняет select-элементы "от"/"до" опциями глав или томов,
-     * в зависимости от текущего режима диапазона.
+     * в зависимости от текущего режима диапазона. Значение опции — ключ главы
+     * (chapters.chapterKey), а не её позиция в списке.
      * @param {object[]} filteredChapters - Главы (уже отфильтрованные по ветке перевода).
      * @param {HTMLSelectElement} fromSelect - Select начала диапазона.
      * @param {HTMLSelectElement} toSelect - Select конца диапазона.
@@ -318,15 +347,16 @@ export class ChapterController {
         if (this._getRangeMode() === 'volumes')
             return this._populateByVolume(filteredChapters, fromSelect, toSelect);
 
-        filteredChapters.forEach((ch, idx) => {
+        filteredChapters.forEach(ch => {
             const label = `Том ${ch.volume}, Глава ${ch.number}`;
+            const key = chapterKey(ch);
             const optFrom = document.createElement('option');
-            optFrom.value = idx;
+            optFrom.value = key;
             optFrom.textContent = label;
             fromSelect.appendChild(optFrom);
 
             const optTo = document.createElement('option');
-            optTo.value = idx;
+            optTo.value = key;
             optTo.textContent = label;
             toSelect.appendChild(optTo);
         });
@@ -334,7 +364,7 @@ export class ChapterController {
 
     /**
      * Заполняет select-элементы "от"/"до" опциями по томам вместо отдельных глав:
-     * для каждого тома добавляет опцию с индексом его первой/последней главы.
+     * для каждого тома добавляет опцию с ключом его первой/последней главы.
      * @param {object[]} filteredChapters - Главы (уже отфильтрованные по ветке перевода).
      * @param {HTMLSelectElement} fromSelect - Select начала диапазона.
      * @param {HTMLSelectElement} toSelect - Select конца диапазона.
@@ -342,28 +372,29 @@ export class ChapterController {
      */
     _populateByVolume(filteredChapters, fromSelect, toSelect) {
         const volumes = [];
-        const firstIndex = new Map();
-        const lastIndex = new Map();
+        const firstKey = new Map();
+        const lastKey = new Map();
 
-        filteredChapters.forEach((ch, idx) => {
+        filteredChapters.forEach(ch => {
             const vol = ch.volume != null ? ch.volume : '1';
-            if (!firstIndex.has(vol)) {
-                firstIndex.set(vol, idx);
+            const key = chapterKey(ch);
+            if (!firstKey.has(vol)) {
+                firstKey.set(vol, key);
                 volumes.push(vol);
             }
-            lastIndex.set(vol, idx);
+            lastKey.set(vol, key);
         });
 
         volumes.forEach(vol => {
             const label = `Том ${vol}`;
 
             const optFrom = document.createElement('option');
-            optFrom.value = firstIndex.get(vol);
+            optFrom.value = firstKey.get(vol);
             optFrom.textContent = label;
             fromSelect.appendChild(optFrom);
 
             const optTo = document.createElement('option');
-            optTo.value = lastIndex.get(vol);
+            optTo.value = lastKey.get(vol);
             optTo.textContent = label;
             toSelect.appendChild(optTo);
         });

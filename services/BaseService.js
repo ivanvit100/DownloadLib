@@ -9,6 +9,7 @@
 
 import { AuthManager } from '../core/AuthManager.js';
 import { extensionApi } from '../core/BrowserApi.js';
+import { sortChapters } from '../core/chapters.js';
 import { blobToDataUrl } from '../core/encoding.js';
 import { RateLimitClient } from '../core/RateLimitClient.js';
 import { fetchViaTab, NoServiceTabError, requestViaTab } from '../core/TabNetwork.js';
@@ -246,6 +247,41 @@ export class BaseService {
      */
     async getChapter(slug, number, volume, branchId) {
         return unwrapData(await this.fetchChapter(slug, number, volume, branchId));
+    }
+
+    /**
+     * Список глав тайтла в порядке чтения: по тому, затем по номеру главы.
+     * Единственное место, где главы сортируются, — им пользуются и выбор
+     * диапазона в попапе, и загрузка.
+     * @param {string} slug - Slug тайтла.
+     * @returns {Promise<object[]>} Отсортированные главы.
+     */
+    async fetchChapters(slug) {
+        return sortChapters(await this.getChapterList(slug));
+    }
+
+    /**
+     * Загружает главу и превращает её в блоки содержимого для экспортёра:
+     * запрос главы, извлечение текста или страниц (extractText) и загрузка
+     * изображений (processChapterContent), если сервис их поддерживает.
+     * @param {{number: *, volume?: *, branchId?: ?number}} chapter - Глава из списка глав.
+     * @param {{slug: string, mangaId?: ?number, splitLongImages?: boolean,
+     * imageFit?: ?object}} opts - Slug и id тайтла и параметры обработки изображений.
+     * @returns {Promise<Array>} Блоки содержимого главы.
+     */
+    async fetchChapterBlocks(chapter, { slug, mangaId = null, splitLongImages = false, imageFit = null }) {
+        const raw = await this.getChapter(slug, chapter.number, chapter.volume || '1', chapter.branchId ?? null);
+        const content = raw?.content || raw;
+        const extracted = this.extractText ? this.extractText(content) : content;
+        if (!this.processChapterContent) return extracted;
+        return this.processChapterContent(extracted, null, {
+            chapterMeta: raw,
+            chapterObj: chapter,
+            mangaSlug: slug,
+            mangaId,
+            splitLongImages,
+            imageFit
+        });
     }
 
     /**

@@ -139,6 +139,7 @@ beforeEach(async () => {
     global.ChapterController = class {
         constructor() { this._allChapters = []; }
         loadAndPopulate = vi.fn(async () => 0);
+        getChapters = vi.fn(() => this._allChapters);
         getFilteredChapters = vi.fn(() => []);
         repopulateSelects = vi.fn();
     };
@@ -554,18 +555,18 @@ describe('PopupController extra coverage', () => {
     });
 
     describe('_buildChapterRange', () => {
-        it('returns from/to when container is visible', () => {
+        it('returns the keys of the first and the last chapter when container is visible', () => {
             const controller = new PopupController();
             const fromSel = document.getElementById('chapterFromSelect');
             const toSel = document.getElementById('chapterToSelect');
             const container = document.getElementById('chapterRangeContainer');
-            const opt1 = document.createElement('option'); opt1.value = '0'; fromSel.appendChild(opt1);
-            const opt2 = document.createElement('option'); opt2.value = '3'; toSel.appendChild(opt2);
-            fromSel.value = '0';
-            toSel.value = '3';
+            const opt1 = document.createElement('option'); opt1.value = '101'; fromSel.appendChild(opt1);
+            const opt2 = document.createElement('option'); opt2.value = 'v2_ch3'; toSel.appendChild(opt2);
+            fromSel.value = '101';
+            toSel.value = 'v2_ch3';
             container.style.display = 'block';
             const result = controller._buildChapterRange(fromSel, toSel, container);
-            expect(result).toEqual({ from: 0, to: 3 });
+            expect(result).toEqual({ fromKey: '101', toKey: 'v2_ch3' });
         });
 
         it('returns null when container is hidden', () => {

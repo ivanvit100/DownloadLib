@@ -222,13 +222,13 @@ export class PopupController {
 
         if (chapterFromSelect && chapterToSelect) {
             chapterFromSelect.addEventListener('change', () => {
-                if (parseInt(chapterFromSelect.value) > parseInt(chapterToSelect.value))
-                    chapterToSelect.value = chapterFromSelect.value;
+                if (chapterFromSelect.selectedIndex > chapterToSelect.selectedIndex)
+                    chapterToSelect.selectedIndex = chapterFromSelect.selectedIndex;
                 else console.log('[PopupController] Chapter range selectors updated without invalid range');
             });
             chapterToSelect.addEventListener('change', () => {
-                if (parseInt(chapterToSelect.value) < parseInt(chapterFromSelect.value))
-                    chapterFromSelect.value = chapterToSelect.value;
+                if (chapterToSelect.selectedIndex < chapterFromSelect.selectedIndex)
+                    chapterFromSelect.selectedIndex = chapterToSelect.selectedIndex;
                 else console.log('[PopupController] Chapter range selectors updated without invalid range');
             });
         }
@@ -733,12 +733,12 @@ export class PopupController {
      * @param {?HTMLSelectElement} fromSelect - Select начала диапазона.
      * @param {?HTMLSelectElement} toSelect - Select конца диапазона.
      * @param {?HTMLElement} container - Контейнер блока выбора диапазона.
-     * @returns {?{from: number, to: number}} Диапазон индексов глав, либо null,
-     * если селекторы/контейнер отсутствуют или скрыты.
+     * @returns {?{fromKey: string, toKey: string}} Ключи первой и последней главы
+     * диапазона, либо null, если селекторы/контейнер отсутствуют или скрыты.
      */
     _buildChapterRange(fromSelect, toSelect, container) {
         if (fromSelect && toSelect && container && container.style.display !== 'none')
-            return { from: parseInt(fromSelect.value), to: parseInt(toSelect.value) };
+            return { fromKey: fromSelect.value, toKey: toSelect.value };
         return null;
     }
 
@@ -819,6 +819,7 @@ export class PopupController {
                 slug: this.currentSlug,
                 serviceKey: this.currentServiceKey,
                 format,
+                chapters: this.chapterController.getChapters(),
                 chapterRange,
                 branchId,
                 maxSizeMB,
@@ -859,7 +860,7 @@ export class PopupController {
      * перевода и текстовые значения для записи в историю.
      * @param {{fromSelect: ?HTMLSelectElement, toSelect: ?HTMLSelectElement,
      * chapterRangeContainer: ?HTMLElement}} params - Элементы выбора диапазона глав.
-     * @returns {Promise<{rateLimit: number, chapterRange: ?{from: number, to: number}, branchId: ?number,
+     * @returns {Promise<{rateLimit: number, chapterRange: ?{fromKey: string, toKey: string}, branchId: ?number,
      * historyParams: {chapterFrom: ?string, chapterTo: ?string, translator: ?string}}>}
      * Параметры для запуска загрузки и записи в историю.
      */

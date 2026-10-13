@@ -473,6 +473,58 @@ describe('BaseService API methods', () => {
         await expect(svc.getChapter('s', '1', '2', null)).resolves.toEqual({ args: ['s', '1', '2', null] });
         expect(globalThis.requestViaTab).not.toHaveBeenCalled();
     });
+
+    it('fetchChapters returns the chapter list in reading order', async () => {
+        class PluginService extends BaseService {
+            async fetchChaptersList() {
+                return { data: [{ volume: '2', number: '1' }, { volume: '1', number: '10' }, { volume: '1', number: '9' }] };
+            }
+        }
+        const chapters = await new PluginService(config).fetchChapters('s');
+        expect(chapters.map(ch => `${ch.volume}/${ch.number}`)).toEqual(['1/9', '1/10', '2/1']);
+    });
+});
+
+describe('BaseService.fetchChapterBlocks', () => {
+    const chapter = { volume: '2', number: '5', branchId: 7 };
+    const options = { slug: 's', mangaId: 3, splitLongImages: true, imageFit: { maxWidth: 1 } };
+
+    it('Requests the chapter, extracts it and processes its content with the download options', async () => {
+        const raw = { id: 1, content: ['page'] };
+        class Service extends BaseService {
+            fetchChapter = vi.fn(async () => ({ data: raw }));
+            extractText = vi.fn(content => content.map(src => ({ src })));
+            processChapterContent = vi.fn(async extracted => [{ type: 'text', text: extracted[0].src }]);
+        }
+        const svc = new Service(config);
+        await expect(svc.fetchChapterBlocks(chapter, options)).resolves.toEqual([{ type: 'text', text: 'page' }]);
+        expect(svc.fetchChapter).toHaveBeenCalledWith('s', '5', '2', 7);
+        expect(svc.extractText).toHaveBeenCalledWith(['page']);
+        expect(svc.processChapterContent).toHaveBeenCalledWith([{ src: 'page' }], null, {
+            chapterMeta: raw, chapterObj: chapter, mangaSlug: 's', mangaId: 3,
+            splitLongImages: true, imageFit: { maxWidth: 1 }
+        });
+    });
+
+    it('Uses volume "1" and no branch by default and skips the steps the service does not have', async () => {
+        class Service extends BaseService {
+            fetchChapter = vi.fn(async () => ({ data: { pages: [1] } }));
+        }
+        const svc = new Service(config);
+        await expect(svc.fetchChapterBlocks({ number: '3' }, { slug: 's' })).resolves.toEqual({ pages: [1] });
+        expect(svc.fetchChapter).toHaveBeenCalledWith('s', '3', '1', null);
+    });
+
+    it('Passes the response without a data wrapper and without content as is', async () => {
+        class Service extends BaseService {
+            fetchChapter = vi.fn(async () => ({ content: [{ type: 'text', text: 'direct' }] }));
+            processChapterContent = vi.fn(async (extracted, status, opts) => ({ extracted, opts }));
+        }
+        const svc = new Service(config);
+        const result = await svc.fetchChapterBlocks({ number: '1', volume: '1' }, { slug: 's' });
+        expect(result.extracted).toEqual([{ type: 'text', text: 'direct' }]);
+        expect(result.opts).toMatchObject({ mangaId: null, splitLongImages: false, imageFit: null });
+    });
 });
 
 describe('BaseService.loadPageAsBase64', () => {

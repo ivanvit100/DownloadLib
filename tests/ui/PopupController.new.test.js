@@ -597,6 +597,31 @@ describe('PopupController second test file', () => {
         expect(fromSelect.value).toBe('1');
     });
 
+    it('Compares the range selects by option position, not by the chapter keys', async () => {
+        new PopupController();
+
+        await new Promise(resolve => setTimeout(resolve, 100));
+
+        const fromSelect = document.getElementById('chapterFromSelect');
+        const toSelect = document.getElementById('chapterToSelect');
+        for (const key of ['900', '50', '7']) {
+            const opt = document.createElement('option');
+            opt.value = key;
+            fromSelect.appendChild(opt.cloneNode(true));
+            toSelect.appendChild(opt);
+        }
+
+        fromSelect.value = '50';
+        toSelect.value = '7';
+        fromSelect.dispatchEvent(new Event('change'));
+        toSelect.dispatchEvent(new Event('change'));
+        expect([fromSelect.value, toSelect.value]).toEqual(['50', '7']);
+
+        toSelect.value = '900';
+        toSelect.dispatchEvent(new Event('change'));
+        expect(fromSelect.value).toBe('900');
+    });
+
     it('openInNewContext uses tabs.create when windows API is unavailable and tab is returned', async () => {
         const controller = new PopupController();
         delete global.extensionApi.windows;
@@ -834,7 +859,7 @@ describe('PopupController second test file', () => {
         const tc = document.getElementById('translatorContainer');
         if (tc) tc.parentNode.removeChild(tc);
 
-        const service = { getChapterList: vi.fn(async () => [{ volume: 1, number: 1 }]) };
+        const service = { fetchChapters: vi.fn(async () => [{ volume: 1, number: 1 }]) };
         const cc = new RealChapterController();
         const result = await cc.loadAndPopulate(service, 'slug', null, null);
 
@@ -849,7 +874,7 @@ describe('PopupController second test file', () => {
             ]},
             { volume: 1, number: 2, branches: [{ branch_id: 1, teams: [{ name: 'Team A' }] }] }
         ];
-        const service = { getChapterList: vi.fn(async () => chapters) };
+        const service = { fetchChapters: vi.fn(async () => chapters) };
 
         const cc = new RealChapterController();
         const count = await cc.loadAndPopulate(service, 'slug', null, null);

@@ -7,6 +7,8 @@
  * @version 1.1.0
  */
 
+import { chapterKey } from './chapters.js';
+
 /**
  * Параметры фоновой (отложенной) загрузки изображений и глав.
  * deferAfterMs — сколько ждать изображение или главу, прежде чем отложить её
@@ -16,7 +18,8 @@
  * попыток (включая первую) даётся элементу, прежде чем на его месте останется текст
  * ошибки; maxDeferredChapters — сколько глав может одновременно грузиться в фоне;
  * defaultImageBytes/defaultChapterBytes — оценка размера, пока не загружено ни одного
- * изображения/главы; pollIntervalMs — период проверки при ожидании фоновых загрузок.
+ * изображения/главы; pollIntervalMs — период проверки остановки загрузки, если её
+ * контроллер не умеет сообщать об остановке сам (нет whenStopped).
  */
 export const DEFERRED_SETTINGS = {
     deferAfterMs: 30000,
@@ -142,6 +145,8 @@ export class DeferredQueue {
     constructor(isHeldBack = () => false) {
         this.isHeldBack = isHeldBack;
         this.entries = [];
+        this.listeners = new Set();
+        this.disposed = false;
         this.observed = new WeakSet();
         this.imageBytes = 0;
         this.imageCount = 0;
@@ -174,6 +179,42 @@ export class DeferredQueue {
      */
     countChapters() {
         return this.entries.filter(e => e.kind === 'chapter').length;
+    }
+
+    /**
+     * Подписывается на изменения очереди: добавление и завершение фоновых загрузок.
+     * @param {function(): void} listener - Вызывается после каждого изменения.
+     * @returns {function(): void} Отписка.
+     */
+    onChange(listener) {
+        this.listeners.add(listener);
+        return () => this.listeners.delete(listener);
+    }
+
+    /**
+     * Сообщает подписчикам об изменении очереди.
+     * @returns {void}
+     */
+    _changed() {
+        [...this.listeners].forEach(listener => listener());
+    }
+
+    /**
+     * Ждёт, пока завершатся фоновые загрузки указанных глав, без опроса по таймеру.
+     * Разрешается и при dispose().
+     * @param {?object[]} chapters - Главы, либо null — все загрузки.
+     * @returns {Promise<void>}
+     */
+    whenSettled(chapters) {
+        if (this.countFor(chapters) === 0) return Promise.resolve();
+        return new Promise(resolve => {
+            const off = this.onChange(() => {
+                if (this.disposed || this.countFor(chapters) === 0) {
+                    off();
+                    resolve();
+                }
+            });
+        });
     }
 
     /**
@@ -280,6 +321,7 @@ export class DeferredQueue {
             content: [{ type: 'text', text: '[Глава загружается в фоне]' }],
             volume: chapter.volume,
             number: chapter.number,
+            key: chapterKey(chapter),
             pendingChapter: { estimatedBytes: this.averageChapterBytes() }
         };
         console.warn(`[DeferredQueue] ${chapterName(placeholder)} not loaded within ` +
@@ -315,6 +357,7 @@ export class DeferredQueue {
         const entry = { ...spec, attempts: 1, done: false, timer: null };
         this.entries.push(entry);
         this._watch(entry, spec.running, 1);
+        this._changed();
     }
 
     /**
@@ -410,6 +453,7 @@ export class DeferredQueue {
         console.log(`[DeferredQueue] ${entry.name}: loaded in background (attempt ${attempt}), inserted into place`);
         if (entry.kind === 'image' && !this.entries.some(e => e.owner === entry.owner))
             console.log(`[DeferredQueue] ${chapterName(entry.owner)}: all background images inserted`);
+        this._changed();
     }
 
     /**
@@ -423,6 +467,7 @@ export class DeferredQueue {
         this._finish(entry);
         console.warn(`[DeferredQueue] ${entry.name}: giving up (${reason}), leaving error marker`);
         entry.fail(cause);
+        this._changed();
     }
 
     /**
@@ -449,14 +494,18 @@ export class DeferredQueue {
     }
 
     /**
-     * Молча снимает все фоновые загрузки и их таймеры (по завершении загрузки тайтла).
+     * Молча снимает все фоновые загрузки и их таймеры (по завершении загрузки тайтла)
+     * и отпускает всех, кто ждёт whenSettled.
      * @returns {void}
      */
     dispose() {
+        this.disposed = true;
         this.entries.forEach(entry => {
             entry.done = true;
             clearTimeout(entry.timer);
         });
         this.entries = [];
+        this._changed();
+        this.listeners.clear();
     }
 }

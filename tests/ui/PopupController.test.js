@@ -150,6 +150,7 @@ beforeEach(async () => {
     global.ChapterController = class {
         constructor() { this._allChapters = []; }
         loadAndPopulate = vi.fn(async () => 2);
+        getChapters = vi.fn(() => this._allChapters);
         getFilteredChapters = vi.fn(() => []);
         repopulateSelects = vi.fn();
     };
@@ -247,6 +248,28 @@ describe('PopupController', () => {
         expect(controller.downloadManager.startDownload).toHaveBeenCalledWith(
             expect.objectContaining({ maxSizeMB: 150 })
         );
+    });
+
+    it('startDownload passes the loaded chapter list and the key range to the download', async () => {
+        const controller = new PopupController();
+        const chapters = [{ id: 1 }, { id: 2 }];
+        controller.chapterController._allChapters = chapters;
+        const fromSelect = document.getElementById('chapterFromSelect');
+        const toSelect = document.getElementById('chapterToSelect');
+        for (const key of ['1', '2']) {
+            const opt = document.createElement('option');
+            opt.value = key;
+            fromSelect.appendChild(opt.cloneNode(true));
+            toSelect.appendChild(opt);
+        }
+        toSelect.value = '2';
+        document.getElementById('chapterRangeContainer').style.display = 'block';
+        controller.currentSlug = 'slug';
+        controller.currentServiceKey = 'mangalib';
+        await controller.startDownload();
+        expect(controller.downloadManager.startDownload).toHaveBeenCalledWith(expect.objectContaining({
+            chapters, chapterRange: { fromKey: '1', toKey: '2' }
+        }));
     });
 
     it('Updates progress and status', () => {

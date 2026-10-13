@@ -41,7 +41,7 @@ describe('ChapterController', () => {
     describe('loadAndPopulate', () => {
         it('returns chapter count and populates selects', async () => {
             const chapters = makeChapters(3);
-            const svc = { getChapterList: vi.fn(async () => chapters) };
+            const svc = { fetchChapters: vi.fn(async () => chapters) };
             const cc = new ChapterController();
             const result = await cc.loadAndPopulate(svc, 'my-slug', null, null);
             expect(result).toBe(3);
@@ -50,18 +50,40 @@ describe('ChapterController', () => {
             expect(document.getElementById('chapterRangeContainer').style.display).toBe('block');
         });
 
-        it('sets fromSelect and toSelect values when chapterFromUrl and chapterToUrl are not null', async () => {
+        it('restores the chapter range from the URL by chapter keys', async () => {
             const chapters = makeChapters(3);
-            const svc = { getChapterList: vi.fn(async () => chapters) };
+            const svc = { fetchChapters: vi.fn(async () => chapters) };
             const cc = new ChapterController();
-            await cc.loadAndPopulate(svc, 'my-slug', '0', '2');
-            expect(document.getElementById('chapterFromSelect').value).toBe('0');
-            expect(document.getElementById('chapterToSelect').value).toBe('2');
+            await cc.loadAndPopulate(svc, 'my-slug', 'v1_ch2', 'v1_ch3');
+            expect(svc.fetchChapters).toHaveBeenCalledWith('my-slug');
+            expect(document.getElementById('chapterFromSelect').value).toBe('v1_ch2');
+            expect(document.getElementById('chapterToSelect').value).toBe('v1_ch3');
+            expect(cc.getChapters()).toBe(chapters);
+        });
+
+        it('falls back to the full range with a warning when a key from the URL is not in the list', async () => {
+            const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
+            const svc = { fetchChapters: vi.fn(async () => makeChapters(3)) };
+            const cc = new ChapterController();
+            await cc.loadAndPopulate(svc, 'my-slug', 'v1_ch2', '1');
+            expect(document.getElementById('chapterFromSelect').selectedIndex).toBe(0);
+            expect(document.getElementById('chapterToSelect').selectedIndex).toBe(2);
+            expect(warnSpy).toHaveBeenCalledWith(expect.stringContaining('not found in the chapter list'));
+            warnSpy.mockRestore();
+        });
+
+        it('uses chapter ids as option values when the chapters have them', async () => {
+            const chapters = [{ id: 501, volume: 1, number: 1 }, { id: 502, volume: 1, number: 2 }];
+            const cc = new ChapterController();
+            await cc.loadAndPopulate({ fetchChapters: vi.fn(async () => chapters) }, 'slug', '502', '502');
+            const fromSelect = document.getElementById('chapterFromSelect');
+            expect(Array.from(fromSelect.options, opt => opt.value)).toEqual(['501', '502']);
+            expect(fromSelect.selectedIndex).toBe(1);
         });
 
         it('sets toSelect.selectedIndex to last chapter when URLs are null', async () => {
             const chapters = makeChapters(3);
-            const svc = { getChapterList: vi.fn(async () => chapters) };
+            const svc = { fetchChapters: vi.fn(async () => chapters) };
             const cc = new ChapterController();
             await cc.loadAndPopulate(svc, 'my-slug', null, null);
             expect(document.getElementById('chapterToSelect').selectedIndex).toBe(2);
@@ -74,18 +96,18 @@ describe('ChapterController', () => {
                 { volume: 1, number: 2, branches: [{ branch_id: 1, teams: [{ name: 'A' }] }] },
                 { volume: 2, number: 1, branches: [{ branch_id: 1, teams: [{ name: 'A' }] }] }
             ];
-            const svc = { getChapterList: vi.fn(async () => chapters) };
+            const svc = { fetchChapters: vi.fn(async () => chapters) };
             const cc = new ChapterController();
             await cc.loadAndPopulate(svc, 'my-slug', null, null);
             const toSelect = document.getElementById('chapterToSelect');
             expect(toSelect.options.length).toBe(2);
             expect(toSelect.selectedIndex).toBe(1);
-            expect(toSelect.value).toBe('2');
+            expect(toSelect.value).toBe('v2_ch1');
         });
 
         it('hides translatorContainer when chapters have single branch', async () => {
             const chapters = makeChapters(2);
-            const svc = { getChapterList: vi.fn(async () => chapters) };
+            const svc = { fetchChapters: vi.fn(async () => chapters) };
             const cc = new ChapterController();
             await cc.loadAndPopulate(svc, 'slug', null, null);
             expect(document.getElementById('translatorContainer').style.display).toBe('none');
@@ -93,7 +115,7 @@ describe('ChapterController', () => {
 
         it('returns null and logs warn when getChapterList throws', async () => {
             const warnSpy = vi.spyOn(console, 'warn');
-            const svc = { getChapterList: vi.fn(async () => { throw new Error('network fail'); }) };
+            const svc = { fetchChapters: vi.fn(async () => { throw new Error('network fail'); }) };
             const cc = new ChapterController();
             const result = await cc.loadAndPopulate(svc, 'slug', null, null);
             expect(result).toBeNull();
@@ -102,7 +124,7 @@ describe('ChapterController', () => {
         });
 
         it('returns 0 when the title has no chapters', async () => {
-            const svc = { getChapterList: vi.fn(async () => []) };
+            const svc = { fetchChapters: vi.fn(async () => []) };
             const cc = new ChapterController();
             const result = await cc.loadAndPopulate(svc, 'slug', null, null);
             expect(result).toBe(0);
@@ -111,7 +133,7 @@ describe('ChapterController', () => {
         it('does not show chapterRangeContainer when selects are missing', async () => {
             document.body.innerHTML = '<div id="translatorContainer"><select id="translatorSelect"></select></div><div id="chapterRangeContainer"></div>';
             const chapters = makeChapters(2);
-            const svc = { getChapterList: vi.fn(async () => chapters) };
+            const svc = { fetchChapters: vi.fn(async () => chapters) };
             const cc = new ChapterController();
             await cc.loadAndPopulate(svc, 'slug', null, null);
             expect(document.getElementById('chapterRangeContainer').style.display).toBe('');
@@ -122,7 +144,7 @@ describe('ChapterController', () => {
                 { volume: 1, number: 1, branches: [{ branch_id: 1, teams: [{ name: 'Team A' }] }, { branch_id: 2, teams: [{ name: 'Team B' }] }] },
                 { volume: 1, number: 2, branches: [{ branch_id: 1, teams: [{ name: 'Team A' }] }] }
             ];
-            const svc = { getChapterList: vi.fn(async () => chapters) };
+            const svc = { fetchChapters: vi.fn(async () => chapters) };
             const cc = new ChapterController();
             await cc.loadAndPopulate(svc, 'slug', null, null);
             expect(document.getElementById('translatorContainer').style.display).toBe('block');
@@ -133,7 +155,7 @@ describe('ChapterController', () => {
             const chapters = [
                 { volume: 1, number: 1, branches: [{ branch_id: 1, teams: [{ name: 'Team A' }] }, { branch_id: 2, teams: [{ name: 'Team B' }] }] },
             ];
-            const svc = { getChapterList: vi.fn(async () => chapters) };
+            const svc = { fetchChapters: vi.fn(async () => chapters) };
             const cc = new ChapterController();
             await cc.loadAndPopulate(svc, 'slug', null, null, '2');
             expect(document.getElementById('translatorSelect').value).toBe('2');
@@ -419,7 +441,7 @@ describe('ChapterController', () => {
                 { volume: 1, number: 1, branches: [{ branch_id: 1, teams: [{ name: 'A' }] }, { branch_id: 2, teams: [{ name: 'B' }] }] },
                 { volume: 1, number: 2, branches: [{ branch_id: 1, teams: [{ name: 'A' }] }] }
             ];
-            const svc = { getChapterList: vi.fn(async () => chapters) };
+            const svc = { fetchChapters: vi.fn(async () => chapters) };
             const cc = new ChapterController();
             await cc.loadAndPopulate(svc, 'slug', null, null);
             const sel = document.getElementById('translatorSelect');
@@ -462,6 +484,7 @@ describe('ChapterController', () => {
             expect(toSelect.options.length).toBe(2);
             expect(fromSelect.options[0].textContent).toBe('Том 1, Глава 1');
             expect(toSelect.options[1].textContent).toBe('Том 2, Глава 5');
+            expect(Array.from(toSelect.options, opt => opt.value)).toEqual(['v1_ch1', 'v2_ch5']);
         });
 
         it('groups by volume when range mode is "volumes"', () => {
@@ -481,11 +504,11 @@ describe('ChapterController', () => {
             expect(fromSelect.options.length).toBe(2);
             expect(toSelect.options.length).toBe(2);
             expect(fromSelect.options[0].textContent).toBe('Том 1');
-            expect(fromSelect.options[0].value).toBe('0');
-            expect(fromSelect.options[1].value).toBe('2');
-            expect(toSelect.options[0].value).toBe('1');
+            expect(fromSelect.options[0].value).toBe('v1_ch1');
+            expect(fromSelect.options[1].value).toBe('v2_ch1');
+            expect(toSelect.options[0].value).toBe('v1_ch2');
             expect(toSelect.options[1].textContent).toBe('Том 2');
-            expect(toSelect.options[1].value).toBe('4');
+            expect(toSelect.options[1].value).toBe('v2_ch3');
         });
 
         it('falls back to volume "1" when chapter.volume is null in volume mode', () => {
