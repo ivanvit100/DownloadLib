@@ -364,6 +364,25 @@ describe('PopupController', () => {
         expect(document.getElementById('cover').src).toContain('cover.png');
     });
 
+    it('Shows HTML in the title and the summary as text', () => {
+        const controller = new PopupController();
+        const desc = document.getElementById('description');
+        controller._renderMeta({
+            patched: { name: '<img src=x onerror="alert(1)">Title', summary: '<b>bold</b> & more', authors: [] },
+            chaptersCount: 1,
+            slug: 'slug',
+            coverImg: document.getElementById('cover'),
+            desc,
+            releaseEl: null,
+            logoInfo: document.getElementById('logoInfo')
+        });
+        expect(desc.querySelector('img')).toBeNull();
+        expect(desc.querySelector('b')).toBeNull();
+        expect(desc.querySelector('strong').textContent).toBe('<img src=x onerror="alert(1)">Title');
+        expect(desc.querySelector('small').textContent).toBe('<b>bold</b> & more');
+        expect(controller.currentTitle).toBe('<img src=x onerror="alert(1)">Title');
+    });
+
     it('Attaches event listeners', () => {
         const controller = new PopupController();
         const btn = document.getElementById('downloadBtn');
@@ -1254,15 +1273,17 @@ it('Sets formatSelector value from localStorage', async () => {
         expect(document.getElementById('splitModeContainer')).toBeTruthy();
     });
 
-    it('loadMetadata applies maxSizeMB from URL params', async () => {
+    it('loadMetadata does not save the download window URL params as settings', async () => {
         const controller = new PopupController();
         const originalSearch = window.location.search;
         Object.defineProperty(window, 'location', {
-            value: { search: '?maxSizeMB=150' },
+            value: { search: '?download=true&slug=testslug&service=mangalib&maxSizeMB=150&format=epub&splitPages=false' },
             writable: true
         });
         await controller.loadMetadata();
-        expect(global.localStorage.setItem).toHaveBeenCalledWith('manga_parser_max_size_mb', '150');
+        expect(global.localStorage.setItem).not.toHaveBeenCalledWith('manga_parser_max_size_mb', expect.anything());
+        expect(global.localStorage.setItem).not.toHaveBeenCalledWith('manga_parser_selected_format', expect.anything());
+        expect(global.localStorage.setItem).not.toHaveBeenCalledWith('manga_parser_split_pages', expect.anything());
         window.location.search = originalSearch;
     });
 
@@ -1371,7 +1392,7 @@ it('Sets formatSelector value from localStorage', async () => {
         expect(container.style.display).toBe('none');
     });
 
-    it('splitPages URL param applied to checkbox and localStorage', async () => {
+    it('splitPages URL param applied to checkbox only, not to the saved setting', async () => {
         const controller = new PopupController();
         global.MangaLibService = class {
             getManga = vi.fn(async () => ({ rus_name: 'Title', summary: 'Summary', cover: 'cover.png', authors: ['Author'], ageRestriction: { label: '18+' }, releaseDate: '2020' }));
@@ -1385,7 +1406,7 @@ it('Sets formatSelector value from localStorage', async () => {
         await controller.loadMetadata();
         const checkbox = document.getElementById('splitPagesCheckbox');
         expect(checkbox.checked).toBe(false);
-        expect(setItemSpy).toHaveBeenCalledWith('manga_parser_split_pages', 'false');
+        expect(setItemSpy).not.toHaveBeenCalledWith('manga_parser_split_pages', expect.anything());
         setItemSpy.mockRestore();
     });
 

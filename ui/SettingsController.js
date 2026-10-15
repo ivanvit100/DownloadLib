@@ -8,6 +8,7 @@
 
 import { PluginManager } from '../core/PluginManager.js';
 import { RateLimitClient } from '../core/RateLimitClient.js';
+import { $el, createEl } from './dom.js';
 
 console.log('[SettingsController] Loading...');
 
@@ -39,7 +40,7 @@ export const SettingsController = {
      * @returns {Promise<void>}
      */
     async _renderRateLimit() {
-        const input = document.getElementById('settingsRateLimit');
+        const input = $el('settingsRateLimit');
         if (!input) return;
         input.value = await RateLimitClient.getLimit();
     },
@@ -49,7 +50,7 @@ export const SettingsController = {
      * @returns {void}
      */
     _renderMaxSize() {
-        const input = document.getElementById('settingsMaxSize');
+        const input = $el('settingsMaxSize');
         if (!input) return;
         input.value = localStorage.getItem(MAX_SIZE_KEY) || '200';
     },
@@ -59,7 +60,7 @@ export const SettingsController = {
      * @returns {void}
      */
     _renderFitFb2Images() {
-        const checkbox = document.getElementById('settingsFitFb2Images');
+        const checkbox = $el('settingsFitFb2Images');
         if (!checkbox) return;
         checkbox.checked = localStorage.getItem(FIT_FB2_IMAGES_KEY) === 'true';
     },
@@ -70,8 +71,8 @@ export const SettingsController = {
      * @returns {void}
      */
     _renderRangeMode() {
-        const chaptersBtn = document.getElementById('rangeModeChapters');
-        const volumesBtn = document.getElementById('rangeModeVolumes');
+        const chaptersBtn = $el('rangeModeChapters');
+        const volumesBtn = $el('rangeModeVolumes');
         if (!chaptersBtn || !volumesBtn) return;
         const mode = localStorage.getItem(RANGE_MODE_KEY) === 'volumes' ? 'volumes' : 'chapters';
         chaptersBtn.classList.toggle('active', mode === 'chapters');
@@ -84,11 +85,11 @@ export const SettingsController = {
      * @returns {Promise<void>}
      */
     async _renderPlugins() {
-        const list = document.getElementById('pluginList');
-        const empty = document.getElementById('pluginEmpty');
+        const list = $el('pluginList');
+        const empty = $el('pluginEmpty');
         if (!list) return;
 
-        list.innerHTML = '';
+        list.replaceChildren();
 
         const plugins = await PluginManager.list();
 
@@ -108,34 +109,28 @@ export const SettingsController = {
      * @returns {HTMLElement} Собранный DOM-элемент карточки плагина.
      */
     _createPluginCard(plugin) {
-        const card = document.createElement('div');
-        card.className = 'plugin-card';
+        const card = createEl('div', { className: 'plugin-card' });
 
-        const info = document.createElement('div');
-        info.className = 'plugin-info';
-
-        const name = document.createElement('span');
-        name.className = 'plugin-name';
-        name.textContent = plugin.name;
-        info.appendChild(name);
+        const info = createEl('div', { className: 'plugin-info' });
+        info.appendChild(createEl('span', { className: 'plugin-name', text: plugin.name }));
         card.appendChild(info);
 
-        const actions = document.createElement('div');
-        actions.className = 'plugin-actions';
+        const actions = createEl('div', { className: 'plugin-actions' });
 
-        const toggle = document.createElement('input');
-        toggle.type = 'checkbox';
-        toggle.className = 'plugin-toggle';
+        const toggle = createEl('input', {
+            className: 'plugin-toggle',
+            attrs: { type: 'checkbox', title: 'Включить/отключить' }
+        });
         toggle.checked = plugin.enabled !== false;
-        toggle.title = 'Включить/отключить';
         toggle.addEventListener('change', async () => {
             await PluginManager.toggle(plugin.id, toggle.checked);
         });
 
-        const removeBtn = document.createElement('button');
-        removeBtn.className = 'plugin-remove-btn';
-        removeBtn.textContent = '✕';
-        removeBtn.title = 'Удалить плагин';
+        const removeBtn = createEl('button', {
+            className: 'plugin-remove-btn',
+            text: '✕',
+            attrs: { title: 'Удалить плагин' }
+        });
         removeBtn.addEventListener('click', async () => {
             await PluginManager.remove(plugin.id);
             await this._renderPlugins();
@@ -156,20 +151,20 @@ export const SettingsController = {
      * @returns {void}
      */
     _bindEvents(onBack) {
-        const backBtn = document.getElementById('settingsBackBtn');
+        const backBtn = $el('settingsBackBtn');
         if (backBtn) {
             backBtn.addEventListener('click', () => {
                 if (new URLSearchParams(window.location.search).has('settings'))
                     return window.close();
-                const logoInfo = document.getElementById('logoInfo');
+                const logoInfo = $el('logoInfo');
                 if (logoInfo) logoInfo.textContent = '';
                 if (onBack) onBack();
                 else console.error('[SettingsController] onBack callback not provided');
             });
         }
 
-        const saveBtn = document.getElementById('saveRateLimitBtn');
-        const rateLimitInput = document.getElementById('settingsRateLimit');
+        const saveBtn = $el('saveRateLimitBtn');
+        const rateLimitInput = $el('settingsRateLimit');
         if (saveBtn && rateLimitInput) {
             saveBtn.addEventListener('click', () => {
                 let val = parseInt(rateLimitInput.value);
@@ -188,8 +183,8 @@ export const SettingsController = {
             });
         }
 
-        const saveMaxSizeBtn = document.getElementById('saveMaxSizeBtn');
-        const maxSizeInput = document.getElementById('settingsMaxSize');
+        const saveMaxSizeBtn = $el('saveMaxSizeBtn');
+        const maxSizeInput = $el('settingsMaxSize');
         if (saveMaxSizeBtn && maxSizeInput) {
             saveMaxSizeBtn.addEventListener('click', () => {
                 let val = parseInt(maxSizeInput.value);
@@ -207,14 +202,14 @@ export const SettingsController = {
             });
         }
 
-        const fitFb2ImagesCheckbox = document.getElementById('settingsFitFb2Images');
+        const fitFb2ImagesCheckbox = $el('settingsFitFb2Images');
         if (fitFb2ImagesCheckbox) {
             fitFb2ImagesCheckbox.addEventListener('change', () =>
                 localStorage.setItem(FIT_FB2_IMAGES_KEY, String(fitFb2ImagesCheckbox.checked)));
         }
 
-        const rangeModeChapters = document.getElementById('rangeModeChapters');
-        const rangeModeVolumes = document.getElementById('rangeModeVolumes');
+        const rangeModeChapters = $el('rangeModeChapters');
+        const rangeModeVolumes = $el('rangeModeVolumes');
         if (rangeModeChapters && rangeModeVolumes) {
             const setRangeMode = (mode) => {
                 localStorage.setItem(RANGE_MODE_KEY, mode);
@@ -225,7 +220,7 @@ export const SettingsController = {
             rangeModeVolumes.addEventListener('click', () => setRangeMode('volumes'));
         }
 
-        const fileInput = document.getElementById('pluginFileInput');
+        const fileInput = $el('pluginFileInput');
         if (fileInput) {
             fileInput.addEventListener('change', async () => {
                 const file = fileInput.files && fileInput.files[0];

@@ -89,6 +89,29 @@ describe('HistoryController', () => {
             expect(document.getElementById('historyList').innerHTML).toContain('XYZ');
         });
 
+        it('labels formats like the format selector, including plugin formats', async () => {
+            const { ExporterRegistry } = await import('../../exporters/ExporterRegistry.js');
+            ExporterRegistry.register('simple', class {}, { label: 'TXT/JPEG' });
+            ExporterRegistry.register('cbz', class {}, { label: 'CBZ (комикс)' });
+            global.DownloadHistory.getAll = vi.fn(() => ['simple', 'cbz', 'fb2'].map(format => ({
+                title: 'X', slug: 's', service: 'ranobelib', format, downloadedAt: Date.now()
+            })));
+            HistoryController.init();
+            expect(Array.from(document.querySelectorAll('.history-badge'), badge => badge.textContent))
+                .toEqual(['TXT/JPEG', 'CBZ (комикс)', 'FB2']);
+        });
+
+        it('shows the title of an entry as text', () => {
+            global.DownloadHistory.getAll = vi.fn(() => [{
+                title: '<img src=x onerror="alert(1)">', slug: 's', service: 'ranobelib',
+                format: 'fb2', downloadedAt: Date.now(), translator: '<b>T</b>'
+            }]);
+            HistoryController.init();
+            expect(document.querySelector('#historyList img')).toBeNull();
+            expect(document.querySelector('.history-card-title').textContent).toBe('<img src=x onerror="alert(1)">');
+            expect(document.querySelector('.history-translator').textContent).toBe('Перевод: <b>T</b>');
+        });
+
         it('uses slug as title when title is missing', () => {
             global.DownloadHistory.getAll = vi.fn(() => [{
                 slug: 'my-slug', service: 'ranobelib', format: 'fb2', downloadedAt: Date.now()

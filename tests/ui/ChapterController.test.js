@@ -69,7 +69,27 @@ describe('ChapterController', () => {
             expect(document.getElementById('chapterFromSelect').selectedIndex).toBe(0);
             expect(document.getElementById('chapterToSelect').selectedIndex).toBe(2);
             expect(warnSpy).toHaveBeenCalledWith(expect.stringContaining('not found in the chapter list'));
+            expect(cc.rangeNotFound).toBe(true);
+
+            await cc.loadAndPopulate(svc, 'my-slug', 'v1_ch1', 'v1_ch2');
+            expect(cc.rangeNotFound).toBe(false);
+            await cc.loadAndPopulate(svc, 'my-slug', null, null);
+            expect(cc.rangeNotFound).toBe(false);
             warnSpy.mockRestore();
+        });
+
+        it('shows the team names of the translator selector as text', async () => {
+            const chapters = [
+                { volume: 1, number: 1, branches: [
+                    { branch_id: 1, teams: [{ name: '<img src=x onerror="alert(1)">' }] },
+                    { branch_id: 2, teams: [{ name: 'B' }] }
+                ] }
+            ];
+            const cc = new ChapterController();
+            await cc.loadAndPopulate({ fetchChapters: vi.fn(async () => chapters) }, 'slug', null, null);
+            expect(document.querySelector('#translatorContainer img')).toBeNull();
+            expect(document.getElementById('translatorSelect').options[0].textContent).toBe('<img src=x onerror="alert(1)">');
+            expect(document.getElementById('translatorDropdownList').textContent).toContain('<img src=x onerror="alert(1)">');
         });
 
         it('uses chapter ids as option values when the chapters have them', async () => {

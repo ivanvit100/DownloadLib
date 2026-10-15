@@ -22,19 +22,39 @@ import { ExporterRegistry } from '../exporters/ExporterRegistry.js';
 import { extractSlug } from '../services/hosts.js';
 import { serviceRegistry } from '../services/ServiceRegistry.js';
 import { ChapterController } from './ChapterController.js';
+import { $el, createEl, setDisplay } from './dom.js';
 import { HistoryController } from './HistoryController.js';
 import { SettingsController } from './SettingsController.js';
 import { TemplateLoader } from './TemplateLoader.js';
 
 console.log('[PopupController] Loading...');
 
+const FORMAT_STORAGE_KEY = 'manga_parser_selected_format';
+const SPLIT_PAGES_KEY = 'manga_parser_split_pages';
+const MAX_SIZE_KEY = 'manga_parser_max_size_mb';
+const REPO_URL = 'https://github.com/ivanvit100/DownloadLib';
+
 /**
- * Короткий алиас для document.getElementById.
- * @param {string} id - id искомого элемента.
- * @returns {?HTMLElement} Найденный элемент или null.
+ * Заполняет select формата экспорта зарегистрированными форматами.
+ * @param {HTMLSelectElement} select - Select формата.
+ * @returns {void}
  */
-function $el(id) {
-    return document.getElementById(id);
+function fillFormatOptions(select) {
+    ExporterRegistry.getFormats().forEach(({ value, label }) =>
+        select.appendChild(createEl('option', { text: label, attrs: { value } })));
+}
+
+/**
+ * Строка панели параметров загрузки: подпись и значение.
+ * @param {string} label - Подпись параметра.
+ * @param {*} value - Значение параметра.
+ * @returns {HTMLElement}
+ */
+function infoRow(label, value) {
+    const row = createEl('div', { className: 'info-row' });
+    row.append(createEl('span', { className: 'info-label', text: label }),
+        createEl('span', { className: 'info-value', text: value }));
+    return row;
 }
 
 /**
@@ -112,13 +132,8 @@ export class PopupController {
                 const sel = $el('formatSelector');
                 if (!sel) return;
                 const current = sel.value;
-                sel.innerHTML = '';
-                ExporterRegistry.getFormats().forEach(({ value, label }) => {
-                    const opt = document.createElement('option');
-                    opt.value = value;
-                    opt.textContent = label;
-                    sel.appendChild(opt);
-                });
+                sel.replaceChildren();
+                fillFormatOptions(sel);
                 if (current) sel.value = current;
             });
         }
@@ -182,19 +197,12 @@ export class PopupController {
         const chapterFromSelect = $el('chapterFromSelect');
         const chapterToSelect = $el('chapterToSelect');
 
-        this._setVisibility('progress', 'none');
-        this._setVisibility('downloadControls', 'none');
-        this._setVisibility('downloadInfoPanel', 'none');
+        setDisplay('progress', 'none');
+        setDisplay('downloadControls', 'none');
+        setDisplay('downloadInfoPanel', 'none');
 
         if (formatSelector) {
-            const FORMAT_STORAGE_KEY = 'manga_parser_selected_format';
-
-            ExporterRegistry.getFormats().forEach(({ value, label }) => {
-                const option = document.createElement('option');
-                option.value = value;
-                option.textContent = label;
-                formatSelector.appendChild(option);
-            });
+            fillFormatOptions(formatSelector);
 
             if (localStorage.getItem(FORMAT_STORAGE_KEY))
                 formatSelector.value = localStorage.getItem(FORMAT_STORAGE_KEY);
@@ -210,7 +218,6 @@ export class PopupController {
             });
         }
 
-        const SPLIT_PAGES_KEY = 'manga_parser_split_pages';
         const splitPagesCheckbox = $el('splitPagesCheckbox');
         if (splitPagesCheckbox) {
             const saved = localStorage.getItem(SPLIT_PAGES_KEY);
@@ -234,17 +241,6 @@ export class PopupController {
         }
 
         console.log('[PopupController] Title events bound');
-    }
-
-    /**
-     * Устанавливает CSS-свойство display элемента по его id, если элемент найден.
-     * @param {string} id - id элемента.
-     * @param {string} display - Значение CSS display.
-     * @returns {void}
-     */
-    _setVisibility(id, display) {
-        const el = $el(id);
-        if (el) el.style.display = display;
     }
 
     /**
@@ -332,33 +328,27 @@ export class PopupController {
     }
 
     /**
-     * Применяет и сохраняет в localStorage параметры формата, максимального размера
-     * части и разбиения страниц, переданные через URL попапа (используется при
-     * открытии попапа из фонового скрипта с заранее заданными настройками).
-     * @param {{formatFromUrl: ?string, maxSizeMBFromUrl: ?string, splitPagesFromUrl: ?string,
+     * Применяет к форме формат и разбиение страниц, переданные через URL окна
+     * загрузки. Параметры действуют только на эту загрузку: сохранённые настройки
+     * (localStorage) не меняются, их меняет только сам пользователь.
+     * @param {{formatFromUrl: ?string, splitPagesFromUrl: ?string,
      * formatSelector: ?HTMLSelectElement}} params - Значения параметров из URL и элемент селектора формата.
      * @returns {void}
      */
-    _applyUrlParams({ formatFromUrl, maxSizeMBFromUrl, splitPagesFromUrl, formatSelector }) {
-        if (formatFromUrl && formatSelector) {
-            formatSelector.value = formatFromUrl;
-            localStorage.setItem('manga_parser_selected_format', formatFromUrl);
-        }
+    _applyUrlParams({ formatFromUrl, splitPagesFromUrl, formatSelector }) {
+        if (formatFromUrl && formatSelector) formatSelector.value = formatFromUrl;
 
-        if (maxSizeMBFromUrl)
-            localStorage.setItem('manga_parser_max_size_mb', maxSizeMBFromUrl);
-
-        if (splitPagesFromUrl !== null) {
+        if (splitPagesFromUrl != null) {
             const splitPagesCheckbox = $el('splitPagesCheckbox');
             if (splitPagesCheckbox) splitPagesCheckbox.checked = splitPagesFromUrl === 'true';
-            localStorage.setItem('manga_parser_split_pages', splitPagesFromUrl);
         }
     }
 
     /**
      * Отрисовывает нормализованные метаданные тайтла: обложку (с догрузкой через
      * фоновый fetch), заголовок и краткое описание, сводку "глав/рейтинг/авторы"
-     * и дату выхода.
+     * и дату выхода. Данные сайта выводятся только как текст (textContent),
+     * HTML в названии или описании не разбирается.
      * @param {{patched: object, chaptersCount: ?number, slug: string, coverImg: HTMLImageElement,
      * desc: HTMLElement, releaseEl: ?HTMLElement, logoInfo: HTMLElement}} params - Нормализованные
      * метаданные тайтла и ссылки на DOM-элементы для отрисовки.
@@ -392,7 +382,7 @@ export class PopupController {
             : firstLineParts.join(' · ');
         logoInfo.textContent = logoText;
 
-        desc.innerHTML = `<strong>${title}</strong><br><small>${summary}</small>`;
+        desc.replaceChildren(createEl('strong', { text: title }), createEl('br'), createEl('small', { text: summary }));
 
         const release = patched.releaseDate || '';
         if (releaseEl) releaseEl.textContent = release ? `Дата выхода: ${release}` : '';
@@ -442,12 +432,13 @@ export class PopupController {
             for (const service of serviceRegistry.getAllServices()) {
                 const { name, siteUrl } = service.config || {};
                 if (!siteUrl) continue;
-                const btn = document.createElement('button');
-                btn.className = `service-link-btn ${name}-link-btn`;
+                const btn = createEl('button', {
+                    className: `service-link-btn ${name}-link-btn`,
+                    text: service.config.label || name
+                });
                 btn.style.flex = '1';
                 if (service.config.primaryColor)
                     btn.style.border = `2px solid ${service.config.primaryColor}`;
-                btn.textContent = service.config.label || name;
                 btn.addEventListener('click', async () => {
                     extensionApi.tabs.create({ url: siteUrl });
                     this._applyServiceTheme(name, siteLogo);
@@ -458,7 +449,7 @@ export class PopupController {
         }
 
         $el('openGithub')?.addEventListener('click', () => {
-            extensionApi.tabs.create({ url: 'https://github.com/ivanvit100/DownloadLib' });
+            extensionApi.tabs.create({ url: REPO_URL });
         });
     }
 
@@ -473,7 +464,7 @@ export class PopupController {
         if (logoInfo) logoInfo.textContent = '';
 
         $el('openGithub')?.addEventListener('click', () => {
-            extensionApi.tabs.create({ url: 'https://github.com/ivanvit100/DownloadLib' });
+            extensionApi.tabs.create({ url: REPO_URL });
         });
     }
 
@@ -537,17 +528,13 @@ export class PopupController {
         const formatFromUrl = urlParams.get('format');
         const chapterFromUrl = urlParams.get('chapterFrom');
         const chapterToUrl = urlParams.get('chapterTo');
-        const maxSizeMBFromUrl = urlParams.get('maxSizeMB');
         const branchIdFromUrl = urlParams.get('branchId')
             ? parseInt(urlParams.get('branchId'))
             : null;
         const splitPagesFromUrl = urlParams.get('splitPages');
         const tabIdFromUrl = urlParams.get('tabId') ? parseInt(urlParams.get('tabId')) : null;
 
-        this._applyUrlParams({
-            formatFromUrl, maxSizeMBFromUrl, splitPagesFromUrl,
-            formatSelector: $el('formatSelector')
-        });
+        this._applyUrlParams({ formatFromUrl, splitPagesFromUrl, formatSelector: $el('formatSelector') });
 
         if (btn) btn.disabled = true;
         if (status) status.textContent = 'Получаем информацию...';
@@ -593,6 +580,12 @@ export class PopupController {
             this._renderMeta({ patched, chaptersCount, slug, coverImg, desc, releaseEl, logoInfo });
             this._setReadyState({ btn, status });
 
+            if (this.chapterController.rangeNotFound) {
+                // Не скачиваем молча весь тайтл вместо выбранного диапазона.
+                if (status)
+                    status.textContent = 'Выбранные главы не найдены в списке глав тайтла: выберите диапазон заново';
+                return;
+            }
             if (autoDownload) setTimeout(() => this.startDownload(), 500);
         } catch (error) {
             this._handleLoadError(error, uiElements);
@@ -646,37 +639,9 @@ export class PopupController {
                 const inSeparateWindow = await this.isInSeparateWindow();
 
                 if (!inSeparateWindow) {
-                    const formatSelector = $el('formatSelector');
-                    const fromSelect = $el('chapterFromSelect');
-                    const toSelect = $el('chapterToSelect');
-                    const chapterRangeContainer = $el('chapterRangeContainer');
-
-                    const format = formatSelector ? formatSelector.value : 'fb2';
-                    const maxSizeMB = localStorage.getItem('manga_parser_max_size_mb') || '200';
-
-                    const splitPagesCheckboxEl = $el('splitPagesCheckbox');
-                    const splitPagesContainerEl = $el('splitPagesContainer');
-                    const splitPages = splitPagesCheckboxEl && splitPagesContainerEl &&
-                        splitPagesContainerEl.style.display !== 'none'
-                        ? splitPagesCheckboxEl.checked
-                        : false;
-
-                    let urlParams = `?download=true&slug=${encodeURIComponent(this.currentSlug)}&service=${encodeURIComponent(this.currentServiceKey)}&format=${encodeURIComponent(format)}&maxSizeMB=${encodeURIComponent(maxSizeMB)}&splitPages=${encodeURIComponent(splitPages)}`;
-
-                    if (fromSelect && toSelect &&
-                        chapterRangeContainer &&
-                        chapterRangeContainer.style.display !== 'none')
-                        urlParams += `&chapterFrom=${encodeURIComponent(fromSelect.value)}&chapterTo=${encodeURIComponent(toSelect.value)}`;
-                    else console.warn(`Chapter range selectors not found or not visible when constructing URL parameters for download`);
-
-                    const translatorSelect = $el('translatorSelect');
-                    const translatorContainer = $el('translatorContainer');
-                    if (translatorSelect && translatorContainer &&
-                        translatorContainer.style.display !== 'none')
-                        urlParams += `&branchId=${encodeURIComponent(translatorSelect.value)}`;
-
+                    const url = `${extensionApi.runtime.getURL('popup.html')}?${this._downloadWindowParams()}`;
                     try {
-                        await this.openInNewContext(extensionApi.runtime.getURL('popup.html') + urlParams);
+                        await this.openInNewContext(url);
                     } catch (e) {
                         console.error('Failed to create window:', e);
                         await this.startDownload();
@@ -700,6 +665,45 @@ export class PopupController {
         }
 
         if (stopBtn) stopBtn.addEventListener('click', () => this.stopDownload());
+    }
+
+    /**
+     * Параметры URL окна загрузки: тайтл, сервис, вкладка сервиса и выбор в форме
+     * (формат, разбиение страниц, ключи первой и последней главы, ветка перевода).
+     * Остальные настройки окно загрузки берёт из сохранённых настроек.
+     * @returns {URLSearchParams}
+     */
+    _downloadWindowParams() {
+        const formatSelector = $el('formatSelector');
+        const splitPagesCheckbox = $el('splitPagesCheckbox');
+        const splitPagesContainer = $el('splitPagesContainer');
+        const splitPages = !!(splitPagesCheckbox && splitPagesContainer &&
+            splitPagesContainer.style.display !== 'none' && splitPagesCheckbox.checked);
+
+        const params = new URLSearchParams({
+            download: 'true',
+            slug: this.currentSlug,
+            service: this.currentServiceKey,
+            format: formatSelector ? formatSelector.value : 'fb2',
+            splitPages: String(splitPages)
+        });
+        if (this._activeTabId != null) params.set('tabId', String(this._activeTabId));
+
+        const range = this._buildChapterRange(
+            $el('chapterFromSelect'), $el('chapterToSelect'), $el('chapterRangeContainer'));
+        if (range) {
+            params.set('chapterFrom', range.fromKey);
+            params.set('chapterTo', range.toKey);
+        } else {
+            console.warn('Chapter range selectors not found or not visible ' +
+                'when constructing URL parameters for download');
+        }
+
+        const translatorSelect = $el('translatorSelect');
+        const translatorContainer = $el('translatorContainer');
+        if (translatorSelect && translatorContainer && translatorContainer.style.display !== 'none')
+            params.set('branchId', translatorSelect.value);
+        return params;
     }
 
     /**
@@ -754,9 +758,9 @@ export class PopupController {
     _setDownloadingUIState({ btn, progress, controls, chapterRangeContainer, status, rateLimit = DEFAULT_RATE_LIMIT }) {
         btn.disabled = true;
         btn.style.display = 'none';
-        this._setVisibility('formatContainer', 'none');
-        this._setVisibility('translatorContainer', 'none');
-        this._setVisibility('splitPagesContainer', 'none');
+        setDisplay('formatContainer', 'none');
+        setDisplay('translatorContainer', 'none');
+        setDisplay('splitPagesContainer', 'none');
         if (progress) progress.style.display = 'block';
         if (controls) controls.style.display = 'block';
         if (chapterRangeContainer) chapterRangeContainer.style.display = 'none';
@@ -767,11 +771,11 @@ export class PopupController {
             const formatLabel = formatSelector
                 ? (formatSelector.options[formatSelector.selectedIndex]?.text || formatSelector.value)
                 : '';
-            const maxSizeMBDisplay = localStorage.getItem('manga_parser_max_size_mb') || '200';
-            downloadInfoPanel.innerHTML =
-                `<div class="info-row"><span class="info-label">Формат</span><span class="info-value">${formatLabel}</span></div>` +
-                `<div class="info-row"><span class="info-label">Запросов в минуту</span><span class="info-value">${rateLimit}</span></div>` +
-                `<div class="info-row"><span class="info-label">Макс. размер части</span><span class="info-value">${maxSizeMBDisplay} МБ</span></div>`;
+            const maxSizeMBDisplay = localStorage.getItem(MAX_SIZE_KEY) || '200';
+            downloadInfoPanel.replaceChildren(
+                infoRow('Формат', formatLabel),
+                infoRow('Запросов в минуту', rateLimit),
+                infoRow('Макс. размер части', `${maxSizeMBDisplay} МБ`));
             downloadInfoPanel.style.display = 'block';
         }
 
@@ -809,7 +813,7 @@ export class PopupController {
             });
 
             const format = formatSelector?.value || 'fb2';
-            const maxSizeMB = parseInt(localStorage.getItem('manga_parser_max_size_mb')) || 200;
+            const maxSizeMB = parseInt(localStorage.getItem(MAX_SIZE_KEY)) || 200;
 
             const splitPagesEl = $el('splitPagesCheckbox');
             const splitPages = splitPagesEl ? splitPagesEl.checked : false;
@@ -953,11 +957,11 @@ export class PopupController {
             btn.disabled = false;
             btn.textContent = 'Скачать';
         } else console.warn('Download button not found when resetting UI');
-        this._setVisibility('formatContainer', '');
-        this._setVisibility('downloadInfoPanel', 'none');
+        setDisplay('formatContainer', '');
+        setDisplay('downloadInfoPanel', 'none');
         const showSplitOnReset =
             this.currentServiceKey === 'mangalib' || !!this.currentService?.config?.splitLongImages;
-        this._setVisibility('splitPagesContainer', showSplitOnReset ? 'block' : 'none');
+        setDisplay('splitPagesContainer', showSplitOnReset ? 'block' : 'none');
         if (progress) progress.style.display = 'none';
         else console.warn('Progress element not found when resetting UI');
         if (controls) controls.style.display = 'none';
@@ -1016,7 +1020,7 @@ export class PopupController {
         const CACHE_KEY = 'DLoadLib_API_check';
         const CACHE_TTL = 4 * 60 * 60 * 1000;
         const API_URL = `https://api.github.com/repos/ivanvit100/DownloadLib/actions/workflows/health-check.yaml/runs?per_page=1`;
-        const REPO_URL = 'https://github.com/ivanvit100/DownloadLib/issues';
+        const ISSUES_URL = `${REPO_URL}/issues`;
 
         try {
             const cached = JSON.parse(localStorage.getItem(CACHE_KEY) || 'null');
@@ -1028,11 +1032,11 @@ export class PopupController {
                 const conclusion = data.workflow_runs?.[0]?.conclusion;
                 const isFailing = conclusion === 'failure';
                 localStorage.setItem(CACHE_KEY, JSON.stringify({ isFailing, timestamp: Date.now() }));
-                if (isFailing) this._showApiWarning(REPO_URL);
+                if (isFailing) this._showApiWarning(ISSUES_URL);
                 return;
             }
 
-            if (cached.isFailing) this._showApiWarning(REPO_URL);
+            if (cached.isFailing) this._showApiWarning(ISSUES_URL);
         } catch (e) {
             console.warn('[PopupController] Health check status unavailable:', e.message);
         }
@@ -1045,18 +1049,13 @@ export class PopupController {
      * @returns {void}
      */
     _showApiWarning(repoUrl) {
-        const warning = document.createElement('div');
-        warning.id = 'apiWarning';
+        const warning = createEl('div', { attrs: { id: 'apiWarning' } });
+        warning.appendChild(createEl('div', {
+            text: '⚠️ Некоторые запросы к API могут не работать. ',
+            attrs: { id: 'apiWarningMsg' }
+        }));
 
-        const msg = document.createElement('div');
-        msg.id = 'apiWarningMsg';
-        msg.textContent = '⚠️ Некоторые запросы к API могут не работать. ';
-        warning.appendChild(msg);
-
-        const link = document.createElement('a');
-        link.id = 'apiWarningLink';
-        link.textContent = 'Подробнее на GitHub →';
-        link.href = '#';
+        const link = createEl('a', { text: 'Подробнее на GitHub →', attrs: { id: 'apiWarningLink', href: '#' } });
         link.addEventListener('click', (e) => {
             e.preventDefault();
             extensionApi.tabs.create({ url: repoUrl });

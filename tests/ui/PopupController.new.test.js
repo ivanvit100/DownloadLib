@@ -549,6 +549,30 @@ describe('PopupController second test file', () => {
         );
     });
 
+    it('Does not start the download window automatically when its chapter range is not in the list', async () => {
+        Object.defineProperty(window, 'location', {
+            value: { search: '?download=true&chapterFrom=101&chapterTo=105' },
+            configurable: true
+        });
+        const controller = new PopupController();
+        controller.chapterController.loadAndPopulate = vi.fn(async function () {
+            this.rangeNotFound = true;
+            return 2;
+        });
+        const startSpy = vi.spyOn(controller, 'startDownload').mockResolvedValue();
+        const timeoutSpy = vi.spyOn(globalThis, 'setTimeout');
+
+        await controller.loadMetadata();
+
+        expect(document.getElementById('status').textContent)
+            .toBe('Выбранные главы не найдены в списке глав тайтла: выберите диапазон заново');
+        expect(document.getElementById('downloadBtn').disabled).toBe(false);
+        expect(timeoutSpy).not.toHaveBeenCalledWith(expect.any(Function), 500);
+        expect(startSpy).not.toHaveBeenCalled();
+        timeoutSpy.mockRestore();
+        Object.defineProperty(window, 'location', { value: { search: '' }, configurable: true });
+    });
+
     it('Clamps toSelect value when fromSelect changes to a higher index', async () => {
         new PopupController();
 
@@ -1047,6 +1071,31 @@ describe('PopupController second test file', () => {
 
         const panel = document.getElementById('downloadInfoPanel');
         expect(panel.innerHTML).toContain('mobi');
+    });
+
+    it('Builds the download parameters panel from text nodes', async () => {
+        const controller = new PopupController();
+        controller.currentSlug = 'slug';
+        controller.currentServiceKey = 'ranobelib';
+
+        const formatSelector = document.getElementById('formatSelector');
+        formatSelector.replaceChildren();
+        const opt = document.createElement('option');
+        opt.value = 'plugin';
+        opt.textContent = '<img src=x onerror="alert(1)">';
+        formatSelector.appendChild(opt);
+
+        controller.downloadManager.startDownload = vi.fn(async () => ({}));
+        await controller.startDownload();
+
+        const panel = document.getElementById('downloadInfoPanel');
+        expect(panel.querySelector('img')).toBeNull();
+        const rows = Array.from(panel.querySelectorAll('.info-row'), row => [
+            row.querySelector('.info-label').textContent, row.querySelector('.info-value').textContent
+        ]);
+        expect(rows[0]).toEqual(['Формат', '<img src=x onerror="alert(1)">']);
+        expect(rows.map(([label]) => label)).toEqual(['Формат', 'Запросов в минуту', 'Макс. размер части']);
+        expect(rows[2][1]).toMatch(/ МБ$/);
     });
 
     it('Skips downloadInfoPanel hiding when it is absent from DOM during resetUI', () => {

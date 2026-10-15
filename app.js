@@ -12,6 +12,7 @@ import './core/pluginApi.js';
 import './services/index.js';
 import './exporters/index.js';
 import { PluginManager } from './core/PluginManager.js';
+import { $el } from './ui/dom.js';
 import { PopupController } from './ui/PopupController.js';
 
 console.log('[App] Initializing...');
@@ -28,8 +29,9 @@ function initUI() {
         new PopupController();
     } catch (e) {
         console.error('[App] Failed to initialize PopupController:', e);
-        document.getElementById('error').textContent = `Ошибка инициализации: ${e.message}`;
-        document.getElementById('error').classList.remove('hidden');
+        const errorEl = $el('error');
+        errorEl.textContent = `Ошибка инициализации: ${e.message}`;
+        errorEl.classList.remove('hidden');
     }
 }
 

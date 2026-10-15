@@ -9,11 +9,23 @@
 
 import { extensionApi } from '../core/BrowserApi.js';
 import { DownloadHistory } from '../core/DownloadHistory.js';
+import { ExporterRegistry } from '../exporters/ExporterRegistry.js';
 import { buildTitleUrl } from '../services/hosts.js';
 import { serviceRegistry } from '../services/ServiceRegistry.js';
+import { $el, createEl } from './dom.js';
 
-const FORMAT_LABELS = { epub: 'EPUB', fb2: 'FB2', pdf: 'PDF', mobi: 'MOBI' };
 const DEFAULT_COLOR = '#ff9100';
+
+/**
+ * Подпись формата для бейджа карточки: та же, что в списке форматов попапа
+ * (включая форматы плагинов), а для неизвестного формата — его ключ заглавными.
+ * @param {string} format - Ключ формата.
+ * @returns {string}
+ */
+function formatLabel(format) {
+    const known = ExporterRegistry.getFormats().find(({ value }) => value === format);
+    return known ? known.label : String(format || '').toUpperCase();
+}
 
 /**
  * Возвращает фирменный цвет сервиса для оформления карточки истории.
@@ -58,9 +70,9 @@ export const HistoryController = {
      */
     _render() {
         const history = DownloadHistory.getAll();
-        const list = document.getElementById('historyList');
-        const empty = document.getElementById('historyEmpty');
-        const clearBtn = document.getElementById('clearHistoryBtn');
+        const list = $el('historyList');
+        const empty = $el('historyEmpty');
+        const clearBtn = $el('clearHistoryBtn');
 
         if (!history.length) {
             if (list) list.style.display = 'none';
@@ -69,7 +81,7 @@ export const HistoryController = {
             return;
         }
 
-        if (list) { list.style.display = 'flex'; list.innerHTML = ''; }
+        if (list) { list.style.display = 'flex'; list.replaceChildren(); }
         if (empty) empty.style.display = 'none';
         if (clearBtn) clearBtn.style.display = 'block';
         history.forEach(entry => { if (list) list.appendChild(this._createCard(entry)); });
@@ -85,13 +97,10 @@ export const HistoryController = {
     _createCard(entry) {
         const color = getServiceColor(entry.service);
 
-        const card = document.createElement('div');
-        card.className = 'history-card';
+        const card = createEl('div', { className: 'history-card' });
         card.style.borderLeftColor = color;
 
-        const titleRow = document.createElement('div');
-        titleRow.className = 'history-card-title';
-        titleRow.textContent = entry.title || entry.slug;
+        const titleRow = createEl('div', { className: 'history-card-title', text: entry.title || entry.slug });
 
         const titleUrl = buildTitleUrl(serviceRegistry.getService(entry.service)?.config?.titleUrl, entry.slug);
         if (titleUrl && extensionApi?.tabs) {
@@ -100,39 +109,28 @@ export const HistoryController = {
             titleRow.addEventListener('click', () => extensionApi.tabs.create({ url: titleUrl }));
         }
 
-        const meta = document.createElement('div');
-        meta.className = 'history-card-meta';
+        const meta = createEl('div', { className: 'history-card-meta' });
 
-        const badge = document.createElement('span');
-        badge.className = 'history-badge';
-        badge.textContent = FORMAT_LABELS[entry.format] || entry.format.toUpperCase();
+        const badge = createEl('span', { className: 'history-badge', text: formatLabel(entry.format) });
         badge.style.borderColor = color;
         badge.style.color = color;
 
-        const date = document.createElement('span');
-        date.className = 'history-date';
-        date.textContent = formatDate(entry.downloadedAt);
-
         meta.appendChild(badge);
-        meta.appendChild(date);
+        meta.appendChild(createEl('span', { className: 'history-date', text: formatDate(entry.downloadedAt) }));
         card.appendChild(titleRow);
         card.appendChild(meta);
 
         if (entry.chapterFrom || entry.chapterTo) {
-            const ch = document.createElement('div');
-            ch.className = 'history-chapters';
             const from = entry.chapterFrom || '—';
             const to = entry.chapterTo || '—';
-            ch.textContent = from === to ? from : `${from} — ${to}`;
-            card.appendChild(ch);
+            card.appendChild(createEl('div', {
+                className: 'history-chapters',
+                text: from === to ? from : `${from} — ${to}`
+            }));
         }
 
-        if (entry.translator) {
-            const tr = document.createElement('div');
-            tr.className = 'history-translator';
-            tr.textContent = `Перевод: ${entry.translator}`;
-            card.appendChild(tr);
-        }
+        if (entry.translator)
+            card.appendChild(createEl('div', { className: 'history-translator', text: `Перевод: ${entry.translator}` }));
 
         return card;
     },
@@ -144,12 +142,12 @@ export const HistoryController = {
      * @returns {void}
      */
     _bindEvents(onBack) {
-        const backBtn = document.getElementById('backBtn');
-        const clearBtn = document.getElementById('clearHistoryBtn');
+        const backBtn = $el('backBtn');
+        const clearBtn = $el('clearHistoryBtn');
 
         if (backBtn) {
             backBtn.addEventListener('click', () => {
-                const logoInfo = document.getElementById('logoInfo');
+                const logoInfo = $el('logoInfo');
                 if (logoInfo) logoInfo.textContent = '';
                 if (onBack) onBack();
                 else console.error('[HistoryController] onBack callback not provided');

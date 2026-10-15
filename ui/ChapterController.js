@@ -8,6 +8,7 @@
  */
 
 import { chapterKey, filterByBranch } from '../core/chapters.js';
+import { $el, createEl } from './dom.js';
 
 console.log('[ChapterController] Loading...');
 
@@ -32,10 +33,13 @@ function selectOption(select, value) {
  */
 export class ChapterController {
     /**
-     * Создаёт контроллер с пустым кэшем загруженных глав.
+     * Создаёт контроллер с пустым кэшем загруженных глав. rangeNotFound — диапазон
+     * из URL не нашёлся в списке глав при последнем loadAndPopulate (выбран весь
+     * диапазон, автоматически скачивать его нельзя).
      */
     constructor() {
         this._allChapters = [];
+        this.rangeNotFound = false;
     }
 
     /**
@@ -58,7 +62,8 @@ export class ChapterController {
     /**
      * Загружает список глав тайтла у сервиса (в порядке чтения), при наличии
      * нескольких переводов настраивает селектор переводчика и заполняет
-     * select-элементы диапазона.
+     * select-элементы диапазона. Если ключей диапазона из URL нет в списке,
+     * выбирает весь диапазон и выставляет rangeNotFound.
      * @param {object} service - Экземпляр сервиса с методом fetchChapters.
      * @param {string} slug - Slug тайтла.
      * @param {?string} chapterFromUrl - Ключ первой главы диапазона из URL (или null).
@@ -67,6 +72,7 @@ export class ChapterController {
      * @returns {Promise<?number>} Количество загруженных глав, либо null при ошибке загрузки.
      */
     async loadAndPopulate(service, slug, chapterFromUrl, chapterToUrl, branchIdFromUrl = null) {
+        this.rangeNotFound = false;
         try {
             const chapters = await service.fetchChapters(slug);
             this._allChapters = chapters;
@@ -77,7 +83,7 @@ export class ChapterController {
             if (hasMultipleBranches)
                 activeBranchId = this._setupTranslatorSelector(chapters, branchIdFromUrl);
             else {
-                const translatorContainer = document.getElementById('translatorContainer');
+                const translatorContainer = $el('translatorContainer');
                 if (translatorContainer) translatorContainer.style.display = 'none';
             }
 
@@ -86,9 +92,9 @@ export class ChapterController {
                 : chapters;
 
             if (filteredChapters.length > 0) {
-                const fromSelect = document.getElementById('chapterFromSelect');
-                const toSelect = document.getElementById('chapterToSelect');
-                const chapterRangeContainer = document.getElementById('chapterRangeContainer');
+                const fromSelect = $el('chapterFromSelect');
+                const toSelect = $el('chapterToSelect');
+                const chapterRangeContainer = $el('chapterRangeContainer');
 
                 if (fromSelect && toSelect && chapterRangeContainer) {
                     this.repopulateSelects(filteredChapters, fromSelect, toSelect);
@@ -102,6 +108,7 @@ export class ChapterController {
                                 'not found in the chapter list, using the full range');
                             fromSelect.selectedIndex = 0;
                             toSelect.selectedIndex = toSelect.options.length - 1;
+                            this.rangeNotFound = true;
                         }
                     }
 
@@ -124,8 +131,8 @@ export class ChapterController {
      * @returns {?number} id выбранной ветки перевода, либо null, если веток нет.
      */
     _setupTranslatorSelector(chapters, branchIdFromUrl) {
-        const translatorContainer = document.getElementById('translatorContainer');
-        const translatorSelect = document.getElementById('translatorSelect');
+        const translatorContainer = $el('translatorContainer');
+        const translatorSelect = $el('translatorSelect');
         if (!translatorContainer || !translatorSelect) return null;
 
         const branchMap = new Map();
@@ -151,11 +158,9 @@ export class ChapterController {
         const maxCount = Math.max(...chapterCounts.values());
         const longestBranchId = [...branchMap.keys()].find(id => chapterCounts.get(id) === maxCount);
 
-        translatorSelect.innerHTML = '';
+        translatorSelect.replaceChildren();
         for (const [id, name] of branchMap) {
-            const opt = document.createElement('option');
-            opt.value = id;
-            opt.textContent = name;
+            const opt = createEl('option', { text: name, attrs: { value: id } });
             if (chapterCounts.get(id) === maxCount) opt.dataset.top = 'true';
             translatorSelect.appendChild(opt);
         }
@@ -168,8 +173,8 @@ export class ChapterController {
         translatorSelect.onchange = () => {
             const selectedBranchId = parseInt(translatorSelect.value);
             const filtered = this.getFilteredChapters(selectedBranchId);
-            const fromSelect = document.getElementById('chapterFromSelect');
-            const toSelect = document.getElementById('chapterToSelect');
+            const fromSelect = $el('chapterFromSelect');
+            const toSelect = $el('chapterToSelect');
             if (fromSelect && toSelect) {
                 this.repopulateSelects(filtered, fromSelect, toSelect);
                 toSelect.selectedIndex = toSelect.options.length - 1;
@@ -184,12 +189,11 @@ export class ChapterController {
 
     /**
      * Создаёт SVG-значок "ТОП" для отметки ветки перевода с наибольшим числом глав.
+     * Разметка значка — постоянная строка расширения, данных сайта в ней нет.
      * @returns {HTMLElement} span-элемент со значком.
      */
     _topBadgeSvg() {
-        const span = document.createElement('span');
-        span.className = 'translator-top-badge';
-        span.title = 'Самый длинный перевод';
+        const span = createEl('span', { className: 'translator-top-badge', attrs: { title: 'Самый длинный перевод' } });
         span.innerHTML = '<svg viewBox="0 0 24 32" width="20" height="26" aria-hidden="true" focusable="false">' +
             '<path d="M2 17 L2 8 L7 12 L12 3 L17 12 L22 8 L22 17 Z" fill="#ffca28" stroke="#c67c00" ' +
             'stroke-width="1" stroke-linejoin="round"/>' +
@@ -211,24 +215,21 @@ export class ChapterController {
      * @returns {void}
      */
     _setupTranslatorDropdown(selectEl) {
-        const wrap = document.getElementById('translatorDropdown');
-        const trigger = document.getElementById('translatorDropdownTrigger');
-        const list = document.getElementById('translatorDropdownList');
+        const wrap = $el('translatorDropdown');
+        const trigger = $el('translatorDropdownTrigger');
+        const list = $el('translatorDropdownList');
         if (!wrap || !trigger || !list) return;
 
-        list.innerHTML = '';
+        list.replaceChildren();
         Array.from(selectEl.options).forEach(opt => {
-            const item = document.createElement('button');
-            item.type = 'button';
-            item.className = 'translator-dropdown-option';
-            item.setAttribute('role', 'option');
+            const item = createEl('button', {
+                className: 'translator-dropdown-option',
+                attrs: { type: 'button', role: 'option' }
+            });
             item.dataset.value = opt.value;
 
             if (opt.dataset.top === 'true') item.appendChild(this._topBadgeSvg());
-
-            const text = document.createElement('span');
-            text.textContent = opt.textContent;
-            item.appendChild(text);
+            item.appendChild(createEl('span', { text: opt.textContent }));
 
             item.addEventListener('click', () => {
                 selectEl.value = opt.value;
@@ -264,17 +265,15 @@ export class ChapterController {
      * @returns {void}
      */
     _syncTranslatorDropdown(selectEl) {
-        const label = document.getElementById('translatorDropdownLabel');
-        const list = document.getElementById('translatorDropdownList');
+        const label = $el('translatorDropdownLabel');
+        const list = $el('translatorDropdownList');
         if (!label || !list) return;
 
         const selectedOpt = selectEl.options[selectEl.selectedIndex];
-        label.innerHTML = '';
+        label.replaceChildren();
         if (selectedOpt) {
             if (selectedOpt.dataset.top === 'true') label.appendChild(this._topBadgeSvg());
-            const text = document.createElement('span');
-            text.textContent = selectedOpt.textContent;
-            label.appendChild(text);
+            label.appendChild(createEl('span', { text: selectedOpt.textContent }));
         }
 
         Array.from(list.children).forEach(item => {
@@ -287,7 +286,7 @@ export class ChapterController {
      * @returns {void}
      */
     _toggleTranslatorDropdown() {
-        const wrap = document.getElementById('translatorDropdown');
+        const wrap = $el('translatorDropdown');
         if (!wrap) return;
         if (wrap.dataset.open === 'true') this._closeTranslatorDropdown();
         else this._openTranslatorDropdown();
@@ -298,9 +297,9 @@ export class ChapterController {
      * @returns {void}
      */
     _openTranslatorDropdown() {
-        const wrap = document.getElementById('translatorDropdown');
-        const trigger = document.getElementById('translatorDropdownTrigger');
-        const list = document.getElementById('translatorDropdownList');
+        const wrap = $el('translatorDropdown');
+        const trigger = $el('translatorDropdownTrigger');
+        const list = $el('translatorDropdownList');
         if (!wrap || !trigger || !list) return;
         wrap.dataset.open = 'true';
         list.hidden = false;
@@ -312,9 +311,9 @@ export class ChapterController {
      * @returns {void}
      */
     _closeTranslatorDropdown() {
-        const wrap = document.getElementById('translatorDropdown');
-        const trigger = document.getElementById('translatorDropdownTrigger');
-        const list = document.getElementById('translatorDropdownList');
+        const wrap = $el('translatorDropdown');
+        const trigger = $el('translatorDropdownTrigger');
+        const list = $el('translatorDropdownList');
         if (!wrap || !trigger || !list) return;
         wrap.dataset.open = 'false';
         list.hidden = true;
@@ -341,8 +340,8 @@ export class ChapterController {
      * @returns {void}
      */
     repopulateSelects(filteredChapters, fromSelect, toSelect) {
-        fromSelect.innerHTML = '';
-        toSelect.innerHTML = '';
+        fromSelect.replaceChildren();
+        toSelect.replaceChildren();
 
         if (this._getRangeMode() === 'volumes')
             return this._populateByVolume(filteredChapters, fromSelect, toSelect);
@@ -350,15 +349,8 @@ export class ChapterController {
         filteredChapters.forEach(ch => {
             const label = `Том ${ch.volume}, Глава ${ch.number}`;
             const key = chapterKey(ch);
-            const optFrom = document.createElement('option');
-            optFrom.value = key;
-            optFrom.textContent = label;
-            fromSelect.appendChild(optFrom);
-
-            const optTo = document.createElement('option');
-            optTo.value = key;
-            optTo.textContent = label;
-            toSelect.appendChild(optTo);
+            fromSelect.appendChild(createEl('option', { text: label, attrs: { value: key } }));
+            toSelect.appendChild(createEl('option', { text: label, attrs: { value: key } }));
         });
     }
 
@@ -387,16 +379,8 @@ export class ChapterController {
 
         volumes.forEach(vol => {
             const label = `Том ${vol}`;
-
-            const optFrom = document.createElement('option');
-            optFrom.value = firstKey.get(vol);
-            optFrom.textContent = label;
-            fromSelect.appendChild(optFrom);
-
-            const optTo = document.createElement('option');
-            optTo.value = lastKey.get(vol);
-            optTo.textContent = label;
-            toSelect.appendChild(optTo);
+            fromSelect.appendChild(createEl('option', { text: label, attrs: { value: firstKey.get(vol) } }));
+            toSelect.appendChild(createEl('option', { text: label, attrs: { value: lastKey.get(vol) } }));
         });
     }
 }

@@ -7,8 +7,11 @@
  * @version 1.1.0
  */
 
+import { $el } from './dom.js';
+
 /**
  * Синглтон-загрузчик HTML-фрагментов шаблонов в элемент-якорь на странице.
+ * Шаблоны — файлы расширения (templates/), данных сайта в них нет.
  * @namespace TemplateLoader
  */
 export const TemplateLoader = {
@@ -21,7 +24,7 @@ export const TemplateLoader = {
      * @returns {void}
      */
     init(anchorId) {
-        this._anchor = document.getElementById(anchorId);
+        this._anchor = $el(anchorId);
         if (!this._anchor)
             console.error('[TemplateLoader] Anchor element not found:', anchorId);
     },

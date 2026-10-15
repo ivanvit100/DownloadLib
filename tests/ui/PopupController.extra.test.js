@@ -284,16 +284,38 @@ describe('PopupController extra coverage', () => {
     });
 
     describe('_applyUrlParams', () => {
-        it('saves maxSizeMBFromUrl to localStorage when set', () => {
-            const controller = new PopupController();
-            controller._applyUrlParams({ maxSizeMBFromUrl: '100' });
-            expect(global.localStorage.setItem).toHaveBeenCalledWith('manga_parser_max_size_mb', '100');
+        beforeEach(() => {
+            const checkbox = document.createElement('input');
+            checkbox.type = 'checkbox';
+            checkbox.id = 'splitPagesCheckbox';
+            document.body.appendChild(checkbox);
         });
 
-        it('does not write maxSizeMBFromUrl to localStorage when not set', () => {
+        it('applies the format and page splitting to the form without saving them', () => {
             const controller = new PopupController();
-            controller._applyUrlParams({ maxSizeMBFromUrl: null });
-            expect(global.localStorage.setItem).not.toHaveBeenCalledWith('manga_parser_max_size_mb', expect.anything());
+            const formatSelector = document.createElement('select');
+            ['fb2', 'epub'].forEach(value => {
+                const opt = document.createElement('option');
+                opt.value = value;
+                formatSelector.appendChild(opt);
+            });
+            const checkbox = document.getElementById('splitPagesCheckbox');
+            checkbox.checked = true;
+            global.localStorage.setItem.mockClear?.();
+
+            controller._applyUrlParams({ formatFromUrl: 'epub', splitPagesFromUrl: 'false', formatSelector });
+
+            expect(formatSelector.value).toBe('epub');
+            expect(checkbox.checked).toBe(false);
+            expect(global.localStorage.setItem).not.toHaveBeenCalled();
+        });
+
+        it('leaves the form as is without URL params', () => {
+            const controller = new PopupController();
+            const checkbox = document.getElementById('splitPagesCheckbox');
+            checkbox.checked = true;
+            controller._applyUrlParams({ formatFromUrl: null, splitPagesFromUrl: null, formatSelector: null });
+            expect(checkbox.checked).toBe(true);
         });
     });
 
@@ -520,11 +542,23 @@ describe('PopupController extra coverage', () => {
             expect(url).not.toContain('rateLimit');
         });
 
-        it('uses "200" fallback when maxSizeInput is missing from DOM in download button handler', async () => {
+        it('passes only the title, the tab and the form choice in the download URL, not the saved settings', async () => {
             const controller = new PopupController();
-            const openSpy = await clickDownloadBtn(controller, ['maxSizeInput']);
-            const url = openSpy.mock.calls[0]?.[0] || '';
-            expect(url).toContain('maxSizeMB=200');
+            controller._activeTabId = 77;
+            const openSpy = await clickDownloadBtn(controller, []);
+            const url = new URL(openSpy.mock.calls[0]?.[0], 'http://x');
+            expect(url.searchParams.get('download')).toBe('true');
+            expect(url.searchParams.get('slug')).toBe('slug');
+            expect(url.searchParams.get('service')).toBe('ranobelib');
+            expect(url.searchParams.get('tabId')).toBe('77');
+            expect(url.searchParams.has('maxSizeMB')).toBe(false);
+        });
+
+        it('omits tabId when the tab of the service is unknown', async () => {
+            const controller = new PopupController();
+            controller._activeTabId = null;
+            const openSpy = await clickDownloadBtn(controller, []);
+            expect(openSpy.mock.calls[0]?.[0]).not.toContain('tabId');
         });
     });
 

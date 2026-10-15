@@ -120,7 +120,7 @@ DownloadLib/
 │   ├── DeferredQueue.js     # Фоновая догрузка медленных картинок и глав
 │   ├── ImageCompressor.js   # Сжатие, вписывание и нарезка изображений (OffscreenCanvas)
 │   └── PluginManager.js     # Управление пользовательскими плагинами (сервисы и экспортёры)
-├── ui/                      # UI-контроллеры попапа
+├── ui/                      # UI-контроллеры попапа; dom.js — $el, setDisplay, createEl (данные сайта только текстом)
 ├── templates/               # HTML-фрагменты (подгружаются динамически)
 ├── exporters/               # Экспортёры форматов (FB2, EPUB, MOBI, PDF, TXT, JPEG)
 ├── services/                # Адаптеры сайтов (MangaLib, RanobeLib; CdnLibsService — общая база MangaLib и сервисных плагинов)
