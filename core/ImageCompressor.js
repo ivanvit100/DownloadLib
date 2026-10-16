@@ -8,8 +8,9 @@
  */
 
 import { base64ToBytes, blobToBase64 } from './encoding.js';
+import { createLogger } from './logger.js';
 
-console.log('[ImageCompressor] Loading...');
+const log = createLogger('ImageCompressor');
 
 /** Соотношение высоты к ширине страницы A4: по нему режутся длинные изображения. */
 export const PAGE_ASPECT = 297 / 210;
@@ -66,7 +67,7 @@ export class ImageCompressor {
         try {
             bitmap = await createImageBitmap(new Blob([base64ToBytes(base64)], { type: contentType }));
         } catch (e) {
-            console.warn('[ImageCompressor] Failed to decode image, keeping original:', e?.message || e);
+            log.warn('Failed to decode image, keeping original:', e?.message || e);
             return [{ base64, contentType }];
         }
 
@@ -74,7 +75,7 @@ export class ImageCompressor {
             const { width, height } = bitmap;
             const parts = splitPlan(width, height, splitAspect, maxPartHeight);
             if (parts.length > 1)
-                console.log(`[ImageCompressor] Split ${width}x${height} image into ${parts.length} parts`);
+                log.debug(`Split ${width}x${height} image into ${parts.length} parts`);
 
             const result = [];
             for (const { y, h } of parts) {
@@ -115,5 +116,3 @@ export class ImageCompressor {
         return image;
     }
 }
-
-console.log('[ImageCompressor] Loaded');

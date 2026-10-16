@@ -7,6 +7,8 @@
  * @version 1.1.0
  */
 
+import { createLogger } from './logger.js';
+
 /**
  * Promise-based API расширения текущего браузера: нативный browser (Firefox) либо
  * chrome (в MV3 методы chrome.* без колбэка сами возвращают промисы, поэтому
@@ -63,4 +65,4 @@ export function isExtensionUrl(url) {
     return !!origin && typeof url === 'string' && url.startsWith(`${origin}/`);
 }
 
-console.log('[BrowserApi] Loaded:', browserEnv.nativeName);
+createLogger('BrowserApi').debug('Browser:', browserEnv.nativeName);

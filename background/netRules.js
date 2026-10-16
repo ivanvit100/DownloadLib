@@ -9,7 +9,10 @@
  */
 
 import { extensionApi } from '../core/BrowserApi.js';
+import { createLogger } from '../core/logger.js';
 import { serviceConfigs } from '../services/hosts.js';
+
+const log = createLogger('netRules');
 
 /** Первый id сессионных правил блокировки рекламы. */
 const AD_BLOCK_RULE_ID_BASE = 1000;
@@ -60,7 +63,7 @@ function isAdBlockRuleId(id) {
 export async function installAdBlockRules() {
     const dnr = extensionApi?.declarativeNetRequest;
     if (!dnr?.updateSessionRules) {
-        console.warn('[netRules] declarativeNetRequest session rules are not available');
+        log.warn('declarativeNetRequest session rules are not available');
         return;
     }
 
@@ -69,8 +72,8 @@ export async function installAdBlockRules() {
         const removeRuleIds = existing.map(rule => rule.id).filter(isAdBlockRuleId);
         const addRules = buildAdBlockRules();
         await dnr.updateSessionRules({ removeRuleIds, addRules });
-        console.log(`[netRules] Installed ${addRules.length} ad block rule(s)`);
+        log.info(`Installed ${addRules.length} ad block rule(s)`);
     } catch (e) {
-        console.warn('[netRules] Failed to install ad block rules:', e.message);
+        log.warn('Failed to install ad block rules:', e.message);
     }
 }

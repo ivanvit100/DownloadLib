@@ -8,7 +8,10 @@
  */
 
 import { extensionApi } from '../core/BrowserApi.js';
+import { createLogger } from '../core/logger.js';
 import { DEFAULT_RATE_LIMIT, RATE_LIMIT_STORAGE_KEY, RateLimiter } from '../core/RateLimiter.js';
+
+const log = createLogger('rateLimitService');
 
 const SESSION_KEY = 'downloadlib_rate_limiter_state';
 const PERSIST_DELAY_MS = 1000;
@@ -32,7 +35,7 @@ function persistSoon() {
         persistTimer = null;
         Promise.resolve()
             .then(() => extensionApi.storage.session.set({ [SESSION_KEY]: limiter.snapshot() }))
-            .catch(e => console.warn('[rateLimitService] Failed to save limiter state:', e?.message || e));
+            .catch(e => log.warn('Failed to save limiter state:', e?.message || e));
     }, PERSIST_DELAY_MS);
 }
 
@@ -46,14 +49,14 @@ async function init() {
         const saved = await extensionApi?.storage?.session?.get(SESSION_KEY);
         if (saved?.[SESSION_KEY]) limiter.restore(saved[SESSION_KEY]);
     } catch (e) {
-        console.warn('[rateLimitService] Failed to restore limiter state:', e?.message || e);
+        log.warn('Failed to restore limiter state:', e?.message || e);
     }
 
     try {
         const settings = await extensionApi?.storage?.local?.get(RATE_LIMIT_STORAGE_KEY);
         if (settings?.[RATE_LIMIT_STORAGE_KEY] != null) limiter.setLimit(settings[RATE_LIMIT_STORAGE_KEY]);
     } catch (e) {
-        console.warn('[rateLimitService] Failed to read rate limit:', e?.message || e);
+        log.warn('Failed to read rate limit:', e?.message || e);
     }
 }
 

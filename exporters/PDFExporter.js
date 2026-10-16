@@ -8,9 +8,10 @@
  */
 
 import { BaseExporter } from './BaseExporter.js';
+import { createLogger } from '../core/logger.js';
 import { sanitizeFilename } from '../core/text.js';
 
-console.log('[PDFExporter] Loading...');
+const log = createLogger('PDFExporter');
 
 /**
  * Экспортёр формата PDF: текст глав рендерится в изображения через canvas
@@ -225,7 +226,7 @@ export class PDFExporter extends BaseExporter {
         const chapterImages = [];
 
         if (!Array.isArray(ch.content)) {
-            console.warn('[PDFExporter] Chapter content is not an array, skipping chapter content processing');
+            log.warn('Chapter content is not an array, skipping chapter content processing');
             return { chapterText, chapterImages };
         }
 
@@ -234,10 +235,10 @@ export class PDFExporter extends BaseExporter {
                 const text = this.stripHtml(block.text);
                 if (text)
                     chapterText += (chapterText ? '\n' : '') + text;
-                else console.warn('[PDFExporter] Skipping empty text block in chapter content');
+                else log.warn('Skipping empty text block in chapter content');
             } else if (block.type === 'image' && block.data && block.data.base64)
                 chapterImages.push(block);
-            else console.warn(`[PDFExporter] Unsupported block type in chapter content: ${block.type}`);
+            else log.warn(`Unsupported block type in chapter content: ${block.type}`);
         }
 
         return { chapterText, chapterImages };
@@ -271,7 +272,7 @@ export class PDFExporter extends BaseExporter {
     async _addCoverToPdf(pdf, coverBase64, pageWidth, pageHeight, state) {
         const coverDataUrl = await this.ensureDataUrl(coverBase64);
         if (!coverDataUrl) {
-            console.warn('[PDFExporter] Invalid cover image data, skipping cover page');
+            log.warn('Invalid cover image data, skipping cover page');
             return;
         }
         this._ensureNewPage(pdf, state);
@@ -329,7 +330,7 @@ export class PDFExporter extends BaseExporter {
                 state.pageCount += 1;
                 if (state.pageCount % 10 === 0)
                     await this.delay(50);
-                else console.log(`[PDFExporter] Added text page ${state.pageCount} for chapter ${chIdx + 1}`);
+                else log.debug(`Added text page ${state.pageCount} for chapter ${chIdx + 1}`);
             }
         }
 
@@ -351,12 +352,12 @@ export class PDFExporter extends BaseExporter {
             if (h > maxH) {
                 h = maxH;
                 w = h * imgRatio;
-            } else console.warn('[PDFExporter] Image fits within page without resizing');
+            } else log.debug('Image fits within page without resizing');
             pdf.addImage(dataUrl, 'JPEG', (pageWidth - w) / 2, (pageHeight - h) / 2, w, h);
             state.pageCount += 1;
             img.src = '';
             if (state.pageCount % 5 === 0) await this.delay(50);
-            else console.log(`[PDFExporter] Added image page ${state.pageCount} for chapter ${chIdx + 1}`);
+            else log.debug(`Added image page ${state.pageCount} for chapter ${chIdx + 1}`);
         }
 
         await this.delay(100);
@@ -415,5 +416,3 @@ export class PDFExporter extends BaseExporter {
         };
     }
 }
-
-console.log('[PDFExporter] Loaded');

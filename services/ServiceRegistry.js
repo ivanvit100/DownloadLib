@@ -6,7 +6,9 @@
  * @version 1.1.0
  */
 
-console.log('[ServiceRegistry] Loading...');
+import { createLogger } from '../core/logger.js';
+
+const log = createLogger('ServiceRegistry');
 
 /**
  * Реестр доступных сервисов-парсеров сайтов (встроенных и добавленных плагинами):
@@ -20,7 +22,7 @@ export class ServiceRegistry {
      */
     constructor() {
         this.services = new Map();
-        console.log('[ServiceRegistry] Instance created');
+        log.debug('Instance created');
     }
 
     /**
@@ -38,9 +40,9 @@ export class ServiceRegistry {
                 instance: instance,
                 matcher: url => ServiceClass.matches(url)
             });
-            console.log(`[ServiceRegistry] Registered: ${instance.name}`);
+            log.info(`Registered: ${instance.name}`);
         } catch (e) {
-            console.error(`[ServiceRegistry] Failed to register service:`, e);
+            log.error('Failed to register service:', e);
         }
     }
 
@@ -54,7 +56,7 @@ export class ServiceRegistry {
             try {
                 if (matcher(url)) return name;
             } catch (e) {
-                console.error(`[ServiceRegistry] Error checking matcher for ${name}:`, e);
+                log.error(`Error checking matcher for ${name}:`, e);
             }
         }
         return null;
@@ -95,7 +97,7 @@ export class ServiceRegistry {
         try {
             return new entry.class();
         } catch (e) {
-            console.error(`[ServiceRegistry] Failed to create service: ${name}`, e);
+            log.error(`Failed to create service: ${name}`, e);
             return null;
         }
     }
@@ -114,5 +116,3 @@ export class ServiceRegistry {
  * @type {ServiceRegistry}
  */
 export const serviceRegistry = new ServiceRegistry();
-
-console.log('[ServiceRegistry] Loaded');

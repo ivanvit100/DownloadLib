@@ -11,8 +11,6 @@
 import { BaseExporter } from './BaseExporter.js';
 import { base64ToBytes } from '../core/encoding.js';
 
-console.log('[MOBIExporter] Loading...');
-
 /**
  * Накопительный бинарный писатель: собирает бинарные структуры формата MOBI
  * (Palm Database / PalmDOC) из последовательности чанков без промежуточных
@@ -503,5 +501,3 @@ export class MOBIExporter extends BaseExporter {
         };
     }
 }
-
-console.log('[MOBIExporter] Loaded');

@@ -1,5 +1,6 @@
 import { describe, it, beforeEach, vi, expect, afterEach } from 'vitest';
 
+vi.mock('../core/BrowserApi.js', async () => (await import('./helpers/globalBridge.js')).globalBridge('extensionApi'));
 vi.mock('../core/pluginApi.js', () => ({}));
 vi.mock('../services/index.js', () => ({}));
 vi.mock('../exporters/index.js', () => ({}));
@@ -20,8 +21,9 @@ describe('App initialization', () => {
 
         global.PluginManager = { loadAll: vi.fn(async () => {}) };
         global.PopupController = vi.fn();
+        global.extensionApi = null;
 
-        logSpy = vi.spyOn(console, 'log').mockImplementation(() => {});
+        logSpy = vi.spyOn(console, 'debug').mockImplementation(() => {});
         errorSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
     });
 
@@ -29,6 +31,24 @@ describe('App initialization', () => {
         vi.restoreAllMocks();
         delete global.PluginManager;
         delete global.PopupController;
+        delete global.extensionApi;
+    });
+
+    it('Reads the log level from storage.local before loading plugins', async () => {
+        const order = [];
+        global.extensionApi = {
+            storage: {
+                local: { get: vi.fn(async () => { order.push('log level'); return { downloadlib_log_level: 'error' }; }) },
+                onChanged: { addListener: vi.fn() }
+            }
+        };
+        global.PluginManager.loadAll = vi.fn(async () => { order.push('plugins'); });
+        await import('../app.js');
+        await flush();
+        const { getLogLevel } = await import('../core/logger.js');
+        expect(order).toEqual(['log level', 'plugins']);
+        expect(getLogLevel()).toBe('error');
+        expect(global.extensionApi.storage.onChanged.addListener).toHaveBeenCalled();
     });
 
     it('Loads plugins and then creates the popup controller', async () => {

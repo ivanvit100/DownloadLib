@@ -8,8 +8,9 @@
  */
 
 import { BaseExporter } from './BaseExporter.js';
+import { createLogger } from '../core/logger.js';
 
-console.log('[EPUBExporter] Loading...');
+const log = createLogger('EPUBExporter');
 
 /**
  * Экспортёр формата EPUB 2.0: собирает ZIP-контейнер со стандартной структурой
@@ -62,9 +63,9 @@ export class EPUBExporter extends BaseExporter {
                         manifest += `<item id="${imageId}" href="${filename}" media-type="${contentType}"/>\n`;
 
                         block._epubImagePath = filename;
-                    } else console.warn(`[EPUBExporter] Chapter ${i + 1} has unsupported image block or missing data`);
+                    } else log.warn(`Chapter ${i + 1} has unsupported image block or missing data`);
                 }
-            } else console.warn(`[EPUBExporter] Chapter ${i + 1} has no content array`);
+            } else log.warn(`Chapter ${i + 1} has no content array`);
         }
 
         for (let i = 0; i < chapters.length; i++) {
@@ -277,5 +278,3 @@ export class EPUBExporter extends BaseExporter {
     </navPoint>\n`;
     }
 }
-
-console.log('[EPUBExporter] Loaded');

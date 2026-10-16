@@ -6,8 +6,6 @@
  * @version 1.1.0
  */
 
-console.log('[ExporterRegistry] Loading...');
-
 /**
  * Реестр доступных экспортёров форматов (встроенных и добавленных плагинами):
  * связывает ключ формата с классом экспортёра и его метаданными для UI.
@@ -66,5 +64,3 @@ export class ExporterRegistry {
         ExporterRegistry.#registry = {};
     }
 }
-
-console.log('[ExporterRegistry] Loaded');

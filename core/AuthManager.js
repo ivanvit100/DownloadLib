@@ -8,9 +8,10 @@
  */
 
 import { extensionApi } from './BrowserApi.js';
+import { createLogger } from './logger.js';
 import { MSG } from './messages.js';
 
-console.log('[AuthManager] Loading...');
+const log = createLogger('AuthManager');
 
 /**
  * Ищет действующий JWT в local/sessionStorage страницы. Внедряется во вкладку
@@ -98,7 +99,7 @@ export const AuthManager = {
             const cached = await extensionApi.runtime.sendMessage({ action: MSG.GET_AUTH_TOKEN, serviceKey });
             if (cached && cached.token) return cached.token;
         } catch (e) {
-            console.warn('[AuthManager] Failed to get cached auth token:', e);
+            log.warn('Failed to get cached auth token:', e);
         }
 
         if (tabId != null && extensionApi.scripting) {
@@ -110,11 +111,11 @@ export const AuthManager = {
                 if (results && results[0] && results[0].result) {
                     const token = results[0].result;
                     extensionApi.runtime.sendMessage({ action: MSG.CACHE_AUTH_TOKEN, serviceKey, token })
-                        .catch(() => {});
+                        .catch(e => log.debug('Failed to cache the auth token in the background:', e));
                     return token;
                 }
             } catch (e) {
-                console.warn('[AuthManager] Failed to extract auth token via executeScript:', e);
+                log.warn('Failed to extract auth token via executeScript:', e);
             }
         }
 
@@ -134,11 +135,11 @@ export const AuthManager = {
             const token = await this.getToken(serviceKey, activeTabId);
             if (token) {
                 service.setAuthToken(token);
-                console.log('[AuthManager] Auth token applied');
+                log.info('Auth token applied');
                 return token;
             }
         } catch (e) {
-            console.warn('[AuthManager] Could not get auth token:', e);
+            log.warn('Could not get auth token:', e);
         }
         return null;
     },
@@ -153,9 +154,7 @@ export const AuthManager = {
         try {
             await extensionApi.runtime.sendMessage({ action: MSG.AUTH_INVALIDATE, serviceKey });
         } catch (e) {
-            console.warn('[AuthManager] Failed to invalidate auth token:', e);
+            log.warn('Failed to invalidate auth token:', e);
         }
     }
 };
-
-console.log('[AuthManager] Loaded');

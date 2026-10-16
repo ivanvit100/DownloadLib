@@ -13,6 +13,7 @@ import { DEFERRED_SETTINGS, estimateContentSize, waitWithDeadline } from './Defe
 import { createController, DownloadContext } from './DownloadContext.js';
 import { EventBus } from './EventBus.js';
 import { ImageCompressor } from './ImageCompressor.js';
+import { createLogger } from './logger.js';
 import { MangaPatcher } from './MangaPatcher.js';
 import { PORT_KEEP_ALIVE } from './messages.js';
 import { PluginManager } from './PluginManager.js';
@@ -21,7 +22,7 @@ import { ExporterRegistry } from '../exporters/ExporterRegistry.js';
 import { extractSlug } from '../services/hosts.js';
 import { serviceRegistry } from '../services/ServiceRegistry.js';
 
-console.log('[DownloadManager] Loading...');
+const log = createLogger('DownloadManager');
 
 /**
  * Габариты, в которые вписываются изображения FB2 при включённой настройке.
@@ -65,7 +66,7 @@ export class DownloadManager {
     constructor() {
         this.activeDownloads = new Map();
         this.eventBus = new EventBus();
-        console.log('[DownloadManager] Instance created');
+        log.debug('Instance created');
     }
 
     /**
@@ -76,7 +77,7 @@ export class DownloadManager {
      */
     async _createExporter(format) {
         if (!ExporterRegistry.getSupportedFormats().includes(format.toLowerCase())) {
-            console.log(`[DownloadManager] Format "${format}" not registered, loading plugins...`);
+            log.info(`Format "${format}" not registered, loading plugins...`);
             await PluginManager.loadAll();
         }
         return ExporterRegistry.create(format);
@@ -164,7 +165,7 @@ export class DownloadManager {
     async _waitForDeferred(downloadState, chapters, { report = false, progress = 95 } = {}) {
         const queue = downloadState.deferred;
         if (!queue || queue.countFor(chapters) === 0) return;
-        console.log(`[DownloadManager] Waiting for ${queue.countFor(chapters)} background load(s)`);
+        log.info(`Waiting for ${queue.countFor(chapters)} background load(s)`);
 
         let reported = -1;
         const showRemaining = () => {
@@ -208,7 +209,7 @@ export class DownloadManager {
         if (branchId == null || branchId === '') return null;
         const id = Number(branchId);
         if (Number.isNaN(id)) {
-            console.warn(`[DownloadManager] Invalid branch id "${branchId}", downloading without translator filter`);
+            log.warn(`Invalid branch id "${branchId}", downloading without translator filter`);
             return null;
         }
         return id;
@@ -226,7 +227,7 @@ export class DownloadManager {
     _selectChapters(chapters, branchId, chapterRange) {
         const selected = selectRange(filterByBranch(chapters, branchId), chapterRange);
         const branch = branchId != null ? ` (branch ${branchId})` : '';
-        console.log(`[DownloadManager] Chapters selected: ${selected.length} of ${chapters.length}${branch}`);
+        log.info(`Chapters selected: ${selected.length} of ${chapters.length}${branch}`);
         if (selected.length === 0) throw new Error('Нет глав для загрузки');
         return selected;
     }
@@ -262,7 +263,7 @@ export class DownloadManager {
                     state.reconnectTimer = setTimeout(connect, 2000);
                 });
             } catch (e) {
-                console.warn('[DownloadManager] Failed to start keep-alive port:', e.message);
+                log.warn('Failed to start keep-alive port:', e.message);
             }
         };
 
@@ -282,7 +283,9 @@ export class DownloadManager {
         clearTimeout(keepAlive.reconnectTimer);
         try {
             keepAlive.port?.disconnect();
-        } catch (e) {  }
+        } catch (e) {
+            log.debug('Keep-alive port is already disconnected:', e);
+        }
     }
 
     /**
@@ -301,14 +304,14 @@ export class DownloadManager {
      * @throws {Error} При ошибке на любом из этапов загрузки (после эмиссии download:failed).
      */
     async startDownload(options) {
-        console.log('[DownloadManager] Starting download with options:',
+        log.info('Starting download with options:',
             { ...options, chapters: options.chapters?.length });
         const { url, format = 'fb2', chapters: knownChapters = null, chapterRange = null,
             maxSizeMB = 200, authToken = null, serviceKey } = options;
         const branchId = this._normalizeBranchId(options.branchId);
 
         const service = this._resolveService(serviceKey, url, authToken);
-        console.log('[DownloadManager] Using service:', service.name);
+        log.debug('Using service:', service.name);
 
         const downloadState = this._createDownloadState(options, service);
         const { id: downloadId } = downloadState;
@@ -324,7 +327,7 @@ export class DownloadManager {
         try {
             this.updateStatus(downloadId, 'Загрузка метаданных...', 5);
             const metadata = await service.getManga(downloadState.slug);
-            console.log('[DownloadManager] Metadata:', metadata);
+            log.debug('Metadata:', metadata);
 
             const patched = MangaPatcher.patch(metadata);
             downloadState.manga = patched;
@@ -351,7 +354,7 @@ export class DownloadManager {
             this.eventBus.emit('download:completed', downloadState);
             return { success: true, downloadId };
         } catch (error) {
-            console.error('[DownloadManager] Error:', error);
+            log.error('Error:', error);
             this.updateStatus(downloadId, `Ошибка: ${error.message}`, -1);
             this.eventBus.emit('download:failed', { downloadState, error });
             throw error;
@@ -383,10 +386,10 @@ export class DownloadManager {
                     : result;
                 return `data:${contentType};base64,${base64}`;
             }
-            console.warn('[DownloadManager] Failed to load cover:', result.error);
+            log.warn('Failed to load cover:', result.error);
             return '';
         } catch (e) {
-            console.warn('[DownloadManager] Failed to load cover:', e);
+            log.warn('Failed to load cover:', e);
             return '';
         }
     }
@@ -457,7 +460,7 @@ export class DownloadManager {
             if (cover !== null) return cover;
             const outcome = await waitWithDeadline(Promise.resolve(coverBase64),
                 DEFERRED_SETTINGS.backgroundAttemptTimeoutMs, this._heldBack(downloadState));
-            if (!outcome.done) console.warn('[DownloadManager] Cover is still not loaded, saving without it');
+            if (!outcome.done) log.warn('Cover is still not loaded, saving without it');
             cover = outcome.done ? outcome.value : '';
             return cover;
         };
@@ -474,6 +477,7 @@ export class DownloadManager {
                     await this.saveFile(file.blob, file.filename);
                     this._releaseBatch(batch);
                 });
+                // Ошибку сохранения получает done(); здесь она только не должна стать необработанной.
                 chain.catch(() => {});
             },
             done: () => chain
@@ -625,7 +629,7 @@ export class DownloadManager {
             if (outcome.done) return outcome.value;
             if (queue.countChapters() < DEFERRED_SETTINGS.maxDeferredChapters)
                 return queue.deferChapter(chapter, this._chapterTitle(chapter), load, running);
-            console.log(`[DownloadManager] ${queue.countChapters()} chapters are already loading in background, ` +
+            log.info(`${queue.countChapters()} chapters are already loading in background, ` +
                 `keep waiting for chapter "${this._chapterTitle(chapter)}"`);
         }
     }
@@ -642,7 +646,7 @@ export class DownloadManager {
         try {
             return await this._loadChapterOrDefer(service, downloadState, chapter);
         } catch (error) {
-            console.error(`[DownloadManager] Failed to download chapter ${chapter.number}:`, error);
+            log.error(`Failed to download chapter ${chapter.number}:`, error);
             return this._errorChapter(chapter, error);
         }
     }
@@ -761,7 +765,7 @@ export class DownloadManager {
         if (download) {
             download.controller.pause();
             this.eventBus.emit('download:paused', download);
-        } else console.log(`[DownloadManager] No active download with ID: ${downloadId}`);
+        } else log.debug(`No active download with ID: ${downloadId}`);
     }
 
     /**
@@ -774,7 +778,7 @@ export class DownloadManager {
         if (download) {
             download.controller.resume();
             this.eventBus.emit('download:resumed', download);
-        } else console.log(`[DownloadManager] No active download with ID: ${downloadId}`);
+        } else log.debug(`No active download with ID: ${downloadId}`);
     }
 
     /**
@@ -787,8 +791,6 @@ export class DownloadManager {
         if (download) {
             download.controller.stop();
             this.eventBus.emit('download:stopped', download);
-        } else console.log(`[DownloadManager] No active download with ID: ${downloadId}`);
+        } else log.debug(`No active download with ID: ${downloadId}`);
     }
 }
-
-console.log('[DownloadManager] Loaded');

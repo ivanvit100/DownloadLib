@@ -28,7 +28,7 @@ beforeEach(() => {
         maxDeferredChapters: 3, defaultImageBytes: 1000, defaultChapterBytes: 6000, pollIntervalMs: 5
     });
     warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
-    logSpy = vi.spyOn(console, 'log').mockImplementation(() => {});
+    logSpy = vi.spyOn(console, 'info').mockImplementation(() => {});
 });
 
 afterEach(() => {

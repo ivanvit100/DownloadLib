@@ -9,17 +9,16 @@
  */
 
 import { browserEnv, extensionApi, extensionOrigin } from '../core/BrowserApi.js';
+import { createLogger } from '../core/logger.js';
 import {
     isApiUrl, isImageHost, serviceKeyForSiteId, serviceKeyForUrl, serviceOrigins, webRequestUrls
 } from '../services/hosts.js';
 import { getPluginHosts } from './pluginHosts.js';
 import { setToken } from './tokenStore.js';
 
-console.log('[RequestInterceptor] Script loading...');
+const log = createLogger('RequestInterceptor');
 
 const isFirefox = !!browserEnv.isFirefox;
-
-console.log('[RequestInterceptor] Detected browser:', isFirefox ? 'Firefox' : 'Chrome');
 
 const WEBREQUEST_URLS = webRequestUrls();
 
@@ -73,7 +72,7 @@ function captureAuthToken(details) {
     const serviceKey = serviceOfRequest(details);
     if (!serviceKey) return;
     setToken(serviceKey, auth.slice(7)).then(changed => {
-        if (changed) console.log(`[RequestInterceptor] Captured auth token for ${serviceKey}`);
+        if (changed) log.info(`Captured auth token for ${serviceKey}`);
     });
 }
 
@@ -154,16 +153,14 @@ function setupListeners() {
     if (!webRequest) return;
 
     webRequest.onBeforeSendHeaders.addListener(onBeforeSendHeaders, { urls: WEBREQUEST_URLS }, ['requestHeaders']);
-    console.log('[RequestInterceptor] Auth token capture installed');
+    log.debug('Auth token capture installed');
 
     if (!isFirefox) return;
     webRequest.onHeadersReceived.addListener(
         onHeadersReceived, { urls: WEBREQUEST_URLS }, ['blocking', 'responseHeaders']);
     webRequest.onCompleted?.addListener(forgetRequest, { urls: WEBREQUEST_URLS });
     webRequest.onErrorOccurred?.addListener(forgetRequest, { urls: WEBREQUEST_URLS });
-    console.log('[RequestInterceptor] Firefox: image CORS fix installed');
+    log.debug('Firefox: image CORS fix installed');
 }
 
 setupListeners();
-
-console.log('[RequestInterceptor] Script loaded');

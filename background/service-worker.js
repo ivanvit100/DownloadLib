@@ -1,4 +1,7 @@
+import { createLogger } from '../core/logger.js';
 import './main.js';
+
+const log = createLogger('ServiceWorker');
 
 /**
  * Обработчик события 'install': пропускает ожидание и активирует новую версию
@@ -6,7 +9,7 @@ import './main.js';
  * @returns {void}
  */
 self.addEventListener('install', () => {
-    console.log('[ServiceWorker] Installing...');
+    log.debug('Installing...');
     self.skipWaiting();
 });
 
@@ -17,7 +20,7 @@ self.addEventListener('install', () => {
  * @returns {void}
  */
 self.addEventListener('activate', (event) => {
-    console.log('[ServiceWorker] Activating...');
+    log.debug('Activating...');
     event.waitUntil(self.clients.claim());
 });
 
@@ -42,7 +45,7 @@ self.addEventListener('message', async e => {
         );
         e.ports[0]?.postMessage({ ok: true });
     } catch (err) {
-        console.error('[ServiceWorker] Failed to cache plugin:', err);
+        log.error('Failed to cache plugin:', err);
         e.ports[0]?.postMessage({ ok: false });
     }
 });
@@ -67,4 +70,4 @@ self.addEventListener('fetch', e => {
     );
 });
 
-console.log('[ServiceWorker] Ready');
+log.debug('Ready');

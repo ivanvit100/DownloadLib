@@ -7,7 +7,9 @@
  * @version 1.1.0
  */
 
-console.log('[EventBus] Loading...');
+import { createLogger } from './logger.js';
+
+const log = createLogger('EventBus');
 
 /**
  * Простая шина событий по схеме publish/subscribe для общения между модулями расширения.
@@ -29,36 +31,34 @@ export class EventBus {
     on(event, callback) {
         if (!this.listeners.has(event))
             this.listeners.set(event, new Set());
-        else console.warn(`[EventBus] Listener added for existing event: ${event}`);
         this.listeners.get(event).add(callback);
         return () => this.off(event, callback);
     }
 
     /**
-     * Подписывает колбэк на однократное срабатывание события: после первого
-     * вызова колбэк автоматически отписывается.
+     * Подписывает колбэк на однократное срабатывание события. Колбэк отписывается
+     * до вызова, поэтому срабатывает один раз, даже если бросил ошибку или
+     * вызвал повторную эмиссию того же события.
      * @param {string} event - Имя события.
      * @param {function(*): void} callback - Обработчик, вызываемый один раз при эмиссии события.
      * @returns {function(): void} Функция отписки.
      */
     once(event, callback) {
         const wrapper = (...args) => {
-            callback(...args);
             this.off(event, wrapper);
+            callback(...args);
         };
         return this.on(event, wrapper);
     }
 
     /**
-     * Отписывает колбэк от события.
+     * Отписывает колбэк от события. Отписка неподписанного колбэка ничего не делает.
      * @param {string} event - Имя события.
      * @param {function(*): void} callback - Ранее подписанный обработчик.
      * @returns {void}
      */
     off(event, callback) {
-        if (this.listeners.has(event))
-            this.listeners.get(event).delete(callback);
-        else console.warn(`[EventBus] No listeners found for event: ${event}`);
+        this.listeners.get(event)?.delete(callback);
     }
 
     /**
@@ -74,7 +74,7 @@ export class EventBus {
                 try {
                     callback(data);
                 } catch (e) {
-                    console.error(`[EventBus] Error in listener for ${event}:`, e);
+                    log.error(`Error in listener for ${event}:`, e);
                 }
             }
         }
@@ -91,5 +91,3 @@ export class EventBus {
         else this.listeners.clear();
     }
 }
-
-console.log('[EventBus] Loaded');

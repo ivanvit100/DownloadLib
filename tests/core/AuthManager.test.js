@@ -81,13 +81,18 @@ describe('AuthManager.getToken', () => {
         expect(token).toBeNull();
     });
 
-    it('silently ignores cacheAuthToken sendMessage failure', async () => {
+    it('returns the token even if caching it in the background fails, logging the failure', async () => {
+        const debug = vi.spyOn(console, 'debug').mockImplementation(() => {});
+        const cacheError = new Error('cache fail');
         mockRuntime.sendMessage
             .mockResolvedValueOnce({ token: null })
-            .mockRejectedValue(new Error('cache fail'));
+            .mockRejectedValue(cacheError);
         mockScripting.executeScript.mockResolvedValue([{ result: 'extracted-jwt' }]);
         const token = await AuthManager.getToken('mangalib', 7);
         expect(token).toBe('extracted-jwt');
+        await vi.waitFor(() => expect(debug)
+            .toHaveBeenCalledWith('[AuthManager] Failed to cache the auth token in the background:', cacheError));
+        debug.mockRestore();
     });
 
     it('uses the chrome API (via BrowserApi) when browser global is absent', async () => {

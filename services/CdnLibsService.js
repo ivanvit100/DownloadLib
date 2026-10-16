@@ -8,6 +8,7 @@
  */
 
 import { ImageCompressor, PAGE_ASPECT } from '../core/ImageCompressor.js';
+import { createLogger } from '../core/logger.js';
 import { NoServiceTabError } from '../core/TabNetwork.js';
 import { BaseService } from './BaseService.js';
 
@@ -68,7 +69,8 @@ export class CdnLibsService extends BaseService {
         let selected = null;
         try {
             selected = localStorage.getItem(`${this.name}_image_server`);
-        } catch {
+        } catch (e) {
+            createLogger(this.name).debug('localStorage is not available, using the default image server:', e);
             selected = null;
         }
         return imageServers[selected || defaultImageServer || 'compression'] || imageServers.compression || fallback;
@@ -107,14 +109,14 @@ export class CdnLibsService extends BaseService {
     } = {}, cache = null) {
         const url = this.resolvePageUrl(ref);
         if (!url) {
-            console.warn(`[${this.name}] Could not resolve page url for`, ref);
+            createLogger(this.name).warn('Could not resolve page url for', ref);
             return null;
         }
         if (cache?.has(url)) return cache.get(url);
 
         const response = await this.fetchImage(url);
         if (!response.ok) {
-            console.warn(`[${this.name}] Failed to fetch ${url}:`, response.error);
+            createLogger(this.name).warn(`Failed to fetch ${url}:`, response.error);
             return null;
         }
 
@@ -149,7 +151,7 @@ export class CdnLibsService extends BaseService {
             return parts.length === 1 ? parts[0] : parts;
         } catch (e) {
             if (isFatal(e)) throw e;
-            console.error(`[${this.name}] loadPageAsBase64 error`, e);
+            createLogger(this.name).error('loadPageAsBase64 error', e);
             return null;
         }
     }
@@ -218,7 +220,7 @@ export class CdnLibsService extends BaseService {
                     blocks = await this.loadImageOrDefer(index + 1, load);
                 } catch (e) {
                     if (isFatal(e)) throw e;
-                    console.warn(`[${this.name}] Failed to load page ${index + 1}:`, e);
+                    createLogger(this.name).warn(`Failed to load page ${index + 1}:`, e);
                 }
                 slots[index] = blocks || [{ type: 'text', text: `[Ошибка загрузки изображения ${index + 1}]` }];
                 done += 1;

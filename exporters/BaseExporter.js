@@ -9,8 +9,6 @@
 
 import { decodeEntities, escapeHtml, escapeXml } from '../core/text.js';
 
-console.log('[BaseExporter] Loading...');
-
 /**
  * Базовый класс экспортёра форматов: определяет общий контракт export()
  * и набор общих утилит очистки/экранирования текста для подклассов-форматов.

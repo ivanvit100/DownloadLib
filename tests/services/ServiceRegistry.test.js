@@ -10,7 +10,7 @@ beforeEach(async () => {
 
 describe('ServiceRegistry', () => {
     it('Creates an instance and logs', () => {
-        const logSpy = vi.spyOn(console, 'log').mockImplementation(() => {});
+        const logSpy = vi.spyOn(console, 'debug').mockImplementation(() => {});
         const registry = new ServiceRegistry();
         expect(registry).toBeInstanceOf(ServiceRegistry);
         expect(logSpy).toHaveBeenCalledWith('[ServiceRegistry] Instance created');
@@ -18,7 +18,7 @@ describe('ServiceRegistry', () => {
     });
 
     it('Registers a service and logs', () => {
-        const logSpy = vi.spyOn(console, 'log').mockImplementation(() => {});
+        const logSpy = vi.spyOn(console, 'info').mockImplementation(() => {});
         class DummyService {
             constructor() { this.name = 'Dummy'; }
             static matches(url) { return url.includes('dummy'); }

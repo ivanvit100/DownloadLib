@@ -8,6 +8,9 @@
  */
 
 import { extensionApi } from '../core/BrowserApi.js';
+import { createLogger } from '../core/logger.js';
+
+const log = createLogger('tokenStore');
 
 const SESSION_KEY = 'downloadlib_auth_tokens';
 
@@ -28,7 +31,7 @@ function load() {
             const result = await extensionApi?.storage?.session?.get(SESSION_KEY);
             tokens = { ...(result?.[SESSION_KEY] || {}), ...tokens };
         } catch (e) {
-            console.warn('[tokenStore] Failed to read session storage:', e?.message || e);
+            log.warn('Failed to read session storage:', e?.message || e);
         }
     })();
     return ready;
@@ -41,7 +44,7 @@ function load() {
 function persist() {
     Promise.resolve()
         .then(() => extensionApi?.storage?.session?.set({ [SESSION_KEY]: tokens }))
-        .catch(e => console.warn('[tokenStore] Failed to write session storage:', e?.message || e));
+        .catch(e => log.warn('Failed to write session storage:', e?.message || e));
 }
 
 /**
@@ -57,7 +60,8 @@ export function jwtExpiry(token) {
         const base64 = payload.replace(/-/g, '+').replace(/_/g, '/');
         const { exp } = JSON.parse(atob(base64.padEnd(Math.ceil(base64.length / 4) * 4, '=')));
         return Number.isFinite(exp) ? exp * 1000 : null;
-    } catch {
+    } catch (e) {
+        log.debug('Token payload is not valid JSON:', e);
         return null;
     }
 }

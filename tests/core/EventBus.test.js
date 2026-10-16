@@ -79,23 +79,49 @@ describe('EventBus', () => {
         errorSpy.mockRestore();
     });
 
-    it('Warns when adding a listener for an existing event', () => {
+    it('Subscribes several listeners to one event and unsubscribes unknown ones without warnings', () => {
         const bus = new EventBus();
         const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
         const handler1 = vi.fn();
         const handler2 = vi.fn();
         bus.on('test', handler1);
         bus.on('test', handler2);
-        expect(warnSpy).toHaveBeenCalledWith('[EventBus] Listener added for existing event: test');
+        bus.off('not_exist', handler1);
+        bus.off('test', vi.fn());
+        bus.emit('test', 1);
+        expect(handler1).toHaveBeenCalledWith(1);
+        expect(handler2).toHaveBeenCalledWith(1);
+        expect(warnSpy).not.toHaveBeenCalled();
         warnSpy.mockRestore();
     });
 
-    it('Warns when removing a listener for a non-existent event', () => {
+    it('Once unsubscribes before calling, so a throwing listener fires only once', () => {
         const bus = new EventBus();
-        const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
+        const errorSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
+        const handler = vi.fn(() => { throw new Error('boom'); });
+        bus.once('test', handler);
+        bus.emit('test', 'a');
+        bus.emit('test', 'b');
+        expect(handler).toHaveBeenCalledTimes(1);
+        expect(errorSpy).toHaveBeenCalledTimes(1);
+        errorSpy.mockRestore();
+    });
+
+    it('Once fires only once when the listener emits the same event again', () => {
+        const bus = new EventBus();
+        const handler = vi.fn(() => bus.emit('test', 'nested'));
+        bus.once('test', handler);
+        bus.emit('test', 'a');
+        expect(handler).toHaveBeenCalledTimes(1);
+        expect(handler).toHaveBeenCalledWith('a');
+    });
+
+    it('Once returns an unsubscribe that cancels it before the event', () => {
+        const bus = new EventBus();
         const handler = vi.fn();
-        bus.off('not_exist', handler);
-        expect(warnSpy).toHaveBeenCalledWith('[EventBus] No listeners found for event: not_exist');
-        warnSpy.mockRestore();
+        const unsubscribe = bus.once('test', handler);
+        unsubscribe();
+        bus.emit('test', 1);
+        expect(handler).not.toHaveBeenCalled();
     });
 });

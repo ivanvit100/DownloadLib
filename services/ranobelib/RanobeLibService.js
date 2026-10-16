@@ -9,11 +9,12 @@
 
 import { BaseService } from '../BaseService.js';
 import { ImageCompressor } from '../../core/ImageCompressor.js';
+import { createLogger } from '../../core/logger.js';
 import { NoServiceTabError } from '../../core/TabNetwork.js';
 import { decodeEntities, escapeHtml } from '../../core/text.js';
 import { ranobelibConfig } from './config.js';
 
-console.log('[RanobeLibService] Loading...');
+const log = createLogger('RanobeLibService');
 
 /** Сколько изображений главы загружается одновременно. */
 const IMAGE_CONCURRENCY = 5;
@@ -33,7 +34,7 @@ export class RanobeLibService extends BaseService {
      */
     constructor() {
         super(ranobelibConfig);
-        console.log('[RanobeLibService] Instance created');
+        log.debug('Instance created');
     }
 
     /**
@@ -198,7 +199,7 @@ export class RanobeLibService extends BaseService {
         if (!attrs || !Array.isArray(attrs.images)) return [];
         return attrs.images.flatMap(img => {
             if (img.image) return [{ type: 'image', src: img.image }];
-            console.warn('[RanobeLibService] Image node missing image attribute:', img);
+            log.warn('Image node missing image attribute:', img);
             return [];
         });
     }
@@ -233,7 +234,7 @@ export class RanobeLibService extends BaseService {
             if (align && align !== 'left') block.align = align;
             return [block];
         }
-        console.warn('[RanobeLibService] Unexpected paragraph content:', item);
+        log.warn('Unexpected paragraph content:', item);
         const text = this._extractFromNode(item);
         /* istanbul ignore next */
         return text.trim() ? [{ type: 'text', text }] : [];
@@ -255,7 +256,7 @@ export class RanobeLibService extends BaseService {
             const text = this._extractFromNode(item);
             return text.trim() ? [{ type: 'text', text }] : [];
         }
-        console.warn('[RanobeLibService] Unknown content node type:', item);
+        log.warn('Unknown content node type:', item);
         return [];
     }
 
@@ -331,7 +332,7 @@ export class RanobeLibService extends BaseService {
         const url = `${baseUrl}.${ext}`;
         const response = await this.fetchImage(url);
         if (!response.ok) {
-            console.warn(`[RanobeLibService] Failed to fetch ${url}:`, response.error);
+            log.warn(`Failed to fetch ${url}:`, response.error);
             return null;
         }
         return { base64: response.base64, contentType: response.contentType || 'image/png' };
@@ -371,10 +372,10 @@ export class RanobeLibService extends BaseService {
                 }
             } catch (e) {
                 if (e instanceof NoServiceTabError || e?.aborted) throw e;
-                console.warn('[RanobeLibService] Failed ext:', ext, e);
+                log.warn('Failed ext:', ext, e);
             }
         }
-        console.error('[RanobeLibService] Failed to load image:', block.src);
+        log.error('Failed to load image:', block.src);
         return null;
     }
 
@@ -407,12 +408,12 @@ export class RanobeLibService extends BaseService {
             if (block.type === 'text') {
                 if (block.text && block.text.trim())
                     slots.push([block]);
-                else console.warn('[RanobeLibService] Skipping empty text block');
+                else log.warn('Skipping empty text block');
             } else if (block.type === 'image' && block.src) {
                 const slot = [];
                 slots.push(slot);
                 images.push({ block, slot, number: images.length + 1 });
-            } else console.warn('[RanobeLibService] Unknown block type:', block);
+            } else log.warn('Unknown block type:', block);
         }
 
         let next = 0;
@@ -433,5 +434,3 @@ export class RanobeLibService extends BaseService {
         return slots.flat();
     }
 }
-
-console.log('[RanobeLibService] Loaded');

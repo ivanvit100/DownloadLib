@@ -8,6 +8,7 @@
  */
 
 import { browserEnv, extensionApi } from './BrowserApi.js';
+import { createLogger } from './logger.js';
 import { MSG } from './messages.js';
 import { BaseExporter } from '../exporters/BaseExporter.js';
 import { ExporterRegistry } from '../exporters/ExporterRegistry.js';
@@ -15,7 +16,7 @@ import { CdnLibsService } from '../services/CdnLibsService.js';
 import { matchesHosts } from '../services/hosts.js';
 import { serviceRegistry } from '../services/ServiceRegistry.js';
 
-console.log('[PluginManager] Loading...');
+const log = createLogger('PluginManager');
 
 const STORAGE_KEY = 'custom_plugins';
 
@@ -30,7 +31,7 @@ async function _storageGet() {
         const result = await extensionApi.storage.local.get(STORAGE_KEY);
         return (result && result[STORAGE_KEY]) || [];
     } catch (e) {
-        console.warn('[PluginManager] Failed to read storage:', e);
+        log.warn('Failed to read storage:', e);
         return [];
     }
 }
@@ -309,7 +310,7 @@ export class PluginManager {
             localStorage.setItem('__dl_plugin_formats__', JSON.stringify(formats));
             localStorage.setItem('__dl_plugin_services__', JSON.stringify(services));
         } catch (e) {
-            console.warn('[PluginManager] localStorage sync failed:', e);
+            log.warn('localStorage sync failed:', e);
         }
     }
 
@@ -342,7 +343,9 @@ export class PluginManager {
             const [, raw] = cfgMatch;
             try {
                 serviceConfig = JSON.parse(raw.replace(/^\s*\*\s?/gm, '').trim());
-            } catch {}
+            } catch (e) {
+                log.warn('Invalid JSON in @dl-service-config, the block is ignored:', e.message);
+            }
         }
 
         return {
@@ -384,12 +387,12 @@ export class PluginManager {
                 code: plugin.code
             });
             if (res?.ok) {
-                console.log(`[PluginManager] Loaded (scripting): ${plugin.name || plugin.format}`);
+                log.info(`Loaded (scripting): ${plugin.name || plugin.format}`);
                 return true;
             }
-            console.warn(`[PluginManager] scripting exec failed for ${plugin.format}:`, res?.error);
+            log.warn(`scripting exec failed for ${plugin.format}:`, res?.error);
         } catch (e) {
-            console.warn(`[PluginManager] scripting exec error for ${plugin.format}:`, e.message);
+            log.warn(`scripting exec error for ${plugin.format}:`, e.message);
         }
         return false;
     }
@@ -416,22 +419,26 @@ export class PluginManager {
                 code:   plugin.code
             });
             if (!res?.ok)
-                console.warn(`[PluginManager] Background cache failed for ${key}:`, res?.error || 'unknown error');
+                log.warn(`Background cache failed for ${key}:`, res?.error || 'unknown error');
         } catch (e) {
-            console.warn(`[PluginManager] Cache request failed for ${key}:`, e.message);
+            log.warn(`Cache request failed for ${key}:`, e.message);
         }
 
         try {
             await _injectScript(`/plugin-runtime/${key}.js`);
-            console.log(`[PluginManager] Loaded (SW): ${name}`);
+            log.info(`Loaded (SW): ${name}`);
             return;
-        } catch {}
+        } catch (e) {
+            log.debug(`Loading "${name}" from /plugin-runtime/ failed, trying a blob module:`, e);
+        }
 
         try {
             await _injectFromBlob(plugin.code);
-            console.log(`[PluginManager] Loaded (blob): ${name}`);
+            log.info(`Loaded (blob): ${name}`);
             return;
-        } catch {}
+        } catch (e) {
+            log.debug(`Loading "${name}" as a blob module failed:`, e);
+        }
 
         if (plugin.format && typeof document !== 'undefined') {
             const { format: fmt, code } = plugin;
@@ -458,7 +465,9 @@ export class PluginManager {
                         try {
                             const resp = await fetch(extensionApi.runtime.getURL('lib/jszip.min.js'));
                             if (resp.ok) jsZipCode = await resp.text();
-                        } catch {}
+                        } catch (e) {
+                            log.debug('Failed to read lib/jszip.min.js for the sandbox:', e);
+                        }
                     }
                     const sandbox = await _createSandbox();
                     try {
@@ -477,11 +486,11 @@ export class PluginManager {
             }
 
             ExporterRegistry.register(fmt, FormatSandboxProxy, { label: lbl });
-            console.log(`[PluginManager] Registered sandbox proxy for: ${name}`);
+            log.info(`Registered sandbox proxy for: ${name}`);
             return;
         }
 
-        console.error(`[PluginManager] All load methods failed for "${name}"`);
+        log.error(`All load methods failed for "${name}"`);
     }
 
     /**
@@ -520,7 +529,7 @@ export class PluginManager {
         }
 
         serviceRegistry.register(PluginServiceProxy);
-        console.log(`[PluginManager] Loaded (proxy): ${plugin.serviceLabel || plugin.service}`);
+        log.info(`Loaded (proxy): ${plugin.serviceLabel || plugin.service}`);
     }
 
     /**
@@ -535,15 +544,15 @@ export class PluginManager {
         const enabled = plugins.filter(p => p.enabled !== false && (p.format || p.service));
 
         if (enabled.length === 0) {
-            console.log('[PluginManager] No plugins to load');
+            log.info('No plugins to load');
             return;
         }
 
-        console.log(`[PluginManager] Loading ${enabled.length} plugin(s)...`);
+        log.info(`Loading ${enabled.length} plugin(s)...`);
 
         const api = extensionApi;
         if (!api?.runtime?.sendMessage) {
-            console.error('[PluginManager] No runtime.sendMessage — cannot load plugins');
+            log.error('No runtime.sendMessage — cannot load plugins');
             return;
         }
 
@@ -553,7 +562,9 @@ export class PluginManager {
             const url = tab?.url || '';
             if (tab?.id != null && !url.startsWith('moz-extension://') && !url.startsWith('chrome-extension://'))
                 ownTabId = tab.id;
-        } catch { console.warn('[PluginManager] Failed to get current tab ID'); }
+        } catch (e) {
+            log.warn('Failed to get current tab ID', e);
+        }
 
         for (const plugin of enabled) {
             const isServicePlugin = !!plugin.service && !plugin.format;
@@ -568,5 +579,3 @@ export class PluginManager {
         }
     }
 }
-
-console.log('[PluginManager] Loaded');

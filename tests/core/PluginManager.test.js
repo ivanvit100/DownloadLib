@@ -80,12 +80,16 @@ describe('parseMetadata', () => {
         expect(PluginManager.parseMetadata(code).serviceConfig).toEqual({ baseUrl: 'https://ex.com' });
     });
 
-    it('ignores invalid @dl-service-config JSON', () => {
+    it('ignores invalid @dl-service-config JSON with a warning', () => {
+        const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
         const code = `/**
  * @dl-service-config
  * {not valid json}
  */`;
         expect(PluginManager.parseMetadata(code).serviceConfig).toBeNull();
+        expect(warn).toHaveBeenCalledWith('[PluginManager] Invalid JSON in @dl-service-config, the block is ignored:',
+            expect.any(String));
+        warn.mockRestore();
     });
 });
 
@@ -345,7 +349,7 @@ describe('_loadViaSW()', () => {
     let api;
     beforeEach(() => {
         api = { runtime: { sendMessage: vi.fn().mockResolvedValue({ ok: true }) } };
-        vi.spyOn(console, 'log').mockImplementation(() => {});
+        vi.spyOn(console, 'info').mockImplementation(() => {});
         vi.spyOn(console, 'warn').mockImplementation(() => {});
         vi.spyOn(console, 'error').mockImplementation(() => {});
     });
@@ -359,7 +363,7 @@ describe('_loadViaSW()', () => {
 
     it('returns after _injectScript succeeds', async () => {
         makeScriptInjector(true);
-        const log = console.log;
+        const log = console.info;
         await PluginManager._loadViaSW(api, { format: 'fb2', code: 'x', label: 'FB2' });
         expect(log).toHaveBeenCalledWith(expect.stringContaining('Loaded (SW)'));
     });
@@ -391,19 +395,28 @@ describe('_loadViaSW()', () => {
         makeScriptInjector(false);
         await PluginManager._loadViaSW(api, { format: 'fb2', code: 'const x=1;' });
         URL.createObjectURL = origCreate;
-        expect(console.log).toHaveBeenCalledWith(expect.stringContaining('Loaded (blob)'));
+        expect(console.info).toHaveBeenCalledWith(expect.stringContaining('Loaded (blob)'));
     });
 
     it('uses plugin.service as key when format is absent', async () => {
         makeScriptInjector(true);
         await PluginManager._loadViaSW(api, { service: 'mysvc', code: 'x', serviceLabel: 'MySvc' });
-        expect(console.log).toHaveBeenCalledWith(expect.stringContaining('MySvc'));
+        expect(console.info).toHaveBeenCalledWith(expect.stringContaining('MySvc'));
     });
 
     it('logs error when _injectScript and _injectFromBlob both fail and no format', async () => {
         makeScriptInjector(false);
         await PluginManager._loadViaSW(api, { service: 'mysvc', code: 'x' });
         expect(console.error).toHaveBeenCalledWith(expect.stringContaining('All load methods failed'));
+    });
+
+    it('logs why each loading method failed at the debug level', async () => {
+        const debug = vi.spyOn(console, 'debug').mockImplementation(() => {});
+        makeScriptInjector(false);
+        await PluginManager._loadViaSW(api, { service: 'mysvc', code: 'x' });
+        expect(debug).toHaveBeenCalledWith(
+            '[PluginManager] Loading "mysvc" from /plugin-runtime/ failed, trying a blob module:', expect.any(Error));
+        expect(debug).toHaveBeenCalledWith('[PluginManager] Loading "mysvc" as a blob module failed:', expect.anything());
     });
 
     it('registers sandbox proxy when injectScript/blob fail for a format plugin', async () => {
@@ -445,14 +458,14 @@ describe('_loadServiceProxy()', () => {
 
     it('registers PluginServiceProxy with serviceRegistry', () => {
         const getClass = setupBaseService();
-        vi.spyOn(console, 'log').mockImplementation(() => {});
+        vi.spyOn(console, 'info').mockImplementation(() => {});
         PluginManager._loadServiceProxy({ service: 'svc', hosts: ['ex.com'] });
         expect(getClass()).toBeDefined();
     });
 
     it('registers when hosts is absent (plugin.hosts || [])', () => {
         const getClass = setupBaseService();
-        vi.spyOn(console, 'log').mockImplementation(() => {});
+        vi.spyOn(console, 'info').mockImplementation(() => {});
         PluginManager._loadServiceProxy({ service: 'svc' });
         const Proxy = getClass();
         expect(Proxy.matches('https://ex.com/page')).toBe(false);
@@ -597,14 +610,14 @@ describe('_loadServiceProxy()', () => {
 
     it('uses plugin.service as config name when serviceConfig absent', () => {
         const getClass = setupBaseService();
-        vi.spyOn(console, 'log').mockImplementation(() => {});
+        vi.spyOn(console, 'info').mockImplementation(() => {});
         PluginManager._loadServiceProxy({ service: 'svc', hosts: ['ex.com'] });
         const inst = new (getClass())();
         expect(inst.config.name).toBe('svc');
     });
 
     it('uses plugin.serviceLabel in log message', () => {
-        const log = vi.spyOn(console, 'log').mockImplementation(() => {});
+        const log = vi.spyOn(console, 'info').mockImplementation(() => {});
         setupBaseService();
         PluginManager._loadServiceProxy({ service: 'svc', serviceLabel: 'My Svc', hosts: [] });
         expect(log).toHaveBeenCalledWith(expect.stringContaining('My Svc'));
@@ -620,7 +633,7 @@ describe('loadAll()', () => {
             runtime: { sendMessage: vi.fn().mockResolvedValue({ ok: true }) },
             tabs: { getCurrent: vi.fn().mockResolvedValue({ id: 5 }) }
         };
-        vi.spyOn(console, 'log').mockImplementation(() => {});
+        vi.spyOn(console, 'info').mockImplementation(() => {});
         vi.spyOn(console, 'warn').mockImplementation(() => {});
         vi.spyOn(console, 'error').mockImplementation(() => {});
     });
@@ -628,13 +641,13 @@ describe('loadAll()', () => {
 
     it('logs and returns when no enabled plugins', async () => {
         await PluginManager.loadAll();
-        expect(console.log).toHaveBeenCalledWith(expect.stringContaining('No plugins to load'));
+        expect(console.info).toHaveBeenCalledWith(expect.stringContaining('No plugins to load'));
     });
 
     it('filters out disabled and format-less plugins', async () => {
         mockGet.mockResolvedValue({ custom_plugins: [{ enabled: false, format: 'fb2' }, { enabled: true }] });
         await PluginManager.loadAll();
-        expect(console.log).toHaveBeenCalledWith(expect.stringContaining('No plugins to load'));
+        expect(console.info).toHaveBeenCalledWith(expect.stringContaining('No plugins to load'));
     });
 
     it('logs error when no api.runtime.sendMessage', async () => {
@@ -656,7 +669,7 @@ describe('loadAll()', () => {
         globalThis.extensionApi.tabs.getCurrent = vi.fn().mockRejectedValue(new Error('no tab'));
         const loadViaSW = vi.spyOn(PluginManager, '_loadViaSW').mockResolvedValue();
         await PluginManager.loadAll();
-        expect(console.warn).toHaveBeenCalledWith(expect.stringContaining('Failed to get current tab ID'));
+        expect(console.warn).toHaveBeenCalledWith(expect.stringContaining('Failed to get current tab ID'), expect.any(Error));
         expect(loadViaSW).toHaveBeenCalled();
     });
 
@@ -727,7 +740,7 @@ describe('FormatSandboxProxy.export() + _createSandbox', () => {
     }
 
     beforeEach(async () => {
-        vi.spyOn(console, 'log').mockImplementation(() => {});
+        vi.spyOn(console, 'info').mockImplementation(() => {});
         vi.spyOn(console, 'warn').mockImplementation(() => {});
         vi.spyOn(console, 'error').mockImplementation(() => {});
 

@@ -15,7 +15,7 @@ const reply = (status, text = '') => ({ ok: status >= 200 && status < 300, statu
 
 beforeEach(async () => {
     vi.resetModules();
-    vi.spyOn(console, 'log').mockImplementation(() => {});
+    vi.spyOn(console, 'debug').mockImplementation(() => {});
     globalThis.extensionApi = {};
     globalThis.NoServiceTabError = class NoServiceTabError extends Error {};
     globalThis.PAGE_ASPECT = 297 / 210;
@@ -50,7 +50,7 @@ describe('MangaLibService', () => {
         expect(svc.name).toBe('mangalib');
         expect(svc.baseUrl).toBe('https://api.test');
         expect(svc.config).toEqual(globalThis.mangalibConfig);
-        expect(console.log).toHaveBeenCalledWith('[MangaLibService] Instance created');
+        expect(console.debug).toHaveBeenCalledWith('[MangaLibService] Instance created');
     });
 
     it('Gives every instance its own headers', () => {

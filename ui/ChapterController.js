@@ -8,9 +8,10 @@
  */
 
 import { chapterKey, filterByBranch } from '../core/chapters.js';
+import { createLogger } from '../core/logger.js';
 import { $el, createEl } from './dom.js';
 
-console.log('[ChapterController] Loading...');
+const log = createLogger('ChapterController');
 
 const RANGE_MODE_KEY = 'manga_parser_range_mode';
 
@@ -102,9 +103,9 @@ export class ChapterController {
                     toSelect.selectedIndex = toSelect.options.length - 1;
                     if (chapterFromUrl != null && chapterToUrl != null) {
                         if (selectOption(fromSelect, chapterFromUrl) && selectOption(toSelect, chapterToUrl))
-                            console.log(`[ChapterController] Restored chapter range: ${chapterFromUrl} - ${chapterToUrl}`);
+                            log.debug(`Restored chapter range: ${chapterFromUrl} - ${chapterToUrl}`);
                         else {
-                            console.warn(`[ChapterController] Chapter range ${chapterFromUrl} - ${chapterToUrl} ` +
+                            log.warn(`Chapter range ${chapterFromUrl} - ${chapterToUrl} ` +
                                 'not found in the chapter list, using the full range');
                             fromSelect.selectedIndex = 0;
                             toSelect.selectedIndex = toSelect.options.length - 1;
@@ -117,7 +118,7 @@ export class ChapterController {
             }
             return chapters.length;
         } catch (e) {
-            console.warn('[ChapterController] Failed to fetch chapters:', e);
+            log.warn('Failed to fetch chapters:', e);
             return null;
         }
     }
@@ -384,5 +385,3 @@ export class ChapterController {
         });
     }
 }
-
-console.log('[ChapterController] Loaded');

@@ -23,7 +23,7 @@ const reply = (status, extra = {}) => ({ ok: status >= 200 && status < 300, stat
 
 beforeEach(async () => {
     vi.resetModules();
-    vi.spyOn(console, 'log').mockImplementation(() => {});
+    vi.spyOn(console, 'debug').mockImplementation(() => {});
     globalThis.RateLimitClient = { throttle: vi.fn() };
     globalThis.AuthManager = { invalidate: vi.fn(async () => {}) };
     globalThis.NoServiceTabError = class NoServiceTabError extends Error {};
@@ -56,7 +56,7 @@ describe('BaseService', () => {
         expect(svc.name).toBe('TestService');
         expect(svc.baseUrl).toBe('https://test.com');
         expect(svc.ctx).toBeNull();
-        expect(console.log).toHaveBeenCalledWith('[BaseService] Created service: TestService');
+        expect(console.debug).toHaveBeenCalledWith('[BaseService] Created service: TestService');
     });
 
     it('Copies the config and its headers, so instances do not share auth tokens', () => {

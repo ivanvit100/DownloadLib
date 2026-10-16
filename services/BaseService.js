@@ -11,6 +11,7 @@ import { AuthManager } from '../core/AuthManager.js';
 import { extensionApi } from '../core/BrowserApi.js';
 import { sortChapters } from '../core/chapters.js';
 import { blobToDataUrl } from '../core/encoding.js';
+import { createLogger } from '../core/logger.js';
 import { RateLimitClient } from '../core/RateLimitClient.js';
 import { fetchViaTab, NoServiceTabError, requestViaTab } from '../core/TabNetwork.js';
 import { matchesHosts } from './hosts.js';
@@ -98,7 +99,7 @@ export class BaseService {
         this.name = config.name;
         this.baseUrl = config.baseUrl;
         this.ctx = null;
-        console.log(`[BaseService] Created service: ${this.name}`);
+        createLogger('BaseService').debug(`Created service: ${this.name}`);
     }
 
     /**
@@ -167,14 +168,15 @@ export class BaseService {
 
         for (let i = 0; i < urls.length; i++) {
             const url = urls[i];
-            console.log(`[${this.name}] Fetching metadata:`, url);
+            createLogger(this.name).debug('Fetching metadata:', url);
             const response = await this._request(url, { as: 'response', what });
             if (!response.ok) {
                 if ((response.status === 403 || response.status === 404) && i < urls.length - 1) {
-                    console.warn(`[${this.name}] Metadata endpoint rejected (${response.status}), retrying with fallback URL`);
+                    createLogger(this.name)
+                        .warn(`Metadata endpoint rejected (${response.status}), retrying with fallback URL`);
                     continue;
                 }
-                console.error(`[${this.name}] Error response:`, response.text());
+                createLogger(this.name).error('Error response:', response.text());
                 throw this._httpError(response, what);
             }
             return this._json(response.text(), what);
@@ -190,7 +192,7 @@ export class BaseService {
      */
     async fetchChaptersList(slug) {
         const url = `${this.baseUrl}/api/manga/${slug}/chapters`;
-        console.log(`[${this.name}] Fetching chapters:`, url);
+        createLogger(this.name).debug('Fetching chapters:', url);
         return await this._request(url, { what: 'список глав' });
     }
 
@@ -459,7 +461,8 @@ export class BaseService {
                 rateLimited += 1;
                 if (rateLimited >= rateLimitAttempts) throw new Error(`Rate limited after ${rateLimitAttempts} retries (429)`);
                 const waitMs = parseRetryAfter(result.retryAfter) ?? DEFAULT_RETRY_AFTER_MS;
-                console.warn(`[${this.name}] 429 Too Many Requests (attempt ${rateLimited}/${rateLimitAttempts}), waiting ${waitMs}ms...`);
+                createLogger(this.name)
+                    .warn(`429 Too Many Requests (attempt ${rateLimited}/${rateLimitAttempts}), waiting ${waitMs}ms...`);
                 this.ctx?.on429(waitMs);
                 RateLimitClient.throttle(waitMs);
                 await this.interruptibleDelay(waitMs);
@@ -469,7 +472,8 @@ export class BaseService {
             if (isTransient(result.status) && failures + 1 < attempts) {
                 failures += 1;
                 const waitMs = RETRY_STEP_MS * failures;
-                console.warn(`[${this.name}] Request failed (${result.status || result.error}), retry ${failures}/${attempts - 1} in ${waitMs}ms`);
+                createLogger(this.name)
+                    .warn(`Request failed (${result.status || result.error}), retry ${failures}/${attempts - 1} in ${waitMs}ms`);
                 await this.interruptibleDelay(waitMs);
                 continue;
             }

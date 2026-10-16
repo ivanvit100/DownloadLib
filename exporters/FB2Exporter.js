@@ -8,8 +8,9 @@
  */
 
 import { BaseExporter } from './BaseExporter.js';
+import { createLogger } from '../core/logger.js';
 
-console.log('[FB2Exporter] Loading...');
+const log = createLogger('FB2Exporter');
 
 /**
  * Экспортёр формата FB2 (FictionBook 2.0): собирает XML-документ потоково
@@ -148,7 +149,7 @@ export class FB2Exporter extends BaseExporter {
                     yield* this._yieldFb2TextBlock(block.text, block.align);
             } else if (block.type === 'image' && block._fb2ImageId)
                 yield `    <p><image l:href="#${block._fb2ImageId}"/></p>\n`;
-            else console.warn(`[FB2Exporter] Unsupported block type: ${block.type}`);
+            else log.warn(`Unsupported block type: ${block.type}`);
         }
     }
 
@@ -275,5 +276,3 @@ export class FB2Exporter extends BaseExporter {
         };
     }
 }
-
-console.log('[FB2Exporter] Loaded');

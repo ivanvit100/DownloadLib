@@ -11,11 +11,15 @@
 import './core/pluginApi.js';
 import './services/index.js';
 import './exporters/index.js';
+import { extensionApi } from './core/BrowserApi.js';
+import { createLogger, watchLogLevel } from './core/logger.js';
 import { PluginManager } from './core/PluginManager.js';
 import { $el } from './ui/dom.js';
 import { PopupController } from './ui/PopupController.js';
 
-console.log('[App] Initializing...');
+const log = createLogger('App');
+
+log.debug('Initializing...');
 
 /**
  * Создаёт главный контроллер попапа и показывает ошибку в UI, если его
@@ -23,12 +27,12 @@ console.log('[App] Initializing...');
  * @returns {void}
  */
 function initUI() {
-    console.log('[App] Initializing UI...');
+    log.debug('Initializing UI...');
 
     try {
         new PopupController();
     } catch (e) {
-        console.error('[App] Failed to initialize PopupController:', e);
+        log.error('Failed to initialize PopupController:', e);
         const errorEl = $el('error');
         errorEl.textContent = `Ошибка инициализации: ${e.message}`;
         errorEl.classList.remove('hidden');
@@ -36,11 +40,12 @@ function initUI() {
 }
 
 /**
- * Точка входа приложения: догружает пользовательские плагины, затем
- * инициализирует UI попапа.
+ * Точка входа приложения: читает уровень логирования, догружает пользовательские
+ * плагины, затем инициализирует UI попапа.
  * @returns {Promise<void>}
  */
 async function initApp() {
+    await watchLogLevel(extensionApi);
     await PluginManager.loadAll();
     initUI();
 }

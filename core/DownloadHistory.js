@@ -46,5 +46,3 @@ export const DownloadHistory = {
         this._storage.remove(HISTORY_KEY);
     }
 };
-
-console.log('[DownloadHistory] Loaded');

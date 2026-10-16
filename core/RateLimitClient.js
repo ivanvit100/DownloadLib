@@ -8,8 +8,11 @@
  */
 
 import { extensionApi } from './BrowserApi.js';
+import { createLogger } from './logger.js';
 import { MSG } from './messages.js';
 import { DEFAULT_RATE_LIMIT, normalizeRateLimit, RATE_LIMIT_STORAGE_KEY } from './RateLimiter.js';
+
+const log = createLogger('RateLimitClient');
 
 let pending = 0;
 let blockedUntil = 0;
@@ -23,7 +26,8 @@ let knownLimit = DEFAULT_RATE_LIMIT;
 function readLocalStorage(key) {
     try {
         return localStorage.getItem(key);
-    } catch {
+    } catch (e) {
+        log.debug('localStorage is not available:', e);
         return null;
     }
 }
@@ -44,9 +48,9 @@ export const RateLimitClient = {
         pending += 1;
         try {
             const reply = await extensionApi.runtime.sendMessage({ action: MSG.RATE_ACQUIRE, serviceKey });
-            if (!reply?.ok) console.warn('[RateLimitClient] Rate limiter refused the request:', reply?.error);
+            if (!reply?.ok) log.warn('Rate limiter refused the request:', reply?.error);
         } catch (e) {
-            console.warn('[RateLimitClient] Background rate limiter unavailable:', e?.message || e);
+            log.warn('Background rate limiter unavailable:', e?.message || e);
         } finally {
             pending -= 1;
         }
@@ -65,7 +69,7 @@ export const RateLimitClient = {
                 const { blockedUntil: backgroundBlockedUntil = 0 } = reply || {};
                 blockedUntil = Math.max(blockedUntil, backgroundBlockedUntil);
             })
-            .catch(e => console.warn('[RateLimitClient] Failed to report throttling:', e?.message || e));
+            .catch(e => log.warn('Failed to report throttling:', e?.message || e));
     },
 
     /**
@@ -113,7 +117,7 @@ export const RateLimitClient = {
         try {
             stored = (await storage?.get(RATE_LIMIT_STORAGE_KEY))?.[RATE_LIMIT_STORAGE_KEY] ?? null;
         } catch (e) {
-            console.warn('[RateLimitClient] Failed to read rate limit:', e?.message || e);
+            log.warn('Failed to read rate limit:', e?.message || e);
         }
 
         if (stored == null) {
@@ -140,7 +144,7 @@ export const RateLimitClient = {
             await storage.set({ [RATE_LIMIT_STORAGE_KEY]: limit });
             localStorage.removeItem(RATE_LIMIT_STORAGE_KEY);
         } catch (e) {
-            console.warn('[RateLimitClient] Failed to save rate limit:', e?.message || e);
+            log.warn('Failed to save rate limit:', e?.message || e);
         }
         return limit;
     }

@@ -399,7 +399,7 @@ describe('PopupController second test file', () => {
 
         controller.stopDownload();
 
-        expect(warnSpy).toHaveBeenCalledWith('Status element not found when setting status on download stop');
+        expect(warnSpy).toHaveBeenCalledWith('[PopupController] Status element not found when setting status on download stop');
     });
 
     it('Warns when status or progress element is missing during progress update', async () => {
@@ -415,8 +415,8 @@ describe('PopupController second test file', () => {
 
         controller.updateProgress('Загрузка...', 55);
 
-        expect(warnSpy).toHaveBeenCalledWith('Status element not found when updating progress status');
-        expect(warnSpy).toHaveBeenCalledWith('Progress element not found when updating progress percentage');
+        expect(warnSpy).toHaveBeenCalledWith('[PopupController] Status element not found when updating progress status');
+        expect(warnSpy).toHaveBeenCalledWith('[PopupController] Progress element not found when updating progress percentage');
     });
 
     it('Warns when download button is missing during UI reset', async () => {
@@ -428,7 +428,7 @@ describe('PopupController second test file', () => {
         const warnSpy = vi.spyOn(console, 'warn');
         controller.resetUI();
 
-        expect(warnSpy).toHaveBeenCalledWith('Download button not found when resetting UI');
+        expect(warnSpy).toHaveBeenCalledWith('[PopupController] Download button not found when resetting UI');
     });
 
     it('Completes without error when format container is missing during UI reset', async () => {
@@ -458,7 +458,7 @@ describe('PopupController second test file', () => {
         const warnSpy = vi.spyOn(console, 'warn');
         controller.resetUI();
 
-        expect(warnSpy).toHaveBeenCalledWith('Progress element not found when resetting UI');
+        expect(warnSpy).toHaveBeenCalledWith('[PopupController] Progress element not found when resetting UI');
     });
 
     it('Warns when controls container is missing during UI reset', async () => {
@@ -470,7 +470,7 @@ describe('PopupController second test file', () => {
         const warnSpy = vi.spyOn(console, 'warn');
         controller.resetUI();
 
-        expect(warnSpy).toHaveBeenCalledWith('Controls container not found when resetting UI');
+        expect(warnSpy).toHaveBeenCalledWith('[PopupController] Controls container not found when resetting UI');
     });
 
     it('Warns when chapter range container is missing during UI reset', async () => {
@@ -482,7 +482,7 @@ describe('PopupController second test file', () => {
         const warnSpy = vi.spyOn(console, 'warn');
         controller.resetUI();
 
-        expect(warnSpy).toHaveBeenCalledWith('Chapter range container not found when resetting UI');
+        expect(warnSpy).toHaveBeenCalledWith('[PopupController] Chapter range container not found when resetting UI');
     });
 
     it('Warns when error element is missing during error display', async () => {
@@ -495,7 +495,7 @@ describe('PopupController second test file', () => {
 
         controller.showError('Ошибка теста');
 
-        expect(warnSpy).toHaveBeenCalledWith('Error element not found when showing error message');
+        expect(warnSpy).toHaveBeenCalledWith('[PopupController] Error element not found when showing error message');
     });
 
     it('Warns when success element is missing during success display', async () => {
@@ -508,7 +508,7 @@ describe('PopupController second test file', () => {
 
         controller.showSuccess('Успешно!');
 
-        expect(warnSpy).toHaveBeenCalledWith('Success element not found when showing success message');
+        expect(warnSpy).toHaveBeenCalledWith('[PopupController] Success element not found when showing success message');
     });
 
     it('Warns when chapter range selectors are missing when constructing URL parameters for download', async () => {
@@ -531,7 +531,8 @@ describe('PopupController second test file', () => {
 
         await new Promise(resolve => setTimeout(resolve, 50));
 
-        expect(warnSpy).toHaveBeenCalledWith('Chapter range selectors not found or not visible when constructing URL parameters for download');
+        expect(warnSpy).toHaveBeenCalledWith(
+            '[PopupController] Chapter range selectors not found or not visible when constructing URL parameters for download');
     });
 
     it('Passes chapter range URL parameters to ChapterController.loadAndPopulate', async () => {
@@ -655,7 +656,7 @@ describe('PopupController second test file', () => {
         await controller.openInNewContext('popup.html?test=1');
 
         expect(global.extensionApi.tabs.create).toHaveBeenCalledWith({ url: 'popup.html?test=1', active: true });
-        expect(warnSpy).not.toHaveBeenCalledWith('Tab created but no ID found:', expect.anything());
+        expect(warnSpy).not.toHaveBeenCalledWith('[PopupController] Tab created but no ID found:', expect.anything());
     });
 
     it('openInNewContext warns when tabs.create returns null', async () => {
@@ -666,7 +667,7 @@ describe('PopupController second test file', () => {
         const warnSpy = vi.spyOn(console, 'warn');
         await controller.openInNewContext('popup.html?test=1');
 
-        expect(warnSpy).toHaveBeenCalledWith('Tab created but no ID found:', null);
+        expect(warnSpy).toHaveBeenCalledWith('[PopupController] Tab created but no ID found:', null);
     });
 
     it('openInNewContext logs error when neither windows nor tabs API is available', async () => {
@@ -677,7 +678,7 @@ describe('PopupController second test file', () => {
         const errorSpy = vi.spyOn(console, 'error');
         await controller.openInNewContext('popup.html?test=1');
 
-        expect(errorSpy).toHaveBeenCalledWith('No window/tab API available');
+        expect(errorSpy).toHaveBeenCalledWith('[PopupController] No window/tab API available');
     });
 
     it('openInNewContext opens a popup window when browserEnv.isFirefox is true', async () => {
@@ -876,7 +877,7 @@ describe('PopupController second test file', () => {
         const warnSpy = vi.spyOn(console, 'warn');
         controller.resetUI();
 
-        expect(warnSpy).toHaveBeenCalledWith('Translator container not found when resetting UI');
+        expect(warnSpy).toHaveBeenCalledWith('[PopupController] Translator container not found when resetting UI');
     });
 
     it('ChapterController.loadAndPopulate skips hiding translatorContainer when it is absent and no multiple branches', async () => {

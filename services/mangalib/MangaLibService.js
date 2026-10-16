@@ -7,10 +7,11 @@
  * @version 1.1.0
  */
 
+import { createLogger } from '../../core/logger.js';
 import { CdnLibsService } from '../CdnLibsService.js';
 import { mangalibConfig } from './config.js';
 
-console.log('[MangaLibService] Loading...');
+const log = createLogger('MangaLibService');
 
 /**
  * Сервис-парсер сайта MangaLib: страницы глав — изображения с CDN cdnlibs.org.
@@ -26,7 +27,7 @@ export class MangaLibService extends CdnLibsService {
      */
     constructor() {
         super(mangalibConfig);
-        console.log('[MangaLibService] Instance created');
+        log.debug('Instance created');
     }
 
     /**
@@ -41,5 +42,3 @@ export class MangaLibService extends CdnLibsService {
         return super.fetchChapter(slug, number, volume, branchId, { server: 'compress' });
     }
 }
-
-console.log('[MangaLibService] Loaded');

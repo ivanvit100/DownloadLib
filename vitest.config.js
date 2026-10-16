@@ -7,6 +7,8 @@ export default defineConfig({
         environment: 'jsdom',
         include: ['tests/**/*.test.js'],
         execArgv: ['--no-experimental-webstorage'],
+        // Тесты проверяют и отладочные сообщения логгера (core/logger.js).
+        env: { DOWNLOADLIB_LOG_LEVEL: 'debug' },
         coverage: {
             provider: 'istanbul',
             reporter: ['text', 'html', 'json'],

@@ -12,6 +12,7 @@ import { browserEnv, extensionApi } from '../core/BrowserApi.js';
 import { createController } from '../core/DownloadContext.js';
 import { DownloadHistory } from '../core/DownloadHistory.js';
 import { DownloadManager } from '../core/DownloadManager.js';
+import { createLogger } from '../core/logger.js';
 import { MangaPatcher } from '../core/MangaPatcher.js';
 import { MSG } from '../core/messages.js';
 import { PluginManager } from '../core/PluginManager.js';
@@ -27,7 +28,7 @@ import { HistoryController } from './HistoryController.js';
 import { SettingsController } from './SettingsController.js';
 import { TemplateLoader } from './TemplateLoader.js';
 
-console.log('[PopupController] Loading...');
+const log = createLogger('PopupController');
 
 const FORMAT_STORAGE_KEY = 'manga_parser_selected_format';
 const SPLIT_PAGES_KEY = 'manga_parser_split_pages';
@@ -68,7 +69,7 @@ export class PopupController {
      * загрузки и запускает первичную настройку интерфейса.
      */
     constructor() {
-        console.log('[PopupController] Initializing...');
+        log.debug('Initializing...');
         this.downloadManager = new DownloadManager();
         this.chapterController = new ChapterController();
         this.isDownloading = false;
@@ -93,13 +94,13 @@ export class PopupController {
 
         this.downloadManager.eventBus.on('download:started', (state) => {
             this.currentDownloadId = state.id;
-            console.log('[PopupController] Download started with ID:', this.currentDownloadId);
+            log.info('Download started with ID:', this.currentDownloadId);
         });
 
         this.subscribeToEvents();
         this._init();
 
-        console.log('[PopupController] Initialized');
+        log.debug('Initialized');
     }
 
     /**
@@ -170,7 +171,7 @@ export class PopupController {
                 if (logoInfo) logoInfo.textContent = '';
                 TemplateLoader.show('history', () => HistoryController.init(() => this._restoreMainView()));
             });
-        } else console.warn('[PopupController] historyBtn not found in shell');
+        } else log.warn('historyBtn not found in shell');
 
         const settingsBtn = $el('settingsBtn');
         if (settingsBtn) {
@@ -178,7 +179,7 @@ export class PopupController {
                 const url = `${extensionApi.runtime.getURL('popup.html')}?settings=true`;
                 await this.openInNewContext(url);
             });
-        } else console.warn('[PopupController] settingsBtn not found in shell');
+        } else log.warn('settingsBtn not found in shell');
     }
 
     /**
@@ -189,7 +190,7 @@ export class PopupController {
     _bindTitleEvents() {
         const btn = $el('downloadBtn');
         if (!btn) {
-            console.error('[PopupController] downloadBtn not found in title template');
+            log.error('downloadBtn not found in title template');
             return;
         }
 
@@ -206,7 +207,7 @@ export class PopupController {
 
             if (localStorage.getItem(FORMAT_STORAGE_KEY))
                 formatSelector.value = localStorage.getItem(FORMAT_STORAGE_KEY);
-            else console.log('[PopupController] No saved format in localStorage');
+            else log.debug('No saved format in localStorage');
 
             if (extensionApi?.storage?.local)
                 extensionApi.storage.local.set({ [FORMAT_STORAGE_KEY]: formatSelector.value });
@@ -231,16 +232,16 @@ export class PopupController {
             chapterFromSelect.addEventListener('change', () => {
                 if (chapterFromSelect.selectedIndex > chapterToSelect.selectedIndex)
                     chapterToSelect.selectedIndex = chapterFromSelect.selectedIndex;
-                else console.log('[PopupController] Chapter range selectors updated without invalid range');
+                else log.debug('Chapter range selectors updated without invalid range');
             });
             chapterToSelect.addEventListener('change', () => {
                 if (chapterToSelect.selectedIndex < chapterFromSelect.selectedIndex)
                     chapterFromSelect.selectedIndex = chapterToSelect.selectedIndex;
-                else console.log('[PopupController] Chapter range selectors updated without invalid range');
+                else log.debug('Chapter range selectors updated without invalid range');
             });
         }
 
-        console.log('[PopupController] Title events bound');
+        log.debug('Title events bound');
     }
 
     /**
@@ -271,10 +272,10 @@ export class PopupController {
             const urlParams = new URLSearchParams(window.location.search);
             if (urlParams.has('download')) return true;
             const currentWindow = await extensionApi.windows.getCurrent();
-            console.log('[PopupController] Window type:', currentWindow.type);
+            log.debug('Window type:', currentWindow.type);
             return currentWindow.type === 'popup';
         } catch (e) {
-            console.warn('Failed to detect window type:', e);
+            log.warn('Failed to detect window type:', e);
             return false;
         }
     }
@@ -289,7 +290,8 @@ export class PopupController {
      */
     async openInNewContext(url) {
         if (!browserEnv.isFirefox) {
-            extensionApi.runtime.sendMessage({ action: MSG.OPEN_WINDOW_WITH_URL, url }).catch(() => {});
+            extensionApi.runtime.sendMessage({ action: MSG.OPEN_WINDOW_WITH_URL, url })
+                .catch(e => log.warn('Failed to ask the background to open a window:', e));
             return;
         }
         if (extensionApi.windows) {
@@ -304,13 +306,13 @@ export class PopupController {
             if (win && win.id) {
                 await new Promise(resolve => setTimeout(resolve, 500));
                 extensionApi.windows.update(win.id, { focused: true });
-            } else console.warn('Window created but no ID found:', win);
+            } else log.warn('Window created but no ID found:', win);
         }
         else if (extensionApi.tabs) {
             const tab = await extensionApi.tabs.create({ url, active: true });
-            if (!tab) console.warn('Tab created but no ID found:', tab);
+            if (!tab) log.warn('Tab created but no ID found:', tab);
         }
-        else console.error('No window/tab API available');
+        else log.error('No window/tab API available');
     }
 
     /**
@@ -324,7 +326,7 @@ export class PopupController {
         document.body.style.setProperty('--primary-color', cfg.primaryColor || '#ff9100');
         document.body.style.setProperty('--secondary-color', cfg.secondaryColor || '#c77101');
         if (siteLogo) siteLogo.src = cfg.logo || 'icons/logo1.png';
-        else console.warn('Site logo element not found when setting logo for service:', serviceKey);
+        else log.warn('Site logo element not found when setting logo for service:', serviceKey);
     }
 
     /**
@@ -359,7 +361,7 @@ export class PopupController {
         this.currentTitle = title;
         const summary = this.truncateText(patched.summary || 'Описание отсутствует.', 100);
         const cover = patched.cover || null;
-        if (!cover) console.warn('No cover information found in metadata');
+        if (!cover) log.warn('No cover information found in metadata');
 
         if (cover) {
             coverImg.style.display = 'block';
@@ -370,7 +372,7 @@ export class PopupController {
 
         const authors = patched.authors.filter(Boolean);
         const rating = patched.rating || null;
-        if (!rating) console.warn('No age restriction label found in metadata');
+        if (!rating) log.warn('No age restriction label found in metadata');
 
         const firstLineParts = [];
         if (chaptersCount !== null) firstLineParts.push(`Глав: ${chaptersCount}`);
@@ -386,7 +388,7 @@ export class PopupController {
 
         const release = patched.releaseDate || '';
         if (releaseEl) releaseEl.textContent = release ? `Дата выхода: ${release}` : '';
-        else console.warn('Release date element not found when setting release date:', release);
+        else log.warn('Release date element not found when setting release date:', release);
     }
 
     /**
@@ -397,7 +399,7 @@ export class PopupController {
     _setReadyState({ btn, status }) {
         btn.disabled = false;
         if (status) status.textContent = 'Нажмите "Скачать" для загрузки книги';
-        else console.warn('Status element not found when setting ready to download message');
+        else log.warn('Status element not found when setting ready to download message');
     }
 
     /**
@@ -409,7 +411,7 @@ export class PopupController {
      * @returns {void}
      */
     _handleLoadError(error, { desc, status, btn }) {
-        console.error('[PopupController] Failed to load metadata:', error);
+        log.error('Failed to load metadata:', error);
         if (desc) desc.textContent = `Ошибка: ${error.message}`;
         if (status) status.textContent = '';
         if (btn) btn.disabled = true;
@@ -489,7 +491,7 @@ export class PopupController {
         if (!tabs || !tabs[0]) throw new Error('No active tab found');
         const currentUrl = tabs[0].url;
         const activeTabId = tabs[0].id;
-        console.log('[PopupController] Current URL:', currentUrl);
+        log.debug('Current URL:', currentUrl);
 
         const slug = extractSlug(currentUrl);
 
@@ -567,10 +569,10 @@ export class PopupController {
             this.currentServiceKey = serviceKey;
             this.currentService = service;
 
-            console.log('[PopupController] Fetching metadata for slug:', slug);
+            log.debug('Fetching metadata for slug:', slug);
 
             const meta = await service.getManga(slug);
-            console.log('[PopupController] Metadata:', meta);
+            log.debug('Metadata:', meta);
 
             const patched = MangaPatcher.patch(meta);
             const chaptersCount = await this.chapterController.loadAndPopulate(
@@ -602,9 +604,9 @@ export class PopupController {
         try {
             const result = await fetchViaTab(url, this.currentServiceKey);
             if (result.ok) return `data:${result.contentType};base64,${result.base64}`;
-            console.warn('[PopupController] Cover fetch failed:', result.error);
+            log.warn('Cover fetch failed:', result.error);
         } catch (e) {
-            console.warn('[PopupController] Cover fetch failed:', e.message);
+            log.warn('Cover fetch failed:', e.message);
         }
         return url;
     }
@@ -643,12 +645,12 @@ export class PopupController {
                     try {
                         await this.openInNewContext(url);
                     } catch (e) {
-                        console.error('Failed to create window:', e);
+                        log.error('Failed to create window:', e);
                         await this.startDownload();
                     }
                 } else await this.startDownload();
             });
-            console.log('[PopupController] Download button listener attached');
+            log.debug('Download button listener attached');
         }
 
         if (pauseBtn) {
@@ -660,7 +662,7 @@ export class PopupController {
                 pauseBtn.textContent = this.isPaused ? 'Продолжить' : 'Пауза';
                 const status = $el('status');
                 if (status) status.textContent = this.isPaused ? 'Пауза...' : 'Загрузка...';
-                else console.warn('Status element not found when updating status on pause/resume');
+                else log.warn('Status element not found when updating status on pause/resume');
             });
         }
 
@@ -695,7 +697,7 @@ export class PopupController {
             params.set('chapterFrom', range.fromKey);
             params.set('chapterTo', range.toKey);
         } else {
-            console.warn('Chapter range selectors not found or not visible ' +
+            log.warn('Chapter range selectors not found or not visible ' +
                 'when constructing URL parameters for download');
         }
 
@@ -841,7 +843,7 @@ export class PopupController {
                 ...historyParams
             });
         } catch (error) {
-            console.error('[PopupController] Download failed:', error);
+            log.error('Download failed:', error);
             this.showError(error.message);
             this.resetUI();
         }
@@ -909,7 +911,7 @@ export class PopupController {
             this.downloadManager.stop(this.currentDownloadId);
         const status = $el('status');
         if (status) status.textContent = 'Досрочное завершение...';
-        else console.warn('Status element not found when setting status on download stop');
+        else log.warn('Status element not found when setting status on download stop');
     }
 
     /**
@@ -923,9 +925,9 @@ export class PopupController {
         const progressEl = $el('progress');
         if (statusEl) {
             if (!this.isPaused) statusEl.textContent = message;
-        } else console.warn('Status element not found when updating progress status');
+        } else log.warn('Status element not found when updating progress status');
         if (progressEl) progressEl.value = percent;
-        else console.warn('Progress element not found when updating progress percentage');
+        else log.warn('Progress element not found when updating progress percentage');
     }
 
     /**
@@ -956,30 +958,30 @@ export class PopupController {
             btn.style.display = 'block';
             btn.disabled = false;
             btn.textContent = 'Скачать';
-        } else console.warn('Download button not found when resetting UI');
+        } else log.warn('Download button not found when resetting UI');
         setDisplay('formatContainer', '');
         setDisplay('downloadInfoPanel', 'none');
         const showSplitOnReset =
             this.currentServiceKey === 'mangalib' || !!this.currentService?.config?.splitLongImages;
         setDisplay('splitPagesContainer', showSplitOnReset ? 'block' : 'none');
         if (progress) progress.style.display = 'none';
-        else console.warn('Progress element not found when resetting UI');
+        else log.warn('Progress element not found when resetting UI');
         if (controls) controls.style.display = 'none';
-        else console.warn('Controls container not found when resetting UI');
+        else log.warn('Controls container not found when resetting UI');
 
         const chapterRangeContainer = $el('chapterRangeContainer');
         const fromSelectReset = $el('chapterFromSelect');
         if (chapterRangeContainer) {
             chapterRangeContainer.style.display =
                 (fromSelectReset && fromSelectReset.options.length > 0) ? 'block' : 'none';
-        } else console.warn('Chapter range container not found when resetting UI');
+        } else log.warn('Chapter range container not found when resetting UI');
 
         const translatorContainerReset = $el('translatorContainer');
         const translatorSelectReset = $el('translatorSelect');
         if (translatorContainerReset) {
             translatorContainerReset.style.display =
                 (translatorSelectReset && translatorSelectReset.options.length > 1) ? 'block' : 'none';
-        } else console.warn('Translator container not found when resetting UI');
+        } else log.warn('Translator container not found when resetting UI');
     }
 
     /**
@@ -993,7 +995,7 @@ export class PopupController {
             errorEl.textContent = message;
             errorEl.classList.remove('hidden');
             setTimeout(() => errorEl.classList.add('hidden'), 5000);
-        } else console.warn('Error element not found when showing error message');
+        } else log.warn('Error element not found when showing error message');
     }
 
     /**
@@ -1007,7 +1009,7 @@ export class PopupController {
             successEl.textContent = message;
             successEl.classList.remove('hidden');
             setTimeout(() => successEl.classList.add('hidden'), 5000);
-        } else console.warn('Success element not found when showing success message');
+        } else log.warn('Success element not found when showing success message');
     }
 
     /**
@@ -1038,7 +1040,7 @@ export class PopupController {
 
             if (cached.isFailing) this._showApiWarning(ISSUES_URL);
         } catch (e) {
-            console.warn('[PopupController] Health check status unavailable:', e.message);
+            log.warn('Health check status unavailable:', e.message);
         }
     }
 
@@ -1067,5 +1069,3 @@ export class PopupController {
             downloadBtn.parentNode.insertBefore(warning, downloadBtn);
     }
 }
-
-console.log('[PopupController] Loaded');

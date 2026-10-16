@@ -124,6 +124,15 @@ describe('TabNetwork: finding the service tab', () => {
             expect(browser.tabs.query).not.toHaveBeenCalled();
         });
 
+        it('Logs why the hosts of a plugin could not be read', async () => {
+            const debug = vi.spyOn(console, 'debug').mockImplementation(() => {});
+            const error = new Error('storage error');
+            const net = await load(api({ storage: pluginStorage(vi.fn(async () => { throw error; })) }));
+            await net.fetchViaTab('https://img3h.hentaicdn.org/a.png', 'hlib');
+            expect(debug).toHaveBeenCalledWith('[TabNetwork] Failed to read the hosts of plugin hlib:', error);
+            debug.mockRestore();
+        });
+
         it('Reports noTab for a plugin service without the storage API', async () => {
             const net = await load(api());
             await expect(net.fetchViaTab('https://img3h.hentaicdn.org/a.png', 'hlib')).resolves.toEqual(NO_TAB);

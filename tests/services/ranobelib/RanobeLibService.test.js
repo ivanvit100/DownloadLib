@@ -44,7 +44,7 @@ afterEach(() => {
 
 describe('RanobeLibService', () => {
     it('Constructs and logs', () => {
-        const logSpy = vi.spyOn(console, 'log').mockImplementation(() => {});
+        const logSpy = vi.spyOn(console, 'debug').mockImplementation(() => {});
         const svc = new RanobeLibService();
         expect(svc.name).toBe('RanobeLib');
         expect(svc.baseUrl).toBe('https://ranobelib.me');

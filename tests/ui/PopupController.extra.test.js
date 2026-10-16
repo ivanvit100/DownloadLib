@@ -258,7 +258,7 @@ describe('PopupController extra coverage', () => {
             });
             fromSel.value = '1';
             toSel.value = '2';
-            const logSpy = vi.spyOn(console, 'log');
+            const logSpy = vi.spyOn(console, 'debug');
             fromSel.dispatchEvent(new Event('change'));
             expect(logSpy).toHaveBeenCalledWith('[PopupController] Chapter range selectors updated without invalid range');
         });
@@ -277,7 +277,7 @@ describe('PopupController extra coverage', () => {
             });
             fromSel.value = '1';
             toSel.value = '2';
-            const logSpy = vi.spyOn(console, 'log');
+            const logSpy = vi.spyOn(console, 'debug');
             toSel.dispatchEvent(new Event('change'));
             expect(logSpy).toHaveBeenCalledWith('[PopupController] Chapter range selectors updated without invalid range');
         });
@@ -507,7 +507,7 @@ describe('PopupController extra coverage', () => {
             if (status) status.parentNode.removeChild(status);
             const warnSpy = vi.spyOn(console, 'warn');
             document.getElementById('pauseBtn').click();
-            expect(warnSpy).toHaveBeenCalledWith('Status element not found when updating status on pause/resume');
+            expect(warnSpy).toHaveBeenCalledWith('[PopupController] Status element not found when updating status on pause/resume');
         });
     });
 

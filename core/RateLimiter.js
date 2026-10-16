@@ -7,7 +7,9 @@
  * @version 1.1.0
  */
 
-console.log('[RateLimiter] Loading...');
+import { createLogger } from './logger.js';
+
+const log = createLogger('RateLimiter');
 
 /** Ключ storage.local с лимитом запросов в минуту из настроек. */
 export const RATE_LIMIT_STORAGE_KEY = 'downloadlib_default_rate_limit';
@@ -49,7 +51,7 @@ export class RateLimiter {
         this._blockedUntil = 0;
         this._timer = null;
         this._onChange = options.onChange || null;
-        console.log(`[RateLimiter] Initialized with limit: ${this._limit} requests/minute`);
+        log.debug(`Initialized with limit: ${this._limit} requests/minute`);
     }
 
     /**
@@ -60,7 +62,7 @@ export class RateLimiter {
      */
     setLimit(limit) {
         this._limit = normalizeRateLimit(limit);
-        console.log(`[RateLimiter] Rate limit set to: ${this._limit} requests/minute`);
+        log.info(`Rate limit set to: ${this._limit} requests/minute`);
         this._changed();
         this._drain();
     }
@@ -75,7 +77,7 @@ export class RateLimiter {
         const until = Date.now() + Math.max(0, Number(duration) || 0);
         if (until > this._blockedUntil) {
             this._blockedUntil = until;
-            console.warn(`[RateLimiter] 429 detected: blocking all requests for ${duration}ms`);
+            log.warn(`429 detected: blocking all requests for ${duration}ms`);
             this._changed();
         }
         this._drain();
@@ -123,7 +125,7 @@ export class RateLimiter {
      */
     recordRequest(source = 'unknown') {
         this._timestamps.push(Date.now());
-        console.debug(`[RateLimiter] Recorded request (${source})`);
+        log.debug(`Recorded request (${source})`);
         this._changed();
         this._drain();
     }
@@ -168,7 +170,7 @@ export class RateLimiter {
         this._timestamps = [];
         this._blockedUntil = 0;
         pending.forEach(request => request.reject(new Error('Rate limiter reset')));
-        console.log('[RateLimiter] Reset completed');
+        log.debug('Reset completed');
         this._changed();
     }
 
@@ -240,5 +242,3 @@ export class RateLimiter {
         if (this._onChange) this._onChange();
     }
 }
-
-console.log('[RateLimiter] Loaded');

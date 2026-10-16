@@ -8,6 +8,9 @@
  */
 
 import { chapterKey } from './chapters.js';
+import { createLogger } from './logger.js';
+
+const log = createLogger('DeferredQueue');
 
 /**
  * Параметры фоновой (отложенной) загрузки изображений и глав.
@@ -119,7 +122,7 @@ export async function loadImageOrDefer(label, load, isHeldBack) {
     const running = Promise.resolve().then(load);
     const outcome = await waitWithDeadline(running, DEFERRED_SETTINGS.deferAfterMs, isHeldBack);
     if (outcome.done) return outcome.value;
-    console.warn(`[DeferredQueue] Image ${label} not loaded within ${seconds(DEFERRED_SETTINGS.deferAfterMs)} s, ` +
+    log.warn(`Image ${label} not loaded within ${seconds(DEFERRED_SETTINGS.deferAfterMs)} s, ` +
         'temporarily skipped, it keeps loading in background');
     return [{
         type: 'text',
@@ -262,7 +265,7 @@ export class DeferredQueue {
 
         if (skipped.length === 0) return;
         const estimateKb = Math.round(this.averageImageBytes() / 1024);
-        console.warn(`[DeferredQueue] ${chapterName(chapter)}: ${skipped.length} image(s) loading ` +
+        log.warn(`${chapterName(chapter)}: ${skipped.length} image(s) loading ` +
             `in background (${skipped.join(', ')}), ~${estimateKb} KB each reserved`);
     }
 
@@ -324,7 +327,7 @@ export class DeferredQueue {
             key: chapterKey(chapter),
             pendingChapter: { estimatedBytes: this.averageChapterBytes() }
         };
-        console.warn(`[DeferredQueue] ${chapterName(placeholder)} not loaded within ` +
+        log.warn(`${chapterName(placeholder)} not loaded within ` +
             `${seconds(DEFERRED_SETTINGS.deferAfterMs)} s, temporarily skipped, it keeps loading in background ` +
             `(~${Math.round(placeholder.pendingChapter.estimatedBytes / 1024)} KB reserved)`);
         this._add({
@@ -404,7 +407,7 @@ export class DeferredQueue {
                 this._giveUp(entry, `still not loaded ${waited} s after attempt ${entry.attempts}`);
                 return;
             }
-            console.warn(`[DeferredQueue] ${entry.name}: still loading after ${waited} s, ` +
+            log.warn(`${entry.name}: still loading after ${waited} s, ` +
                 'starting another attempt, the previous one keeps running');
             this._startAttempt(entry);
         }, DEFERRED_SETTINGS.backgroundAttemptTimeoutMs);
@@ -422,7 +425,7 @@ export class DeferredQueue {
             this._giveUp(entry, `${reason}, ${entry.attempts} attempt(s) made`, reason);
             return;
         }
-        console.warn(`[DeferredQueue] ${entry.name}: background attempt ${entry.attempts}/${maxAttempts} ` +
+        log.warn(`${entry.name}: background attempt ${entry.attempts}/${maxAttempts} ` +
             `failed (${reason}), retrying in ${seconds(retryDelayMs)} s`);
         clearTimeout(entry.timer);
         entry.timer = setTimeout(() => this._startAttempt(entry), retryDelayMs);
@@ -435,7 +438,7 @@ export class DeferredQueue {
      */
     _startAttempt(entry) {
         entry.attempts += 1;
-        console.log(`[DeferredQueue] ${entry.name}: retrying download in background ` +
+        log.info(`${entry.name}: retrying download in background ` +
             `(attempt ${entry.attempts}/${DEFERRED_SETTINGS.maxAttempts})...`);
         this._watch(entry, Promise.resolve().then(() => entry.load()), entry.attempts);
     }
@@ -450,9 +453,9 @@ export class DeferredQueue {
     _succeed(entry, result, attempt) {
         this._finish(entry);
         entry.apply(result);
-        console.log(`[DeferredQueue] ${entry.name}: loaded in background (attempt ${attempt}), inserted into place`);
+        log.info(`${entry.name}: loaded in background (attempt ${attempt}), inserted into place`);
         if (entry.kind === 'image' && !this.entries.some(e => e.owner === entry.owner))
-            console.log(`[DeferredQueue] ${chapterName(entry.owner)}: all background images inserted`);
+            log.info(`${chapterName(entry.owner)}: all background images inserted`);
         this._changed();
     }
 
@@ -465,7 +468,7 @@ export class DeferredQueue {
      */
     _giveUp(entry, reason, cause = reason) {
         this._finish(entry);
-        console.warn(`[DeferredQueue] ${entry.name}: giving up (${reason}), leaving error marker`);
+        log.warn(`${entry.name}: giving up (${reason}), leaving error marker`);
         entry.fail(cause);
         this._changed();
     }
@@ -489,7 +492,7 @@ export class DeferredQueue {
      */
     cancelAll(reason) {
         if (this.entries.length === 0) return;
-        console.log(`[DeferredQueue] Download stopped, cancelling ${this.entries.length} background load(s)`);
+        log.info(`Download stopped, cancelling ${this.entries.length} background load(s)`);
         this.entries.slice().forEach(entry => this._giveUp(entry, reason));
     }
 

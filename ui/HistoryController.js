@@ -9,10 +9,13 @@
 
 import { extensionApi } from '../core/BrowserApi.js';
 import { DownloadHistory } from '../core/DownloadHistory.js';
+import { createLogger } from '../core/logger.js';
 import { ExporterRegistry } from '../exporters/ExporterRegistry.js';
 import { buildTitleUrl } from '../services/hosts.js';
 import { serviceRegistry } from '../services/ServiceRegistry.js';
 import { $el, createEl } from './dom.js';
+
+const log = createLogger('HistoryController');
 
 const DEFAULT_COLOR = '#ff9100';
 
@@ -150,7 +153,7 @@ export const HistoryController = {
                 const logoInfo = $el('logoInfo');
                 if (logoInfo) logoInfo.textContent = '';
                 if (onBack) onBack();
-                else console.error('[HistoryController] onBack callback not provided');
+                else log.error('onBack callback not provided');
             });
         }
 
@@ -162,5 +165,3 @@ export const HistoryController = {
         }
     }
 };
-
-console.log('[HistoryController] Loaded');

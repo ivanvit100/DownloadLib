@@ -588,7 +588,7 @@ describe('DownloadManager', () => {
 
     it('Pause logs when downloadId not found', () => {
         const dm = new DownloadManager();
-        const logSpy = vi.spyOn(console, 'log').mockImplementation(() => {});
+        const logSpy = vi.spyOn(console, 'debug').mockImplementation(() => {});
         dm.pause('not_found_id');
         expect(logSpy).toHaveBeenCalledWith('[DownloadManager] No active download with ID: not_found_id');
         logSpy.mockRestore();
@@ -596,7 +596,7 @@ describe('DownloadManager', () => {
 
     it('Resume logs when downloadId not found', () => {
         const dm = new DownloadManager();
-        const logSpy = vi.spyOn(console, 'log').mockImplementation(() => {});
+        const logSpy = vi.spyOn(console, 'debug').mockImplementation(() => {});
         dm.resume('not_found_id');
         expect(logSpy).toHaveBeenCalledWith('[DownloadManager] No active download with ID: not_found_id');
         logSpy.mockRestore();
@@ -604,7 +604,7 @@ describe('DownloadManager', () => {
 
     it('Stop logs when downloadId not found', () => {
         const dm = new DownloadManager();
-        const logSpy = vi.spyOn(console, 'log').mockImplementation(() => {});
+        const logSpy = vi.spyOn(console, 'debug').mockImplementation(() => {});
         dm.stop('not_found_id');
         expect(logSpy).toHaveBeenCalledWith('[DownloadManager] No active download with ID: not_found_id');
         logSpy.mockRestore();
@@ -1077,7 +1077,7 @@ describe('DownloadManager', () => {
                 maxDeferredChapters: 3, defaultImageBytes: 1000, defaultChapterBytes: 6000, pollIntervalMs: 5
             });
             warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
-            logSpy = vi.spyOn(console, 'log').mockImplementation(() => {});
+            logSpy = vi.spyOn(console, 'info').mockImplementation(() => {});
         });
 
         afterEach(() => {

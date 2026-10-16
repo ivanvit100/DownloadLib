@@ -10,8 +10,6 @@
 import { sanitizeFilename } from '../core/text.js';
 import { BaseExporter } from './BaseExporter.js';
 
-console.log('[SimpleExporter] Loading...');
-
 /**
  * Двухрежимный экспортёр: сохраняет главы как ZIP-архив с изображениями страниц
  * (для тайтлов-манги), либо как обычный TXT-файл (для тайтлов с текстовым
@@ -167,5 +165,3 @@ export class SimpleExporter extends BaseExporter {
             .substring(0, 180) || 'manga';
     }
 }
-
-console.log('[SimpleExporter] Loaded');

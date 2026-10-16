@@ -8,8 +8,11 @@
  */
 
 import { extensionApi } from './BrowserApi.js';
+import { createLogger } from './logger.js';
 import { RateLimitClient } from './RateLimitClient.js';
 import { tabPatterns } from '../services/hosts.js';
+
+const log = createLogger('TabNetwork');
 
 /** Сколько помнить найденную вкладку сервиса. */
 const TAB_CACHE_MS = 3600000;
@@ -60,7 +63,8 @@ async function _resolvePluginHosts(serviceKey) {
         const plugin = (result?.custom_plugins || [])
             .find(p => p.service === serviceKey && p.enabled !== false);
         return plugin?.hosts || [];
-    } catch {
+    } catch (e) {
+        log.debug(`Failed to read the hosts of plugin ${serviceKey}:`, e);
         return [];
     }
 }
@@ -94,7 +98,7 @@ async function _resolveServiceTabId(serviceKey) {
         if (tabId) setServiceTab(tabId);
         return tabId;
     } catch (e) {
-        console.warn('[TabNetwork] tabs.query failed:', e.message);
+        log.warn('tabs.query failed:', e.message);
         return null;
     }
 }
@@ -186,6 +190,7 @@ async function runInTab(url, init, mode, serviceKey, beforeSend) {
         } catch (e) {
             forgetServiceTab(tabId);
             if (attempt === 0) {
+                log.debug(`executeScript failed in tab ${tabId}, looking for another service tab:`, e);
                 const nextTabId = await _resolveServiceTabId(serviceKey);
                 if (!nextTabId) return noTabResult();
                 if (nextTabId !== tabId) {
@@ -193,7 +198,7 @@ async function runInTab(url, init, mode, serviceKey, beforeSend) {
                     continue;
                 }
             }
-            console.warn('[TabNetwork] executeScript failed:', e?.message || e);
+            log.warn('executeScript failed:', e?.message || e);
             return { ok: false, status: 0, noTab: false, error: String(e?.message || e) };
         }
     }

@@ -532,7 +532,7 @@ it('Sets formatSelector value from localStorage', async () => {
         const consoleWarnSpy = vi.spyOn(console, 'warn');
         const result = await controller.isInSeparateWindow();
         expect(result).toBe(false);
-        expect(consoleWarnSpy).toHaveBeenCalledWith('Failed to detect window type:', expect.any(Error));
+        expect(consoleWarnSpy).toHaveBeenCalledWith('[PopupController] Failed to detect window type:', expect.any(Error));
         consoleWarnSpy.mockRestore();
         global.extensionApi.windows.getCurrent = origGetCurrent;
     });
@@ -676,7 +676,7 @@ it('Sets formatSelector value from localStorage', async () => {
         if (siteLogo && siteLogo.parentNode) siteLogo.parentNode.removeChild(siteLogo);
         const consoleWarnSpy = vi.spyOn(console, 'warn');
         await controller.loadMetadata();
-        expect(consoleWarnSpy).toHaveBeenCalledWith('Site logo element not found when setting logo for service:', 'mangalib');
+        expect(consoleWarnSpy).toHaveBeenCalledWith('[PopupController] Site logo element not found when setting logo for service:', 'mangalib');
         consoleWarnSpy.mockRestore();
     });
 
@@ -817,7 +817,7 @@ it('Sets formatSelector value from localStorage', async () => {
         global.extensionApi.tabs.query = vi.fn(async () => ([{ url: 'https://ranobelib.me/manga/slug' }]));
         const consoleWarnSpy = vi.spyOn(console, 'warn');
         await controller.loadMetadata();
-        expect(consoleWarnSpy).toHaveBeenCalledWith('No cover information found in metadata');
+        expect(consoleWarnSpy).toHaveBeenCalledWith('[PopupController] No cover information found in metadata');
         consoleWarnSpy.mockRestore();
     });
 
@@ -956,7 +956,7 @@ it('Sets formatSelector value from localStorage', async () => {
         global.extensionApi.tabs.query = vi.fn(async () => ([{ url: 'https://ranobelib.me/manga/slug' }]));
         const consoleWarnSpy = vi.spyOn(console, 'warn');
         await controller.loadMetadata();
-        expect(consoleWarnSpy).toHaveBeenCalledWith('No cover information found in metadata');
+        expect(consoleWarnSpy).toHaveBeenCalledWith('[PopupController] No cover information found in metadata');
         consoleWarnSpy.mockRestore();
     });
 
@@ -1050,7 +1050,7 @@ it('Sets formatSelector value from localStorage', async () => {
         global.extensionApi.tabs.query = vi.fn(async () => ([{ url: 'https://ranobelib.me/manga/slug' }]));
         const consoleWarnSpy = vi.spyOn(console, 'warn');
         await controller.loadMetadata();
-        expect(consoleWarnSpy).toHaveBeenCalledWith('No age restriction label found in metadata');
+        expect(consoleWarnSpy).toHaveBeenCalledWith('[PopupController] No age restriction label found in metadata');
         consoleWarnSpy.mockRestore();
     });
 
@@ -1192,7 +1192,7 @@ it('Sets formatSelector value from localStorage', async () => {
         if (releaseEl && releaseEl.parentNode) releaseEl.parentNode.removeChild(releaseEl);
         const consoleWarnSpy = vi.spyOn(console, 'warn');
         await controller.loadMetadata();
-        expect(consoleWarnSpy).toHaveBeenCalledWith('Release date element not found when setting release date:', '2020');
+        expect(consoleWarnSpy).toHaveBeenCalledWith('[PopupController] Release date element not found when setting release date:', '2020');
         consoleWarnSpy.mockRestore();
     });
 
@@ -1219,7 +1219,7 @@ it('Sets formatSelector value from localStorage', async () => {
         if (status && status.parentNode) status.parentNode.removeChild(status);
         const consoleWarnSpy = vi.spyOn(console, 'warn');
         await controller.loadMetadata();
-        expect(consoleWarnSpy).toHaveBeenCalledWith('Status element not found when setting ready to download message');
+        expect(consoleWarnSpy).toHaveBeenCalledWith('[PopupController] Status element not found when setting ready to download message');
         consoleWarnSpy.mockRestore();
     });
 
@@ -1228,7 +1228,7 @@ it('Sets formatSelector value from localStorage', async () => {
         const windowsCreateSpy = vi.spyOn(global.extensionApi.windows, 'create').mockResolvedValue({});
         const consoleWarnSpy = vi.spyOn(console, 'warn');
         await controller.openInNewContext('popup.html?download=true');
-        expect(consoleWarnSpy).toHaveBeenCalledWith('Window created but no ID found:', {});
+        expect(consoleWarnSpy).toHaveBeenCalledWith('[PopupController] Window created but no ID found:', {});
         consoleWarnSpy.mockRestore();
         windowsCreateSpy.mockRestore();
     });
@@ -1312,14 +1312,18 @@ it('Sets formatSelector value from localStorage', async () => {
         expect(sendMessageMock).toHaveBeenCalledWith({ action: 'openWindowWithUrl', url: 'popup.html?download=true' });
     });
 
-    it('openInNewContext silently catches sendMessage rejection in Chrome mode', async () => {
-        const sendMessageMock = vi.fn(async () => { throw new Error('port closed'); });
+    it('openInNewContext catches sendMessage rejection in Chrome mode and logs it', async () => {
+        const error = new Error('port closed');
+        const sendMessageMock = vi.fn(async () => { throw error; });
+        const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
         global.extensionApi.runtime.sendMessage = sendMessageMock;
         global.browserEnv = { isFirefox: false };
         const controller = new PopupController();
-        await controller.openInNewContext('popup.html?download=true');
-        await Promise.resolve();
+        await expect(controller.openInNewContext('popup.html?download=true')).resolves.toBeUndefined();
+        await vi.waitFor(() => expect(warnSpy)
+            .toHaveBeenCalledWith('[PopupController] Failed to ask the background to open a window:', error));
         expect(sendMessageMock).toHaveBeenCalled();
+        warnSpy.mockRestore();
     });
 
     it('splitPagesCheckbox defaults to checked when localStorage has no saved value', async () => {

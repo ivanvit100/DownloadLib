@@ -9,13 +9,14 @@
  */
 
 import { extensionApi, isExtensionUrl } from '../core/BrowserApi.js';
+import { createLogger } from '../core/logger.js';
 import { MSG, PORT_KEEP_ALIVE } from '../core/messages.js';
 import { extractSlug, isServiceHost, serviceConfigs, serviceKeyForUrl } from '../services/hosts.js';
 import { getPluginHosts, syncPluginHosts } from './pluginHosts.js';
 import * as rateLimitService from './rateLimitService.js';
 import * as tokenStore from './tokenStore.js';
 
-console.log('[MessageRouter] Script loading...');
+const log = createLogger('MessageRouter');
 
 /**
  * Проверяет, что сообщение отправлено страницей самого расширения (popup, окно
@@ -168,10 +169,10 @@ async function cachePlugin(msg) {
                 new Response(code, { headers: { 'Content-Type': 'text/javascript' } })
             );
         } else await _storePluginInIDB(format, code);
-        console.log(`[MessageRouter] Plugin "${format}" stored (${_inSWContext ? 'Cache' : 'IDB'}), SW: ${swStatus}`);
+        log.info(`Plugin "${format}" stored (${_inSWContext ? 'Cache' : 'IDB'}), SW: ${swStatus}`);
         return { ok: true, swStatus };
     } catch (e) {
-        console.warn('[MessageRouter] Plugin storage failed:', e.message);
+        log.warn('Plugin storage failed:', e.message);
         return { ok: false, error: e.message, swStatus };
     }
 }
@@ -195,7 +196,7 @@ async function execPlugin(msg) {
         });
         return { ok: true };
     } catch (e) {
-        console.warn('[MessageRouter] plugin:exec failed:', e.message);
+        log.warn('plugin:exec failed:', e.message);
         return { ok: false, error: e.message };
     }
 }
@@ -216,7 +217,7 @@ const handlers = {
         allow: 'extensionPage',
         handle: async msg => {
             if (msg.serviceKey && msg.token && await tokenStore.setToken(msg.serviceKey, msg.token))
-                console.log(`[MessageRouter] Cached auth token for ${msg.serviceKey}`);
+                log.info(`Cached auth token for ${msg.serviceKey}`);
             return { ok: true };
         }
     },
@@ -259,7 +260,7 @@ function onMessage(message, sender, sendResponse) {
     const handler = Object.hasOwn(handlers, message?.action) ? handlers[message.action] : null;
     if (!handler) return false;
     if (!isAllowed(handler, sender)) {
-        console.warn(`[MessageRouter] Rejected "${message.action}" from`, sender?.url);
+        log.warn(`Rejected "${message.action}" from`, sender?.url);
         sendResponse({ ok: false, error: 'forbidden' });
         return false;
     }
@@ -272,7 +273,7 @@ function onMessage(message, sender, sendResponse) {
 
 if (extensionApi?.runtime?.onMessage) {
     extensionApi.runtime.onMessage.addListener(onMessage);
-    console.log('[MessageRouter] Message listener installed');
+    log.debug('Message listener installed');
 }
 
 /**
@@ -335,7 +336,7 @@ async function _syncContentScripts() {
     try {
         plugins = await syncPluginHosts();
     } catch (e) {
-        console.warn('[MessageRouter] Failed to read custom plugins:', e.message);
+        log.warn('Failed to read custom plugins:', e.message);
     }
 
     if (!extensionApi?.scripting?.registerContentScripts) return;
@@ -360,13 +361,13 @@ async function _syncContentScripts() {
             if (upToDate.has(script.id)) continue;
             try {
                 await extensionApi.scripting.registerContentScripts([script]);
-                console.log(`[MessageRouter] Registered content scripts: ${script.id}`);
+                log.info(`Registered content scripts: ${script.id}`);
             } catch (e) {
-                console.warn(`[MessageRouter] Failed to register content scripts ${script.id}:`, e.message);
+                log.warn(`Failed to register content scripts ${script.id}:`, e.message);
             }
         }
     } catch (e) {
-        console.warn('[MessageRouter] Failed to sync content scripts:', e.message);
+        log.warn('Failed to sync content scripts:', e.message);
     }
 }
 
@@ -384,5 +385,3 @@ if (extensionApi?.storage?.onChanged) {
 }
 
 _syncContentScripts();
-
-console.log('[MessageRouter] Script loaded');

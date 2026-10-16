@@ -7,7 +7,10 @@
  * @version 1.1.0
  */
 
+import { createLogger } from '../core/logger.js';
 import { $el } from './dom.js';
+
+const log = createLogger('TemplateLoader');
 
 /**
  * Синглтон-загрузчик HTML-фрагментов шаблонов в элемент-якорь на странице.
@@ -26,7 +29,7 @@ export const TemplateLoader = {
     init(anchorId) {
         this._anchor = $el(anchorId);
         if (!this._anchor)
-            console.error('[TemplateLoader] Anchor element not found:', anchorId);
+            log.error('Anchor element not found:', anchorId);
     },
 
     /**
@@ -37,7 +40,7 @@ export const TemplateLoader = {
      */
     async show(templateName, onReady = null) {
         if (!this._anchor) {
-            console.error('[TemplateLoader] Anchor not initialized');
+            log.error('Anchor not initialized');
             return;
         }
 
@@ -48,7 +51,7 @@ export const TemplateLoader = {
             this._current = templateName;
             if (onReady) onReady();
         } catch (e) {
-            console.error('[TemplateLoader] Failed to load template:', templateName, e);
+            log.error('Failed to load template:', templateName, e);
         }
     },
 
@@ -60,5 +63,3 @@ export const TemplateLoader = {
         return this._current;
     }
 };
-
-console.log('[TemplateLoader] Loaded');

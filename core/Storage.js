@@ -6,6 +6,10 @@
  * @version 1.1.0
  */
 
+import { createLogger } from './logger.js';
+
+const log = createLogger('Storage');
+
 /**
  * Безопасная обёртка над localStorage с проверкой доступности и защитой
  * всех операций от исключений (приватный режим, квота, отключённое хранилище).
@@ -23,7 +27,7 @@ export class SafeStorage {
             localStorage.removeItem(test);
             this._available = true;
         } catch (e) {
-            console.warn('[Storage] localStorage is not available:', e);
+            log.warn('localStorage is not available:', e);
         }
     }
 
@@ -45,7 +49,7 @@ export class SafeStorage {
         try {
             return localStorage.getItem(key);
         } catch (e) {
-            console.warn('[Storage] get failed for key:', key, e);
+            log.warn('get failed for key:', key, e);
             return null;
         }
     }
@@ -61,7 +65,8 @@ export class SafeStorage {
         if (raw === null) return null;
         try {
             return JSON.parse(raw);
-        } catch {
+        } catch (e) {
+            log.debug('Stored value is not valid JSON, key:', key, e);
             return null;
         }
     }
@@ -79,7 +84,7 @@ export class SafeStorage {
             localStorage.setItem(key, String(value));
             return true;
         } catch (e) {
-            console.warn('[Storage] set failed for key:', key, e);
+            log.warn('set failed for key:', key, e);
             return false;
         }
     }
@@ -97,7 +102,7 @@ export class SafeStorage {
             localStorage.setItem(key, JSON.stringify(value));
             return true;
         } catch (e) {
-            console.warn('[Storage] setJSON failed for key:', key, e);
+            log.warn('setJSON failed for key:', key, e);
             return false;
         }
     }
@@ -112,9 +117,7 @@ export class SafeStorage {
         try {
             localStorage.removeItem(key);
         } catch (e) {
-            console.warn('[Storage] remove failed for key:', key, e);
+            log.warn('remove failed for key:', key, e);
         }
     }
 }
-
-console.log('[Storage] Loaded');

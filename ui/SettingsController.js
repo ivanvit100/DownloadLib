@@ -6,11 +6,12 @@
  * @version 1.1.0
  */
 
+import { createLogger } from '../core/logger.js';
 import { PluginManager } from '../core/PluginManager.js';
 import { RateLimitClient } from '../core/RateLimitClient.js';
 import { $el, createEl } from './dom.js';
 
-console.log('[SettingsController] Loading...');
+const log = createLogger('SettingsController');
 
 const MAX_SIZE_KEY = 'manga_parser_max_size_mb';
 const RANGE_MODE_KEY = 'manga_parser_range_mode';
@@ -159,7 +160,7 @@ export const SettingsController = {
                 const logoInfo = $el('logoInfo');
                 if (logoInfo) logoInfo.textContent = '';
                 if (onBack) onBack();
-                else console.error('[SettingsController] onBack callback not provided');
+                else log.error('onBack callback not provided');
             });
         }
 
@@ -239,5 +240,3 @@ export const SettingsController = {
         }
     }
 };
-
-console.log('[SettingsController] Loaded');

@@ -6,8 +6,6 @@
  * @version 1.1.0
  */
 
-console.log('[MangaPatcher] Loading...');
-
 /**
  * Возвращает имя элемента списка из API: строку как есть, у объекта — первое
  * непустое из name/rus_name/title. Общая логика для авторов, художников,
@@ -223,5 +221,3 @@ export class MangaPatcher {
         return result;
     }
 }
-
-console.log('[MangaPatcher] Loaded');
