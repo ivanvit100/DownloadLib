@@ -6,10 +6,10 @@
  * @version 1.1.0
  */
 
-import { createLogger } from '../core/logger.js';
+import { createLogger } from '../core/ConsoleLogger.js';
 import { PluginManager } from '../core/PluginManager.js';
 import { RateLimitClient } from '../core/RateLimitClient.js';
-import { $el, createEl } from './dom.js';
+import { $el, createEl } from './DomUtils.js';
 
 const log = createLogger('SettingsController');
 

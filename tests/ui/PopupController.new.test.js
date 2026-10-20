@@ -1,21 +1,23 @@
-import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
-import { withServiceFactory } from '../helpers/serviceRegistryMock.js';
+import { describe, it, expect, beforeEach, afterEach, afterAll, vi } from 'vitest';
+import { withServiceFactory } from '../helpers/ServiceRegistryMock.js';
 
-vi.mock('../../core/AuthManager.js', async () => (await import('../helpers/globalBridge.js')).globalBridge('AuthManager'));
-vi.mock('../../core/BrowserApi.js', async () => (await import('../helpers/globalBridge.js'))
-    .globalBridge('extensionApi', 'browserEnv'));
-vi.mock('../../core/TabNetwork.js', async () => (await import('../helpers/globalBridge.js')).globalBridge('fetchViaTab', 'setServiceTab'));
-vi.mock('../../core/DownloadHistory.js', async () => (await import('../helpers/globalBridge.js')).globalBridge('DownloadHistory'));
-vi.mock('../../core/DownloadManager.js', async () => (await import('../helpers/globalBridge.js')).globalBridge('DownloadManager'));
-vi.mock('../../core/PluginManager.js', async () => (await import('../helpers/globalBridge.js')).globalBridge('PluginManager'));
-vi.mock('../../exporters/ExporterRegistry.js', async () => (await import('../helpers/globalBridge.js')).globalBridge('ExporterRegistry'));
-vi.mock('../../services/mangalib/MangaLibService.js', async () => (await import('../helpers/globalBridge.js')).globalBridge('MangaLibService'));
-vi.mock('../../services/ranobelib/RanobeLibService.js', async () => (await import('../helpers/globalBridge.js')).globalBridge('RanobeLibService'));
-vi.mock('../../services/ServiceRegistry.js', async () => (await import('../helpers/globalBridge.js')).globalBridge('serviceRegistry'));
-vi.mock('../../ui/ChapterController.js', async () => (await import('../helpers/globalBridge.js')).globalBridge('ChapterController'));
-vi.mock('../../ui/HistoryController.js', async () => (await import('../helpers/globalBridge.js')).globalBridge('HistoryController'));
-vi.mock('../../ui/SettingsController.js', async () => (await import('../helpers/globalBridge.js')).globalBridge('SettingsController'));
-vi.mock('../../ui/TemplateLoader.js', async () => (await import('../helpers/globalBridge.js')).globalBridge('TemplateLoader'));
+const mocks = vi.hoisted(() => ({}));
+
+vi.mock('../../core/AuthManager.js', async () => (await import('../helpers/ModuleMock.js')).mockExports(mocks, 'AuthManager'));
+vi.mock('../../core/BrowserApi.js', async () => (await import('../helpers/ModuleMock.js'))
+    .mockExports(mocks, 'extensionApi', 'browserEnv'));
+vi.mock('../../core/TabNetwork.js', async () => (await import('../helpers/ModuleMock.js')).mockExports(mocks, 'fetchViaTab', 'setServiceTab'));
+vi.mock('../../core/DownloadHistory.js', async () => (await import('../helpers/ModuleMock.js')).mockExports(mocks, 'DownloadHistory'));
+vi.mock('../../core/DownloadManager.js', async () => (await import('../helpers/ModuleMock.js')).mockExports(mocks, 'DownloadManager'));
+vi.mock('../../core/PluginManager.js', async () => (await import('../helpers/ModuleMock.js')).mockExports(mocks, 'PluginManager'));
+vi.mock('../../exporters/ExporterRegistry.js', async () => (await import('../helpers/ModuleMock.js')).mockExports(mocks, 'ExporterRegistry'));
+vi.mock('../../services/mangalib/MangaLibService.js', async () => (await import('../helpers/ModuleMock.js')).mockExports(mocks, 'MangaLibService'));
+vi.mock('../../services/ranobelib/RanobeLibService.js', async () => (await import('../helpers/ModuleMock.js')).mockExports(mocks, 'RanobeLibService'));
+vi.mock('../../services/ServiceRegistry.js', async () => (await import('../helpers/ModuleMock.js')).mockExports(mocks, 'serviceRegistry'));
+vi.mock('../../ui/ChapterController.js', async () => (await import('../helpers/ModuleMock.js')).mockExports(mocks, 'ChapterController'));
+vi.mock('../../ui/HistoryController.js', async () => (await import('../helpers/ModuleMock.js')).mockExports(mocks, 'HistoryController'));
+vi.mock('../../ui/SettingsController.js', async () => (await import('../helpers/ModuleMock.js')).mockExports(mocks, 'SettingsController'));
+vi.mock('../../ui/TemplateLoader.js', async () => (await import('../helpers/ModuleMock.js')).mockExports(mocks, 'TemplateLoader'));
 
 let PopupController;
 let RealChapterController;
@@ -94,13 +96,13 @@ beforeEach(async () => {
         removeItem: vi.fn(),
         clear: vi.fn()
     };
-    global.DownloadManager = class {
+    mocks.DownloadManager = class {
         constructor() { this.eventBus = { on: vi.fn() }; }
         startDownload = vi.fn(async () => ({ success: true, downloadId: 'id' }));
         stop = vi.fn();
         getDownloadState = vi.fn(() => ({ id: 1, status: 'active', progress: 50, slug: 'slug' }));
     };
-    global.serviceRegistry = {
+    mocks.serviceRegistry = {
         getServiceByUrl: vi.fn(() => ({
             name: 'ranobelib',
             getManga: vi.fn(async () => ({
@@ -111,8 +113,8 @@ beforeEach(async () => {
         })),
         getService: vi.fn(() => null),
     };
-    withServiceFactory(global.serviceRegistry);
-    global.extensionApi = {
+    withServiceFactory(mocks.serviceRegistry, mocks);
+    mocks.extensionApi = {
         runtime: {
             sendMessage: vi.fn(async () => ({ ok: true, downloads: [{ slug: 'slug', status: 'active', progress: 50 }] })),
             getURL: vi.fn(() => 'popup.html')
@@ -127,7 +129,7 @@ beforeEach(async () => {
         }
     };
     global.chrome = undefined;
-    global.ExporterRegistry = {
+    mocks.ExporterRegistry = {
         getFormats: vi.fn(() => [
             { value: 'fb2', label: 'FB2' },
             { value: 'epub', label: 'EPUB' },
@@ -137,24 +139,24 @@ beforeEach(async () => {
         ]),
     };
 
-    global.DownloadHistory = { add: vi.fn(), getAll: vi.fn(() => []), clear: vi.fn() };
-    global.AuthManager = { getToken: vi.fn(async () => null), apply: vi.fn(async () => null) };
+    mocks.DownloadHistory = { add: vi.fn(), getAll: vi.fn(() => []), clear: vi.fn() };
+    mocks.AuthManager = { getToken: vi.fn(async () => null), apply: vi.fn(async () => null) };
     ({ ChapterController: RealChapterController } = await vi.importActual('../../ui/ChapterController.js'));
-    global.ChapterController = class extends RealChapterController {
+    mocks.ChapterController = class extends RealChapterController {
         constructor() {
             super();
             this.loadAndPopulate = vi.fn(async () => 2);
         }
     };
-    global.TemplateLoader = {
+    mocks.TemplateLoader = {
         init: vi.fn(),
         show: vi.fn(async () => {}),
         current: vi.fn(() => null)
     };
-    global.HistoryController = { init: vi.fn() };
-    global.browserEnv = { isFirefox: true };
-    global.PluginManager = { loadAll: vi.fn(async () => {}) };
-    global.SettingsController = { init: vi.fn() };
+    mocks.HistoryController = { init: vi.fn() };
+    mocks.browserEnv = { isFirefox: true };
+    mocks.PluginManager = { loadAll: vi.fn(async () => {}) };
+    mocks.SettingsController = { init: vi.fn() };
 
     ({ PopupController } = await import('../../ui/PopupController.js'));
 });
@@ -165,6 +167,10 @@ afterEach(() => {
     vi.restoreAllMocks();
     vi.clearAllTimers();
 });
+
+// Окно загрузки (?download=true) запускает скачивание через 500 мс: даём таймерам
+// последних тестов сработать, пока окружение jsdom ещё не разобрано.
+afterAll(() => new Promise(resolve => setTimeout(resolve, 600)));
 
 describe('PopupController second test file', () => {
     it('Handles progress, completed and failed events from eventBus', async () => {
@@ -207,23 +213,23 @@ describe('PopupController second test file', () => {
 
     it('Creates its own service instance through the registry for the active tab', async () => {
         const controller = new PopupController();
-        global.extensionApi.tabs.query = vi.fn(async () => [{ url: 'https://ranobelib.me/ru/book/slug', id: 3 }]);
+        mocks.extensionApi.tabs.query = vi.fn(async () => [{ url: 'https://ranobelib.me/ru/book/slug', id: 3 }]);
         const resolved = await controller._resolveService({ autoDownload: false });
-        expect(global.serviceRegistry.findServiceKey).toHaveBeenCalledWith('https://ranobelib.me/ru/book/slug');
-        expect(global.serviceRegistry.createService).toHaveBeenCalledWith('ranobelib');
+        expect(mocks.serviceRegistry.findServiceKey).toHaveBeenCalledWith('https://ranobelib.me/ru/book/slug');
+        expect(mocks.serviceRegistry.createService).toHaveBeenCalledWith('ranobelib');
         expect(resolved).toMatchObject({ slug: 'slug', serviceKey: 'ranobelib', activeTabId: 3 });
     });
 
     it('Creates the service of the download window from the URL parameters through the registry', async () => {
         const controller = new PopupController();
-        global.serviceRegistry.createService = vi.fn(key => ({ name: key }));
+        mocks.serviceRegistry.createService = vi.fn(key => ({ name: key }));
         const resolved = await controller._resolveService({
             autoDownload: true, slugFromUrl: 's', serviceFromUrl: 'hlib', tabIdFromUrl: 9
         });
-        expect(global.serviceRegistry.createService).toHaveBeenCalledWith('hlib');
+        expect(mocks.serviceRegistry.createService).toHaveBeenCalledWith('hlib');
         expect(resolved).toEqual({ slug: 's', serviceKey: 'hlib', service: { name: 'hlib' }, activeTabId: 9 });
 
-        global.serviceRegistry.createService = vi.fn(() => null);
+        mocks.serviceRegistry.createService = vi.fn(() => null);
         await expect(controller._resolveService({ autoDownload: true, slugFromUrl: 's', serviceFromUrl: 'nope' }))
             .rejects.toThrow('Unknown service: nope');
     });
@@ -232,7 +238,7 @@ describe('PopupController second test file', () => {
         const controller = new PopupController();
         controller.currentSlug = 'slug';
         controller.currentServiceKey = 'ranobelib';
-        const sendMessageSpy = vi.spyOn(global.extensionApi.runtime, 'sendMessage');
+        const sendMessageSpy = vi.spyOn(mocks.extensionApi.runtime, 'sendMessage');
 
         await controller.startDownload();
 
@@ -254,7 +260,7 @@ describe('PopupController second test file', () => {
     });
 
     it('Shows the rate limit from the settings in storage.local', async () => {
-        global.extensionApi.storage = {
+        mocks.extensionApi.storage = {
             local: { get: vi.fn(async () => ({ downloadlib_default_rate_limit: 40 })), set: vi.fn(async () => {}) }
         };
         const controller = new PopupController();
@@ -274,13 +280,13 @@ describe('PopupController second test file', () => {
             <div id="success" class="hidden"></div>
         `;
 
-        global.DownloadManager = class {
+        mocks.DownloadManager = class {
             constructor() { this.eventBus = { on: vi.fn() }; }
             startDownload = vi.fn(async () => ({ success: true, downloadId: 'id' }));
             stop = vi.fn();
             getDownloadState = vi.fn(() => null);
         };
-        global.extensionApi.runtime.sendMessage = vi.fn(async () => ({ ok: true, downloads: [] }));
+        mocks.extensionApi.runtime.sendMessage = vi.fn(async () => ({ ok: true, downloads: [] }));
 
         const warnSpy = vi.spyOn(console, 'warn');
 
@@ -574,6 +580,32 @@ describe('PopupController second test file', () => {
         Object.defineProperty(window, 'location', { value: { search: '' }, configurable: true });
     });
 
+    it('Does not start the download window automatically for a missing range even without a status line', async () => {
+        Object.defineProperty(window, 'location', {
+            value: { search: '?download=true&chapterFrom=101&chapterTo=105' },
+            configurable: true
+        });
+        const controller = new PopupController();
+        controller.chapterController.loadAndPopulate = vi.fn(async function () {
+            this.rangeNotFound = true;
+            return 2;
+        });
+        const startSpy = vi.spyOn(controller, 'startDownload').mockResolvedValue();
+        document.getElementById('status').remove();
+
+        await expect(controller.loadMetadata()).resolves.toBeUndefined();
+        await new Promise(resolve => setTimeout(resolve, 600));
+        expect(startSpy).not.toHaveBeenCalled();
+        Object.defineProperty(window, 'location', { value: { search: '' }, configurable: true });
+    });
+
+    it('Shows the default rate limit in the download panel when none is given', () => {
+        const controller = new PopupController();
+        controller._setDownloadingUIState({ btn: document.getElementById('downloadBtn') });
+        const values = Array.from(document.querySelectorAll('#downloadInfoPanel .info-value'), el => el.textContent);
+        expect(values[1]).toBe('85');
+    });
+
     it('Clamps toSelect value when fromSelect changes to a higher index', async () => {
         new PopupController();
 
@@ -649,20 +681,20 @@ describe('PopupController second test file', () => {
 
     it('openInNewContext uses tabs.create when windows API is unavailable and tab is returned', async () => {
         const controller = new PopupController();
-        delete global.extensionApi.windows;
-        global.extensionApi.tabs = { create: vi.fn(async () => ({ id: 5, active: true })) };
+        delete mocks.extensionApi.windows;
+        mocks.extensionApi.tabs = { create: vi.fn(async () => ({ id: 5, active: true })) };
 
         const warnSpy = vi.spyOn(console, 'warn');
         await controller.openInNewContext('popup.html?test=1');
 
-        expect(global.extensionApi.tabs.create).toHaveBeenCalledWith({ url: 'popup.html?test=1', active: true });
+        expect(mocks.extensionApi.tabs.create).toHaveBeenCalledWith({ url: 'popup.html?test=1', active: true });
         expect(warnSpy).not.toHaveBeenCalledWith('[PopupController] Tab created but no ID found:', expect.anything());
     });
 
     it('openInNewContext warns when tabs.create returns null', async () => {
         const controller = new PopupController();
-        delete global.extensionApi.windows;
-        global.extensionApi.tabs = { create: vi.fn(async () => null) };
+        delete mocks.extensionApi.windows;
+        mocks.extensionApi.tabs = { create: vi.fn(async () => null) };
 
         const warnSpy = vi.spyOn(console, 'warn');
         await controller.openInNewContext('popup.html?test=1');
@@ -672,8 +704,8 @@ describe('PopupController second test file', () => {
 
     it('openInNewContext logs error when neither windows nor tabs API is available', async () => {
         const controller = new PopupController();
-        delete global.extensionApi.windows;
-        delete global.extensionApi.tabs;
+        delete mocks.extensionApi.windows;
+        delete mocks.extensionApi.tabs;
 
         const errorSpy = vi.spyOn(console, 'error');
         await controller.openInNewContext('popup.html?test=1');
@@ -683,21 +715,21 @@ describe('PopupController second test file', () => {
 
     it('openInNewContext opens a popup window when browserEnv.isFirefox is true', async () => {
         const controller = new PopupController();
-        global.browserEnv = { isFirefox: true };
+        mocks.browserEnv = { isFirefox: true };
 
         await controller.openInNewContext('popup.html?test=1');
 
-        expect(global.extensionApi.windows.create).toHaveBeenCalledWith(expect.objectContaining({ url: 'popup.html?test=1' }));
+        expect(mocks.extensionApi.windows.create).toHaveBeenCalledWith(expect.objectContaining({ url: 'popup.html?test=1' }));
     });
 
     it('openInNewContext asks the background when browserEnv.isFirefox is false', async () => {
         const controller = new PopupController();
-        global.browserEnv = { isFirefox: false };
+        mocks.browserEnv = { isFirefox: false };
 
         await controller.openInNewContext('popup.html?test=1');
 
-        expect(global.extensionApi.runtime.sendMessage).toHaveBeenCalledWith({ action: 'openWindowWithUrl', url: 'popup.html?test=1' });
-        expect(global.extensionApi.windows.create).not.toHaveBeenCalled();
+        expect(mocks.extensionApi.runtime.sendMessage).toHaveBeenCalledWith({ action: 'openWindowWithUrl', url: 'popup.html?test=1' });
+        expect(mocks.extensionApi.windows.create).not.toHaveBeenCalled();
     });
 
     it('_setupTranslatorSelector returns null when translatorContainer is missing from DOM', () => {
@@ -845,7 +877,7 @@ describe('PopupController second test file', () => {
         ts.appendChild(opt);
         ts.value = '42';
 
-        const windowsCreateSpy = vi.spyOn(global.extensionApi.windows, 'create').mockResolvedValue({ id: 123 });
+        const windowsCreateSpy = vi.spyOn(mocks.extensionApi.windows, 'create').mockResolvedValue({ id: 123 });
 
         document.getElementById('downloadBtn').click();
 
@@ -910,7 +942,7 @@ describe('PopupController second test file', () => {
     });
 
     it('_renderMeta handles empty authors array (covers false branches of secondLine ternaries)', async () => {
-        global.serviceRegistry.getServiceByUrl = vi.fn(() => ({
+        mocks.serviceRegistry.getServiceByUrl = vi.fn(() => ({
             name: 'ranobelib',
             getManga: vi.fn(async () => ({
                 rus_name: 'Title', summary: 'Summary', cover: 'cover.png',

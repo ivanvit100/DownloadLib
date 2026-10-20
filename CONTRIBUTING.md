@@ -47,7 +47,7 @@
 
 ## Настройка окружения
 
-**Требования:** Node.js 18+, npm
+**Требования:** Node.js 18+, npm. Для запуска расширения — Chromium-браузер с поддержкой Manifest V3 или **Firefox 115+** (нужны сессионные правила declarativeNetRequest и `storage.session`).
 
 ```sh
 # Клонируйте репозиторий
@@ -63,7 +63,7 @@ npm install
 <details>
 <summary><b>Firefox</b></summary>
 
-1. Откройте `about:debugging` в Firefox.
+1. Откройте `about:debugging` в Firefox (версия 115 или новее).
 2. Во вкладке **«Этот Firefox»** выберите **«Загрузить временное дополнение»**.
 3. Переименуйте `manifest.firefox.json` в `manifest.json` и выберите его.
 
@@ -88,14 +88,14 @@ DownloadLib/
 ├── app.js                   # Точка входа popup (ES-модуль): регистрирует сервисы, экспортёры, плагины, создаёт PopupController
 ├── popup.html               # Страница попапа (оболочка; шаблоны подгружает TemplateLoader)
 ├── background/              # Фоновые модули
-│   ├── main.js              # Общая точка входа фона: импортирует RequestInterceptor и MessageRouter
-│   ├── service-worker.js    # Chrome: модульный service worker, импортирует main.js
-│   ├── background.html      # Firefox: фоновая страница, подключает main.js как модуль
+│   ├── BackgroundMain.js    # Общая точка входа фона: импортирует RequestInterceptor и MessageRouter
+│   ├── service-worker.js    # Chrome: модульный service worker, импортирует BackgroundMain.js
+│   ├── background.html      # Firefox: фоновая страница, подключает BackgroundMain.js как модуль
 │   ├── RequestInterceptor.js# Захват токенов из запросов страниц сервиса, CORS изображений в Firefox
-│   ├── tokenStore.js        # Хранилище токенов авторизации (storage.session, проверка exp)
-│   ├── rateLimitService.js  # Единственный ограничитель частоты запросов для всех окон
-│   ├── pluginHosts.js       # Хосты сайтов сервисных плагинов
-│   ├── netRules.js          # Правила declarativeNetRequest из конфигов (блокировка рекламы)
+│   ├── TokenStore.js        # Хранилище токенов авторизации (storage.session, проверка exp)
+│   ├── RateLimitService.js  # Единственный ограничитель частоты запросов для всех окон
+│   ├── PluginHosts.js       # Хосты сайтов сервисных плагинов
+│   ├── AdBlockRules.js      # Правила declarativeNetRequest из конфигов (блокировка рекламы)
 │   └── MessageRouter.js     # Маршрутизация runtime.onMessage с проверкой отправителя, регистрация content scripts
 ├── content/                 # Контент-скрипты (исполняются на страницах сайтов)
 │   ├── AdCleaner.js         # Удаляет рекламные элементы
@@ -103,16 +103,16 @@ DownloadLib/
 ├── core/                    # Ядро: логика загрузки, утилиты, хранилища
 │   ├── BrowserApi.js        # Единый API-адаптер (Firefox/Chrome)
 │   ├── TabNetwork.js        # Все запросы к сервису через его вкладку (с общим ограничителем)
-│   ├── encoding.js          # Blob ↔ data-URL/base64 ↔ байты
-│   ├── text.js              # Экранирование, раскодирование сущностей, очистка имени файла
-│   ├── chapters.js          # Ключи глав, сортировка, ветки перевода, диапазон по ключам
-│   ├── messages.js          # Имена runtime-сообщений (MSG) и порта keep-alive
-│   ├── logger.js            # createLogger(scope): уровни debug/info/warn/error, уровень из storage.local
+│   ├── Base64Codec.js       # Blob ↔ data-URL/base64 ↔ байты
+│   ├── TextUtils.js         # Экранирование, раскодирование сущностей, очистка имени файла
+│   ├── ChapterList.js       # Ключи глав, сортировка, ветки перевода, диапазон по ключам
+│   ├── MessageTypes.js      # Имена runtime-сообщений (MSG) и порта keep-alive
+│   ├── ConsoleLogger.js     # createLogger(scope): уровни debug/info/warn/error, уровень из storage.local
 │   ├── EventBus.js          # Pub/Sub шина событий
 │   ├── RateLimiter.js       # Ограничитель частоты запросов (скользящее окно)
 │   ├── RateLimitClient.js   # Клиент ограничителя фона для окон расширения
 │   ├── Storage.js           # SafeStorage: обёртка над localStorage
-│   ├── pluginApi.js         # Публикует в globalThis классы и реестры для плагинов
+│   ├── PluginApi.js         # Публикует в globalThis классы и реестры для плагинов
 │   ├── DownloadHistory.js   # Хранение истории загрузок (до 10 записей)
 │   ├── AuthManager.js       # Извлечение и кэширование JWT-токенов авторизации
 │   ├── MangaPatcher.js      # Нормализация метаданных тайтла
@@ -121,10 +121,11 @@ DownloadLib/
 │   ├── DeferredQueue.js     # Фоновая догрузка медленных картинок и глав
 │   ├── ImageCompressor.js   # Сжатие, вписывание и нарезка изображений (OffscreenCanvas)
 │   └── PluginManager.js     # Управление пользовательскими плагинами (сервисы и экспортёры)
-├── ui/                      # UI-контроллеры попапа; dom.js — $el, setDisplay, createEl (данные сайта только текстом)
+├── ui/                      # UI-контроллеры попапа; DomUtils.js — $el, setDisplay, createEl (данные сайта только текстом)
 ├── templates/               # HTML-фрагменты (подгружаются динамически)
-├── exporters/               # Экспортёры форматов (FB2, EPUB, MOBI, PDF, TXT, JPEG)
-├── services/                # Адаптеры сайтов (MangaLib, RanobeLib; CdnLibsService — общая база MangaLib и сервисных плагинов)
+├── exporters/               # Экспортёры форматов (FB2, EPUB, MOBI, PDF, TXT, JPEG); BuiltinExporters.js регистрирует встроенные
+├── services/                # Адаптеры сайтов (MangaLib, RanobeLib; CdnLibsService — общая база MangaLib и сервисных плагинов;
+│                            #   ServiceHosts.js — домены из конфигов; BuiltinServices.js регистрирует встроенные)
 ├── css/                     # Стили интерфейса
 ├── lib/                     # Сторонние библиотеки (jszip, html2pdf)
 ├── plugins/                 # Официальные плагины (пример для пользователей)
@@ -142,8 +143,9 @@ DownloadLib/
 
 - Используется **чистый JavaScript**.
 - Придерживайтесь конвенций того файла, который редактируете — единообразие важнее личных предпочтений.
+- Файлы модулей называются в PascalCase, обычно двумя словами, по главному классу или назначению: `DownloadManager.js`, `TabNetwork.js`, `TextUtils.js`. Файлы тестов повторяют имя модуля: `tests/core/TextUtils.test.js`.
 - Не добавляйте новые runtime-зависимости без предварительного обсуждения.
-- В ES-модулях пишите в лог через `createLogger('Модуль')` из `core/logger.js`, а не через `console.*`. Не оставляйте пустых `catch {}`: хотя бы `log.debug(…, e)`. Подробные логи в расширении включаются так: `chrome.storage.local.set({downloadlib_log_level: 'debug'})` в DevTools страницы расширения.
+- В ES-модулях пишите в лог через `createLogger('Модуль')` из `core/ConsoleLogger.js`, а не через `console.*`. Не оставляйте пустых `catch {}`: хотя бы `log.debug(…, e)`. Подробные логи в расширении включаются так: `chrome.storage.local.set({downloadlib_log_level: 'debug'})` в DevTools страницы расширения.
 
 ---
 
@@ -172,7 +174,27 @@ npm run test:coverage
     <td>⚙️ <b>CI</b></td>
     <td>GitHub Actions автоматически запускает тесты и линтер на каждый push и PR в <code>master</code></td>
   </tr>
+  <tr>
+    <td>🔌 <b>Контракт плагинов</b></td>
+    <td>Тесты в <code>tests/plugins/</code> проверяют то, на что опираются плагины пользователей (см. «Контракт плагинов» в <a href="ARCHITECTURE.md">ARCHITECTURE.md</a>). Не меняйте в них проверки, чтобы «починить» тест: это изменение контракта, его нужно обсудить</td>
+  </tr>
 </table>
+
+**Как подменять зависимости.** Модули расширения — ES-модули, поэтому зависимости модуля подменяются через `vi.mock`, а не через `globalThis`. Чтобы менять мок в `beforeEach` или в отдельном тесте, храните моки в объекте из `vi.hoisted` и отдавайте их через `mockExports` из `tests/helpers/ModuleMock.js`:
+
+```js
+const mocks = vi.hoisted(() => ({}));
+vi.mock('../../core/RateLimitClient.js', async () =>
+    (await import('../helpers/ModuleMock.js')).mockExports(mocks, 'RateLimitClient'));
+
+import { RateLimitClient } from '../../core/RateLimitClient.js'; // тот же мок
+
+beforeEach(() => {
+    mocks.RateLimitClient = { acquire: vi.fn(async () => {}), isHeldBack: vi.fn(() => false) };
+});
+```
+
+Если модуль наследует подменённый класс (`extends BaseService`), задайте мок до импорта модуля: базовый класс фиксируется при загрузке. Тесты запускаются с уровнем логирования `debug`, поэтому отладочные сообщения тоже можно проверять через `vi.spyOn(console, 'debug')`.
 
 ## Процесс pull request
 
@@ -193,9 +215,9 @@ npm run test:coverage
 Если хотите помочь с реализацией одного из запланированных пунктов — упомяните это в своём issue или PR, чтобы не дублировать работу.
 
 - [ ] Ограничитель загрузки по главам (1.1.0)
-- [ ] Улучшить блокировку рекламы в Chromium (1.1.0)
+- [x] Улучшить блокировку рекламы в Chromium (1.1.0)
 - [x] Ускорение загрузки временным скипом "зависших" глав (1.1.0)
-- [ ] Общий рефакторинг архитектуры (1.1.0)
+- [x] Общий рефакторинг архитектуры (1.1.0)
 - [ ] e2e тесты (1.1.0+)
 - [ ] Добавить возможность выбора сервера (ожидание API)
 

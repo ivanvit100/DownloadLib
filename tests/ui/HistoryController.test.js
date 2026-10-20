@@ -2,9 +2,11 @@ import { describe, it, expect, beforeEach, vi } from 'vitest';
 import { mangalibConfig } from '../../services/mangalib/config.js';
 import { ranobelibConfig } from '../../services/ranobelib/config.js';
 
-vi.mock('../../core/BrowserApi.js', async () => (await import('../helpers/globalBridge.js')).globalBridge('extensionApi'));
-vi.mock('../../core/DownloadHistory.js', async () => (await import('../helpers/globalBridge.js')).globalBridge('DownloadHistory'));
-vi.mock('../../services/ServiceRegistry.js', async () => (await import('../helpers/globalBridge.js')).globalBridge('serviceRegistry'));
+const mocks = vi.hoisted(() => ({}));
+
+vi.mock('../../core/BrowserApi.js', async () => (await import('../helpers/ModuleMock.js')).mockExports(mocks, 'extensionApi'));
+vi.mock('../../core/DownloadHistory.js', async () => (await import('../helpers/ModuleMock.js')).mockExports(mocks, 'DownloadHistory'));
+vi.mock('../../services/ServiceRegistry.js', async () => (await import('../helpers/ModuleMock.js')).mockExports(mocks, 'serviceRegistry'));
 
 let HistoryController;
 
@@ -21,10 +23,10 @@ function setupDOM() {
 beforeEach(async () => {
     vi.resetModules();
     setupDOM();
-    global.extensionApi = { tabs: { create: vi.fn() } };
-    global.DownloadHistory = { getAll: vi.fn(() => []), clear: vi.fn() };
+    mocks.extensionApi = { tabs: { create: vi.fn() } };
+    mocks.DownloadHistory = { getAll: vi.fn(() => []), clear: vi.fn() };
     const configs = { mangalib: mangalibConfig, ranobelib: ranobelibConfig };
-    global.serviceRegistry = { getService: vi.fn(key => (configs[key] ? { config: configs[key] } : null)) };
+    mocks.serviceRegistry = { getService: vi.fn(key => (configs[key] ? { config: configs[key] } : null)) };
     ({ HistoryController } = await import('../../ui/HistoryController.js'));
 });
 
@@ -45,7 +47,7 @@ describe('HistoryController', () => {
 
     describe('_render — non-empty history', () => {
         it('shows list, hides empty, shows clearBtn and appends cards', () => {
-            global.DownloadHistory.getAll = vi.fn(() => [{
+            mocks.DownloadHistory.getAll = vi.fn(() => [{
                 title: 'My Novel', slug: 'novel', service: 'ranobelib',
                 format: 'epub', downloadedAt: Date.now()
             }]);
@@ -59,7 +61,7 @@ describe('HistoryController', () => {
 
     describe('_createCard', () => {
         it('uses fallback color #ff9100 for unknown service', () => {
-            global.DownloadHistory.getAll = vi.fn(() => [{
+            mocks.DownloadHistory.getAll = vi.fn(() => [{
                 title: 'X', slug: 's', service: 'unknown',
                 format: 'pdf', downloadedAt: Date.now()
             }]);
@@ -69,9 +71,9 @@ describe('HistoryController', () => {
         });
 
         it('uses the primary color of a registered service', () => {
-            global.serviceRegistry.getService = vi.fn(key =>
+            mocks.serviceRegistry.getService = vi.fn(key =>
                 key === 'mangalib' ? { config: { primaryColor: '#0000ff' } } : null);
-            global.DownloadHistory.getAll = vi.fn(() => [{
+            mocks.DownloadHistory.getAll = vi.fn(() => [{
                 title: 'X', slug: 's', service: 'mangalib',
                 format: 'pdf', downloadedAt: Date.now()
             }]);
@@ -81,7 +83,7 @@ describe('HistoryController', () => {
         });
 
         it('uppercases unknown format', () => {
-            global.DownloadHistory.getAll = vi.fn(() => [{
+            mocks.DownloadHistory.getAll = vi.fn(() => [{
                 title: 'X', slug: 's', service: 'ranobelib',
                 format: 'xyz', downloadedAt: Date.now()
             }]);
@@ -93,7 +95,7 @@ describe('HistoryController', () => {
             const { ExporterRegistry } = await import('../../exporters/ExporterRegistry.js');
             ExporterRegistry.register('simple', class {}, { label: 'TXT/JPEG' });
             ExporterRegistry.register('cbz', class {}, { label: 'CBZ (комикс)' });
-            global.DownloadHistory.getAll = vi.fn(() => ['simple', 'cbz', 'fb2'].map(format => ({
+            mocks.DownloadHistory.getAll = vi.fn(() => ['simple', 'cbz', 'fb2'].map(format => ({
                 title: 'X', slug: 's', service: 'ranobelib', format, downloadedAt: Date.now()
             })));
             HistoryController.init();
@@ -101,8 +103,14 @@ describe('HistoryController', () => {
                 .toEqual(['TXT/JPEG', 'CBZ (комикс)', 'FB2']);
         });
 
+        it('shows an empty badge for an entry without a format', () => {
+            mocks.DownloadHistory.getAll = vi.fn(() => [{ title: 'X', slug: 's', service: 'ranobelib', downloadedAt: Date.now() }]);
+            HistoryController.init();
+            expect(document.querySelector('.history-badge').textContent).toBe('');
+        });
+
         it('shows the title of an entry as text', () => {
-            global.DownloadHistory.getAll = vi.fn(() => [{
+            mocks.DownloadHistory.getAll = vi.fn(() => [{
                 title: '<img src=x onerror="alert(1)">', slug: 's', service: 'ranobelib',
                 format: 'fb2', downloadedAt: Date.now(), translator: '<b>T</b>'
             }]);
@@ -113,7 +121,7 @@ describe('HistoryController', () => {
         });
 
         it('uses slug as title when title is missing', () => {
-            global.DownloadHistory.getAll = vi.fn(() => [{
+            mocks.DownloadHistory.getAll = vi.fn(() => [{
                 slug: 'my-slug', service: 'ranobelib', format: 'fb2', downloadedAt: Date.now()
             }]);
             HistoryController.init();
@@ -121,38 +129,38 @@ describe('HistoryController', () => {
         });
 
         it('adds click handler that opens ranobelib URL when tabs API is available', () => {
-            global.DownloadHistory.getAll = vi.fn(() => [{
+            mocks.DownloadHistory.getAll = vi.fn(() => [{
                 title: 'Test', slug: 'test-slug', service: 'ranobelib',
                 format: 'epub', downloadedAt: Date.now()
             }]);
             HistoryController.init();
             document.querySelector('.history-card-title').click();
-            expect(global.extensionApi.tabs.create).toHaveBeenCalledWith({ url: 'https://ranobelib.me/ru/book/test-slug' });
+            expect(mocks.extensionApi.tabs.create).toHaveBeenCalledWith({ url: 'https://ranobelib.me/ru/book/test-slug' });
         });
 
         it('opens mangalib URL for mangalib service', () => {
-            global.DownloadHistory.getAll = vi.fn(() => [{
+            mocks.DownloadHistory.getAll = vi.fn(() => [{
                 title: 'Manga', slug: 'manga-slug', service: 'mangalib',
                 format: 'fb2', downloadedAt: Date.now()
             }]);
             HistoryController.init();
             document.querySelector('.history-card-title').click();
-            expect(global.extensionApi.tabs.create).toHaveBeenCalledWith({ url: 'https://mangalib.me/ru/manga/manga-slug' });
+            expect(mocks.extensionApi.tabs.create).toHaveBeenCalledWith({ url: 'https://mangalib.me/ru/manga/manga-slug' });
         });
 
         it('encodes the slug in the title URL', () => {
-            global.DownloadHistory.getAll = vi.fn(() => [{
+            mocks.DownloadHistory.getAll = vi.fn(() => [{
                 title: 'Manga', slug: 'a b/c', service: 'mangalib',
                 format: 'fb2', downloadedAt: Date.now()
             }]);
             HistoryController.init();
             document.querySelector('.history-card-title').click();
-            expect(global.extensionApi.tabs.create).toHaveBeenCalledWith({ url: 'https://mangalib.me/ru/manga/a%20b%2Fc' });
+            expect(mocks.extensionApi.tabs.create).toHaveBeenCalledWith({ url: 'https://mangalib.me/ru/manga/a%20b%2Fc' });
         });
 
         it('does not link the title of a service without titleUrl', () => {
-            global.serviceRegistry.getService = vi.fn(() => ({ config: { name: 'plugin' } }));
-            global.DownloadHistory.getAll = vi.fn(() => [{
+            mocks.serviceRegistry.getService = vi.fn(() => ({ config: { name: 'plugin' } }));
+            mocks.DownloadHistory.getAll = vi.fn(() => [{
                 title: 'T', slug: 's', service: 'plugin', format: 'fb2', downloadedAt: Date.now()
             }]);
             HistoryController.init();
@@ -161,8 +169,8 @@ describe('HistoryController', () => {
         });
 
         it('does not add click handler when the extension api has no tabs', () => {
-            global.extensionApi = {};
-            global.DownloadHistory.getAll = vi.fn(() => [{
+            mocks.extensionApi = {};
+            mocks.DownloadHistory.getAll = vi.fn(() => [{
                 title: 'T', slug: 's', service: 'ranobelib', format: 'epub', downloadedAt: Date.now()
             }]);
             HistoryController.init();
@@ -171,8 +179,8 @@ describe('HistoryController', () => {
         });
 
         it('does not add click handler when the extension api is unavailable', () => {
-            global.extensionApi = null;
-            global.DownloadHistory.getAll = vi.fn(() => [{
+            mocks.extensionApi = null;
+            mocks.DownloadHistory.getAll = vi.fn(() => [{
                 title: 'T', slug: 's', service: 'ranobelib', format: 'epub', downloadedAt: Date.now()
             }]);
             expect(() => HistoryController.init()).not.toThrow();
@@ -181,7 +189,7 @@ describe('HistoryController', () => {
         });
 
         it('shows chapter range when chapterFrom and chapterTo differ', () => {
-            global.DownloadHistory.getAll = vi.fn(() => [{
+            mocks.DownloadHistory.getAll = vi.fn(() => [{
                 title: 'T', slug: 's', service: 'ranobelib', format: 'fb2',
                 downloadedAt: Date.now(), chapterFrom: 'Ch 1', chapterTo: 'Ch 5'
             }]);
@@ -190,7 +198,7 @@ describe('HistoryController', () => {
         });
 
         it('shows single chapter when chapterFrom equals chapterTo', () => {
-            global.DownloadHistory.getAll = vi.fn(() => [{
+            mocks.DownloadHistory.getAll = vi.fn(() => [{
                 title: 'T', slug: 's', service: 'ranobelib', format: 'fb2',
                 downloadedAt: Date.now(), chapterFrom: 'Ch 3', chapterTo: 'Ch 3'
             }]);
@@ -201,7 +209,7 @@ describe('HistoryController', () => {
         });
 
         it('uses dash when chapterFrom is null but chapterTo is set', () => {
-            global.DownloadHistory.getAll = vi.fn(() => [{
+            mocks.DownloadHistory.getAll = vi.fn(() => [{
                 title: 'T', slug: 's', service: 'ranobelib', format: 'fb2',
                 downloadedAt: Date.now(), chapterFrom: null, chapterTo: 'Ch 5'
             }]);
@@ -210,7 +218,7 @@ describe('HistoryController', () => {
         });
 
         it('uses chapterTo fallback dash when chapterFrom is set but chapterTo is null', () => {
-            global.DownloadHistory.getAll = vi.fn(() => [{
+            mocks.DownloadHistory.getAll = vi.fn(() => [{
                 title: 'T', slug: 's', service: 'ranobelib', format: 'fb2',
                 downloadedAt: Date.now(), chapterFrom: 'Ch 1', chapterTo: null
             }]);
@@ -219,7 +227,7 @@ describe('HistoryController', () => {
         });
 
         it('shows translator row when translator is set', () => {
-            global.DownloadHistory.getAll = vi.fn(() => [{
+            mocks.DownloadHistory.getAll = vi.fn(() => [{
                 title: 'T', slug: 's', service: 'ranobelib', format: 'fb2',
                 downloadedAt: Date.now(), translator: 'Team Alpha'
             }]);
@@ -257,12 +265,12 @@ describe('HistoryController', () => {
         });
 
         it('clearBtn calls DownloadHistory.clear and re-renders', () => {
-            global.DownloadHistory.getAll = vi.fn()
+            mocks.DownloadHistory.getAll = vi.fn()
                 .mockReturnValueOnce([{ title: 'T', slug: 's', service: 'ranobelib', format: 'fb2', downloadedAt: Date.now() }])
                 .mockReturnValue([]);
             HistoryController.init();
             document.getElementById('clearHistoryBtn').click();
-            expect(global.DownloadHistory.clear).toHaveBeenCalled();
+            expect(mocks.DownloadHistory.clear).toHaveBeenCalled();
             expect(document.getElementById('historyEmpty').style.display).toBe('block');
         });
 
@@ -274,7 +282,7 @@ describe('HistoryController', () => {
 
     it('handles null list/empty/clearBtn in non-empty render branch', () => {
         document.body.innerHTML = '<button id="backBtn"></button>';
-        global.DownloadHistory.getAll = vi.fn(() => [{
+        mocks.DownloadHistory.getAll = vi.fn(() => [{
             title: 'T', slug: 's', service: 'ranobelib', format: 'epub', downloadedAt: Date.now()
         }]);
         expect(() => HistoryController.init()).not.toThrow();

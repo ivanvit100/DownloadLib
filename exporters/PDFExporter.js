@@ -8,8 +8,8 @@
  */
 
 import { BaseExporter } from './BaseExporter.js';
-import { createLogger } from '../core/logger.js';
-import { sanitizeFilename } from '../core/text.js';
+import { createLogger } from '../core/ConsoleLogger.js';
+import { sanitizeFilename } from '../core/TextUtils.js';
 
 const log = createLogger('PDFExporter');
 
@@ -38,7 +38,7 @@ export class PDFExporter extends BaseExporter {
     }
 
     /**
-     * Очищает строку для использования в качестве имени файла (см. text.sanitizeFilename).
+     * Очищает строку для использования в качестве имени файла (см. TextUtils.sanitizeFilename).
      * @param {string} filename - Исходное имя файла.
      * @returns {string} Строка, безопасная для имени файла (не длиннее 200 символов).
      */

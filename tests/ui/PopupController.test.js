@@ -1,21 +1,23 @@
-import { describe, it, expect, beforeEach, vi } from 'vitest';
-import { withServiceFactory } from '../helpers/serviceRegistryMock.js';
+import { describe, it, expect, beforeEach, afterAll, vi } from 'vitest';
+import { withServiceFactory } from '../helpers/ServiceRegistryMock.js';
 
-vi.mock('../../core/AuthManager.js', async () => (await import('../helpers/globalBridge.js')).globalBridge('AuthManager'));
-vi.mock('../../core/BrowserApi.js', async () => (await import('../helpers/globalBridge.js'))
-    .globalBridge('extensionApi', 'browserEnv'));
-vi.mock('../../core/TabNetwork.js', async () => (await import('../helpers/globalBridge.js')).globalBridge('fetchViaTab', 'setServiceTab'));
-vi.mock('../../core/DownloadHistory.js', async () => (await import('../helpers/globalBridge.js')).globalBridge('DownloadHistory'));
-vi.mock('../../core/DownloadManager.js', async () => (await import('../helpers/globalBridge.js')).globalBridge('DownloadManager'));
-vi.mock('../../core/PluginManager.js', async () => (await import('../helpers/globalBridge.js')).globalBridge('PluginManager'));
-vi.mock('../../exporters/ExporterRegistry.js', async () => (await import('../helpers/globalBridge.js')).globalBridge('ExporterRegistry'));
-vi.mock('../../services/mangalib/MangaLibService.js', async () => (await import('../helpers/globalBridge.js')).globalBridge('MangaLibService'));
-vi.mock('../../services/ranobelib/RanobeLibService.js', async () => (await import('../helpers/globalBridge.js')).globalBridge('RanobeLibService'));
-vi.mock('../../services/ServiceRegistry.js', async () => (await import('../helpers/globalBridge.js')).globalBridge('serviceRegistry'));
-vi.mock('../../ui/ChapterController.js', async () => (await import('../helpers/globalBridge.js')).globalBridge('ChapterController'));
-vi.mock('../../ui/HistoryController.js', async () => (await import('../helpers/globalBridge.js')).globalBridge('HistoryController'));
-vi.mock('../../ui/SettingsController.js', async () => (await import('../helpers/globalBridge.js')).globalBridge('SettingsController'));
-vi.mock('../../ui/TemplateLoader.js', async () => (await import('../helpers/globalBridge.js')).globalBridge('TemplateLoader'));
+const mocks = vi.hoisted(() => ({}));
+
+vi.mock('../../core/AuthManager.js', async () => (await import('../helpers/ModuleMock.js')).mockExports(mocks, 'AuthManager'));
+vi.mock('../../core/BrowserApi.js', async () => (await import('../helpers/ModuleMock.js'))
+    .mockExports(mocks, 'extensionApi', 'browserEnv'));
+vi.mock('../../core/TabNetwork.js', async () => (await import('../helpers/ModuleMock.js')).mockExports(mocks, 'fetchViaTab', 'setServiceTab'));
+vi.mock('../../core/DownloadHistory.js', async () => (await import('../helpers/ModuleMock.js')).mockExports(mocks, 'DownloadHistory'));
+vi.mock('../../core/DownloadManager.js', async () => (await import('../helpers/ModuleMock.js')).mockExports(mocks, 'DownloadManager'));
+vi.mock('../../core/PluginManager.js', async () => (await import('../helpers/ModuleMock.js')).mockExports(mocks, 'PluginManager'));
+vi.mock('../../exporters/ExporterRegistry.js', async () => (await import('../helpers/ModuleMock.js')).mockExports(mocks, 'ExporterRegistry'));
+vi.mock('../../services/mangalib/MangaLibService.js', async () => (await import('../helpers/ModuleMock.js')).mockExports(mocks, 'MangaLibService'));
+vi.mock('../../services/ranobelib/RanobeLibService.js', async () => (await import('../helpers/ModuleMock.js')).mockExports(mocks, 'RanobeLibService'));
+vi.mock('../../services/ServiceRegistry.js', async () => (await import('../helpers/ModuleMock.js')).mockExports(mocks, 'serviceRegistry'));
+vi.mock('../../ui/ChapterController.js', async () => (await import('../helpers/ModuleMock.js')).mockExports(mocks, 'ChapterController'));
+vi.mock('../../ui/HistoryController.js', async () => (await import('../helpers/ModuleMock.js')).mockExports(mocks, 'HistoryController'));
+vi.mock('../../ui/SettingsController.js', async () => (await import('../helpers/ModuleMock.js')).mockExports(mocks, 'SettingsController'));
+vi.mock('../../ui/TemplateLoader.js', async () => (await import('../helpers/ModuleMock.js')).mockExports(mocks, 'TemplateLoader'));
 
 let PopupController;
 let controller;
@@ -91,13 +93,13 @@ beforeEach(async () => {
         removeItem: vi.fn(),
         clear: vi.fn()
     };
-    global.DownloadManager = class {
+    mocks.DownloadManager = class {
         constructor() { this.eventBus = { on: vi.fn() }; }
         startDownload = vi.fn(async () => ({ success: true, downloadId: 'id' }));
         stop = vi.fn();
         getDownloadState = vi.fn(() => ({ id: 1, status: 'active', progress: 50, slug: 'slug' }));
     };
-    global.serviceRegistry = withServiceFactory({
+    mocks.serviceRegistry = withServiceFactory({
         getServiceByUrl: vi.fn(() => ({
             name: 'ranobelib',
             getManga: vi.fn(async () => ({
@@ -111,16 +113,16 @@ beforeEach(async () => {
             getChapterList: vi.fn(async () => [{}, {}])
         })),
         getService: vi.fn(() => null),
-    });
-    global.RanobeLibService = class {
+    }, mocks);
+    mocks.RanobeLibService = class {
         getManga = vi.fn(async () => ({ rus_name: 'Title', summary: 'Summary', cover: 'cover.png', authors: ['Author'], ageRestriction: { label: '18+' }, releaseDate: '2020' }));
         getChapterList = vi.fn(async () => [{}, {}]);
     };
-    global.MangaLibService = class {
+    mocks.MangaLibService = class {
         getManga = vi.fn(async () => ({ rus_name: 'Title', summary: 'Summary', cover: 'cover.png', authors: ['Author'], ageRestriction: { label: '18+' }, releaseDate: '2020' }));
         getChapterList = vi.fn(async () => [{}, {}]);
     };
-    global.extensionApi = {
+    mocks.extensionApi = {
         runtime: {
             sendMessage: vi.fn(async () => ({ ok: true, downloads: [{ slug: 'slug', status: 'active', progress: 50 }] })),
             getURL: vi.fn(() => 'popup.html')
@@ -136,7 +138,7 @@ beforeEach(async () => {
     };
     global.chrome = undefined;
     global.window.close = vi.fn();
-    global.ExporterRegistry = {
+    mocks.ExporterRegistry = {
         getFormats: vi.fn(() => [
             { value: 'fb2', label: 'FB2' },
             { value: 'epub', label: 'EPUB' },
@@ -145,26 +147,26 @@ beforeEach(async () => {
             { value: 'simple', label: 'TXT/JPEG' },
         ]),
     };
-    global.DownloadHistory = { add: vi.fn(), getAll: vi.fn(() => []), clear: vi.fn() };
-    global.AuthManager = { getToken: vi.fn(async () => null), apply: vi.fn(async () => null) };
-    global.ChapterController = class {
+    mocks.DownloadHistory = { add: vi.fn(), getAll: vi.fn(() => []), clear: vi.fn() };
+    mocks.AuthManager = { getToken: vi.fn(async () => null), apply: vi.fn(async () => null) };
+    mocks.ChapterController = class {
         constructor() { this._allChapters = []; }
         loadAndPopulate = vi.fn(async () => 2);
         getChapters = vi.fn(() => this._allChapters);
         getFilteredChapters = vi.fn(() => []);
         repopulateSelects = vi.fn();
     };
-    global.TemplateLoader = {
+    mocks.TemplateLoader = {
         init: vi.fn(),
         show: vi.fn(async () => {}),
         current: vi.fn(() => null)
     };
-    global.HistoryController = { init: vi.fn() };
-    global.fetchViaTab = vi.fn(async () => ({ ok: false, status: 0, noTab: true }));
-    global.setServiceTab = vi.fn();
-    global.browserEnv = { isFirefox: true };
-    global.PluginManager = { loadAll: vi.fn(async () => {}) };
-    global.SettingsController = { init: vi.fn() };
+    mocks.HistoryController = { init: vi.fn() };
+    mocks.fetchViaTab = vi.fn(async () => ({ ok: false, status: 0, noTab: true }));
+    mocks.setServiceTab = vi.fn();
+    mocks.browserEnv = { isFirefox: true };
+    mocks.PluginManager = { loadAll: vi.fn(async () => {}) };
+    mocks.SettingsController = { init: vi.fn() };
 
     ({ PopupController } = await import('../../ui/PopupController.js'));
 });
@@ -175,6 +177,10 @@ afterEach(() => {
     if (controller) controller = null;
     vi.clearAllTimers();
 });
+
+// Окно загрузки (?download=true) запускает скачивание через 500 мс: даём таймерам
+// последних тестов сработать, пока окружение jsdom ещё не разобрано.
+afterAll(() => new Promise(resolve => setTimeout(resolve, 600)));
 
 describe('PopupController', () => {
     it('Initializes and sets up UI', () => {
@@ -410,7 +416,7 @@ describe('PopupController', () => {
         vi.resetModules();
         setupDOM();
         let handler;
-        global.DownloadManager = class {
+        mocks.DownloadManager = class {
             constructor() {
                 this.eventBus = {
                     on: (event, fn) => {
@@ -419,7 +425,7 @@ describe('PopupController', () => {
                 };
             }
         };
-        global.extensionApi = {
+        mocks.extensionApi = {
             runtime: { sendMessage: vi.fn(async () => ({ ok: true, downloads: [] })), getURL: vi.fn() },
             windows: { getCurrent: vi.fn(), create: vi.fn(), update: vi.fn() },
             tabs: { query: vi.fn() }
@@ -438,8 +444,8 @@ describe('PopupController', () => {
 	it('Shows error and returns if downloadBtn is missing', async () => {
         vi.resetModules();
         document.body.innerHTML = '';
-        global.DownloadManager = class { constructor() { this.eventBus = { on: vi.fn() }; } };
-        global.extensionApi = {
+        mocks.DownloadManager = class { constructor() { this.eventBus = { on: vi.fn() }; } };
+        mocks.extensionApi = {
             runtime: { sendMessage: vi.fn(async () => ({ ok: true, downloads: [] })), getURL: vi.fn() },
             windows: { getCurrent: vi.fn(), create: vi.fn(), update: vi.fn() },
             tabs: { query: vi.fn() }
@@ -461,8 +467,8 @@ describe('PopupController', () => {
 it('Sets formatSelector value from localStorage', async () => {
         vi.resetModules();
         setupDOM();
-        global.DownloadManager = class { constructor() { this.eventBus = { on: vi.fn() }; } };
-        global.extensionApi = {
+        mocks.DownloadManager = class { constructor() { this.eventBus = { on: vi.fn() }; } };
+        mocks.extensionApi = {
             runtime: { sendMessage: vi.fn(async () => ({ ok: true, downloads: [] })), getURL: vi.fn() },
             windows: { getCurrent: vi.fn(), create: vi.fn(), update: vi.fn() },
             tabs: { query: vi.fn() }
@@ -484,8 +490,8 @@ it('Sets formatSelector value from localStorage', async () => {
 	it('Saves formatSelector value to localStorage on change', async () => {
         vi.resetModules();
         setupDOM();
-        global.DownloadManager = class { constructor() { this.eventBus = { on: vi.fn() }; } };
-        global.extensionApi = {
+        mocks.DownloadManager = class { constructor() { this.eventBus = { on: vi.fn() }; } };
+        mocks.extensionApi = {
             runtime: { sendMessage: vi.fn(async () => ({ ok: true, downloads: [] })), getURL: vi.fn() },
             windows: { getCurrent: vi.fn(), create: vi.fn(), update: vi.fn() },
             tabs: { query: vi.fn() }
@@ -509,7 +515,7 @@ it('Sets formatSelector value from localStorage', async () => {
 
     it('Returns true if hasParams', async () => {
         vi.resetModules();
-        global.extensionApi = {
+        mocks.extensionApi = {
             runtime: { sendMessage: vi.fn(async () => ({ ok: true, downloads: [] })), getURL: vi.fn() },
             windows: { getCurrent: vi.fn(async () => ({ type: 'normal' })) },
             tabs: { query: vi.fn(async () => ([{ url: 'https://ranobelib.me/manga/slug' }])) }
@@ -527,14 +533,14 @@ it('Sets formatSelector value from localStorage', async () => {
 
     it('Returns false and warns on exception', async () => {
         const controller = new PopupController();
-        const origGetCurrent = global.extensionApi.windows.getCurrent;
-        global.extensionApi.windows.getCurrent = vi.fn(() => { throw new Error('fail'); });
+        const origGetCurrent = mocks.extensionApi.windows.getCurrent;
+        mocks.extensionApi.windows.getCurrent = vi.fn(() => { throw new Error('fail'); });
         const consoleWarnSpy = vi.spyOn(console, 'warn');
         const result = await controller.isInSeparateWindow();
         expect(result).toBe(false);
         expect(consoleWarnSpy).toHaveBeenCalledWith('[PopupController] Failed to detect window type:', expect.any(Error));
         consoleWarnSpy.mockRestore();
-        global.extensionApi.windows.getCurrent = origGetCurrent;
+        mocks.extensionApi.windows.getCurrent = origGetCurrent;
     });
 
     it('Sets formatSelector value from url param', async () => {
@@ -578,7 +584,7 @@ it('Sets formatSelector value from localStorage', async () => {
     });
 
     it('Creates MangaLibService when serviceKey is mangalib', async () => {
-        global.MangaLibService = vi.fn().mockImplementation(() => ({
+        mocks.MangaLibService = vi.fn().mockImplementation(() => ({
             getManga: vi.fn(async () => ({ rus_name: 'Title', summary: 'Summary', cover: 'cover.png', authors: ['Author'], ageRestriction: { label: '18+' }, releaseDate: '2020' })),
             getChapterList: vi.fn(async () => [{}, {}])
         }));
@@ -588,7 +594,7 @@ it('Sets formatSelector value from localStorage', async () => {
             writable: true
         });
         await controller.loadMetadata();
-        expect(global.MangaLibService).toHaveBeenCalled();
+        expect(mocks.MangaLibService).toHaveBeenCalled();
     });
 
     it('Throws error for unknown service in url params', async () => {
@@ -606,8 +612,8 @@ it('Sets formatSelector value from localStorage', async () => {
 
     it('Sets hostname to mangalib.me for mangalib service', async () => {
         let hostnameSet = false;
-        const origMangaLibService = global.MangaLibService;
-        global.MangaLibService = class {
+        const origMangaLibService = mocks.MangaLibService;
+        mocks.MangaLibService = class {
             constructor() {
                 hostnameSet = true;
             }
@@ -621,12 +627,12 @@ it('Sets formatSelector value from localStorage', async () => {
         });
         await controller.loadMetadata();
         expect(hostnameSet).toBe(true);
-        global.MangaLibService = origMangaLibService;
+        mocks.MangaLibService = origMangaLibService;
     });
 
     it('Sets slug to null when no match in url', async () => {
         const controller = new PopupController();
-        global.extensionApi.tabs.query = vi.fn(async () => ([{ url: 'https://ranobelib.me/' }]));
+        mocks.extensionApi.tabs.query = vi.fn(async () => ([{ url: 'https://ranobelib.me/' }]));
         const originalSearch = window.location.search;
         Object.defineProperty(window, 'location', {
             value: { search: '' },
@@ -639,7 +645,7 @@ it('Sets formatSelector value from localStorage', async () => {
 
     it('Renders the metadata returned by service.getManga', async () => {
         const controller = new PopupController();
-        global.serviceRegistry.getServiceByUrl = vi.fn(() => ({
+        mocks.serviceRegistry.getServiceByUrl = vi.fn(() => ({
             name: 'ranobelib',
             getManga: vi.fn(async () => ({
                 rus_name: 'Title',
@@ -655,14 +661,14 @@ it('Sets formatSelector value from localStorage', async () => {
             value: { search: '' },
             writable: true
         });
-        global.extensionApi.tabs.query = vi.fn(async () => ([{ url: 'https://ranobelib.me/manga/slug' }]));
+        mocks.extensionApi.tabs.query = vi.fn(async () => ([{ url: 'https://ranobelib.me/manga/slug' }]));
         await controller.loadMetadata();
         expect(document.getElementById('logoInfo').textContent).toContain('Глав:');
         expect(document.getElementById('description').innerHTML).toContain('Title');
     });
 
     it('Warns if site logo element not found when setting logo for service mangalib', async () => {
-        global.MangaLibService = class {
+        mocks.MangaLibService = class {
             getManga = vi.fn(async () => ({ rus_name: 'Title', summary: 'Summary', cover: 'cover.png', authors: ['Author'], ageRestriction: { label: '18+' }, releaseDate: '2020' }));
             getChapterList = vi.fn(async () => [{}, {}]);
         };
@@ -671,7 +677,7 @@ it('Sets formatSelector value from localStorage', async () => {
             value: { search: '?download=true&slug=testslug&service=mangalib' },
             writable: true
         });
-        global.extensionApi.tabs.query = vi.fn(async () => ([{ url: 'https://mangalib.me/manga/testslug' }]));
+        mocks.extensionApi.tabs.query = vi.fn(async () => ([{ url: 'https://mangalib.me/manga/testslug' }]));
         const siteLogo = document.getElementById('siteLogo');
         if (siteLogo && siteLogo.parentNode) siteLogo.parentNode.removeChild(siteLogo);
         const consoleWarnSpy = vi.spyOn(console, 'warn');
@@ -682,7 +688,7 @@ it('Sets formatSelector value from localStorage', async () => {
 
     it('Handles a title without chapters', async () => {
         const controller = new PopupController();
-        global.serviceRegistry.getServiceByUrl = vi.fn(() => ({
+        mocks.serviceRegistry.getServiceByUrl = vi.fn(() => ({
             name: 'ranobelib',
             getManga: vi.fn(async () => ({
                 rus_name: 'Title',
@@ -698,14 +704,14 @@ it('Sets formatSelector value from localStorage', async () => {
             value: { search: '' },
             writable: true
         });
-        global.extensionApi.tabs.query = vi.fn(async () => ([{ url: 'https://ranobelib.me/manga/slug' }]));
+        mocks.extensionApi.tabs.query = vi.fn(async () => ([{ url: 'https://ranobelib.me/manga/slug' }]));
         await controller.loadMetadata();
         expect(document.getElementById('logoInfo').textContent).not.toContain('Глав: 1');
     });
 
     it('Uses meta.name or slug as title when rus_name is missing', async () => {
         const controller = new PopupController();
-        global.serviceRegistry.getServiceByUrl = vi.fn(() => ({
+        mocks.serviceRegistry.getServiceByUrl = vi.fn(() => ({
             name: 'ranobelib',
             getManga: vi.fn(async () => ({
                 name: 'MetaName',
@@ -721,11 +727,11 @@ it('Sets formatSelector value from localStorage', async () => {
             value: { search: '' },
             writable: true
         });
-        global.extensionApi.tabs.query = vi.fn(async () => ([{ url: 'https://ranobelib.me/manga/slug1' }]));
+        mocks.extensionApi.tabs.query = vi.fn(async () => ([{ url: 'https://ranobelib.me/manga/slug1' }]));
         await controller.loadMetadata();
         expect(document.getElementById('description').innerHTML).toContain('MetaName');
 
-        global.serviceRegistry.getServiceByUrl = vi.fn(() => ({
+        mocks.serviceRegistry.getServiceByUrl = vi.fn(() => ({
             name: 'ranobelib',
             getManga: vi.fn(async () => ({
                 summary: 'Summary',
@@ -736,14 +742,14 @@ it('Sets formatSelector value from localStorage', async () => {
             })),
             getChapterList: vi.fn(async () => [{}, {}])
         }));
-        global.extensionApi.tabs.query = vi.fn(async () => ([{ url: 'https://ranobelib.me/manga/slug2' }]));
+        mocks.extensionApi.tabs.query = vi.fn(async () => ([{ url: 'https://ranobelib.me/manga/slug2' }]));
         await controller.loadMetadata();
         expect(document.getElementById('description').innerHTML).toContain('slug2');
     });
 
     it('Extracts text from ProseMirror summary or shows fallback', async () => {
         const controller = new PopupController();
-        global.serviceRegistry.getServiceByUrl = vi.fn(() => ({
+        mocks.serviceRegistry.getServiceByUrl = vi.fn(() => ({
             name: 'ranobelib',
             getManga: vi.fn(async () => ({
                 name: 'MetaName',
@@ -759,11 +765,11 @@ it('Sets formatSelector value from localStorage', async () => {
             value: { search: '' },
             writable: true
         });
-        global.extensionApi.tabs.query = vi.fn(async () => ([{ url: 'https://ranobelib.me/manga/slug1' }]));
+        mocks.extensionApi.tabs.query = vi.fn(async () => ([{ url: 'https://ranobelib.me/manga/slug1' }]));
         await controller.loadMetadata();
         expect(document.getElementById('description').innerHTML).toContain('Rich summary text');
 
-        global.serviceRegistry.getServiceByUrl = vi.fn(() => ({
+        mocks.serviceRegistry.getServiceByUrl = vi.fn(() => ({
             name: 'ranobelib',
             getManga: vi.fn(async () => ({
                 name: 'MetaName',
@@ -774,7 +780,7 @@ it('Sets formatSelector value from localStorage', async () => {
             })),
             getChapterList: vi.fn(async () => [{}, {}])
         }));
-        global.extensionApi.tabs.query = vi.fn(async () => ([{ url: 'https://ranobelib.me/manga/slug2' }]));
+        mocks.extensionApi.tabs.query = vi.fn(async () => ([{ url: 'https://ranobelib.me/manga/slug2' }]));
         await controller.loadMetadata();
         expect(document.getElementById('description').innerHTML).toContain('Описание отсутствует');
     });
@@ -782,7 +788,7 @@ it('Sets formatSelector value from localStorage', async () => {
     it('Completes loadMetadata without crashing when chapter loading returns null', async () => {
         const controller = new PopupController();
         controller.chapterController.loadAndPopulate = vi.fn(async () => null);
-        global.serviceRegistry.getServiceByUrl = vi.fn(() => ({
+        mocks.serviceRegistry.getServiceByUrl = vi.fn(() => ({
             name: 'ranobelib',
             getManga: vi.fn(async () => ({
                 rus_name: 'Title',
@@ -798,7 +804,7 @@ it('Sets formatSelector value from localStorage', async () => {
 
     it('Warns if no valid cover URL found in meta.cover object', async () => {
         const controller = new PopupController();
-        global.serviceRegistry.getServiceByUrl = vi.fn(() => ({
+        mocks.serviceRegistry.getServiceByUrl = vi.fn(() => ({
             name: 'ranobelib',
             getManga: vi.fn(async () => ({
                 rus_name: 'Title',
@@ -814,7 +820,7 @@ it('Sets formatSelector value from localStorage', async () => {
             value: { search: '' },
             writable: true
         });
-        global.extensionApi.tabs.query = vi.fn(async () => ([{ url: 'https://ranobelib.me/manga/slug' }]));
+        mocks.extensionApi.tabs.query = vi.fn(async () => ([{ url: 'https://ranobelib.me/manga/slug' }]));
         const consoleWarnSpy = vi.spyOn(console, 'warn');
         await controller.loadMetadata();
         expect(consoleWarnSpy).toHaveBeenCalledWith('[PopupController] No cover information found in metadata');
@@ -823,7 +829,7 @@ it('Sets formatSelector value from localStorage', async () => {
 
     it('Sets cover to meta.cover.default if present', async () => {
         const controller = new PopupController();
-        global.serviceRegistry.getServiceByUrl = vi.fn(() => ({
+        mocks.serviceRegistry.getServiceByUrl = vi.fn(() => ({
             name: 'ranobelib',
             getManga: vi.fn(async () => ({
                 rus_name: 'Title',
@@ -839,14 +845,14 @@ it('Sets formatSelector value from localStorage', async () => {
             value: { search: '' },
             writable: true
         });
-        global.extensionApi.tabs.query = vi.fn(async () => ([{ url: 'https://ranobelib.me/manga/slug' }]));
+        mocks.extensionApi.tabs.query = vi.fn(async () => ([{ url: 'https://ranobelib.me/manga/slug' }]));
         await controller.loadMetadata();
         expect(document.getElementById('cover').src).toContain('default-cover.png');
     });
 
     it('Sets cover to meta.cover.thumbnail if present', async () => {
         const controller = new PopupController();
-        global.serviceRegistry.getServiceByUrl = vi.fn(() => ({
+        mocks.serviceRegistry.getServiceByUrl = vi.fn(() => ({
             name: 'ranobelib',
             getManga: vi.fn(async () => ({
                 rus_name: 'Title',
@@ -862,14 +868,14 @@ it('Sets formatSelector value from localStorage', async () => {
             value: { search: '' },
             writable: true
         });
-        global.extensionApi.tabs.query = vi.fn(async () => ([{ url: 'https://ranobelib.me/manga/slug' }]));
+        mocks.extensionApi.tabs.query = vi.fn(async () => ([{ url: 'https://ranobelib.me/manga/slug' }]));
         await controller.loadMetadata();
         expect(document.getElementById('cover').src).toContain('thumbnail-cover.png');
     });
 
     it('Sets cover to meta.cover.md if present', async () => {
         const controller = new PopupController();
-        global.serviceRegistry.getServiceByUrl = vi.fn(() => ({
+        mocks.serviceRegistry.getServiceByUrl = vi.fn(() => ({
             name: 'ranobelib',
             getManga: vi.fn(async () => ({
                 rus_name: 'Title',
@@ -885,14 +891,14 @@ it('Sets formatSelector value from localStorage', async () => {
             value: { search: '' },
             writable: true
         });
-        global.extensionApi.tabs.query = vi.fn(async () => ([{ url: 'https://ranobelib.me/manga/slug' }]));
+        mocks.extensionApi.tabs.query = vi.fn(async () => ([{ url: 'https://ranobelib.me/manga/slug' }]));
         await controller.loadMetadata();
         expect(document.getElementById('cover').src).toContain('md-cover.png');
     });
 
     it('Sets cover to meta.cover.url if present', async () => {
         const controller = new PopupController();
-        global.serviceRegistry.getServiceByUrl = vi.fn(() => ({
+        mocks.serviceRegistry.getServiceByUrl = vi.fn(() => ({
             name: 'ranobelib',
             getManga: vi.fn(async () => ({
                 rus_name: 'Title',
@@ -908,14 +914,14 @@ it('Sets formatSelector value from localStorage', async () => {
             value: { search: '' },
             writable: true
         });
-        global.extensionApi.tabs.query = vi.fn(async () => ([{ url: 'https://ranobelib.me/manga/slug' }]));
+        mocks.extensionApi.tabs.query = vi.fn(async () => ([{ url: 'https://ranobelib.me/manga/slug' }]));
         await controller.loadMetadata();
         expect(document.getElementById('cover').src).toContain('url-cover.png');
     });
 
     it('Sets cover to meta.image if present', async () => {
         const controller = new PopupController();
-        global.serviceRegistry.getServiceByUrl = vi.fn(() => ({
+        mocks.serviceRegistry.getServiceByUrl = vi.fn(() => ({
             name: 'ranobelib',
             getManga: vi.fn(async () => ({
                 rus_name: 'Title',
@@ -931,14 +937,14 @@ it('Sets formatSelector value from localStorage', async () => {
             value: { search: '' },
             writable: true
         });
-        global.extensionApi.tabs.query = vi.fn(async () => ([{ url: 'https://ranobelib.me/manga/slug' }]));
+        mocks.extensionApi.tabs.query = vi.fn(async () => ([{ url: 'https://ranobelib.me/manga/slug' }]));
         await controller.loadMetadata();
         expect(document.getElementById('cover').src).toContain('meta-image.png');
     });
 
     it('Warns if no cover information found in metadata', async () => {
         const controller = new PopupController();
-        global.serviceRegistry.getServiceByUrl = vi.fn(() => ({
+        mocks.serviceRegistry.getServiceByUrl = vi.fn(() => ({
             name: 'ranobelib',
             getManga: vi.fn(async () => ({
                 rus_name: 'Title',
@@ -953,7 +959,7 @@ it('Sets formatSelector value from localStorage', async () => {
             value: { search: '' },
             writable: true
         });
-        global.extensionApi.tabs.query = vi.fn(async () => ([{ url: 'https://ranobelib.me/manga/slug' }]));
+        mocks.extensionApi.tabs.query = vi.fn(async () => ([{ url: 'https://ranobelib.me/manga/slug' }]));
         const consoleWarnSpy = vi.spyOn(console, 'warn');
         await controller.loadMetadata();
         expect(consoleWarnSpy).toHaveBeenCalledWith('[PopupController] No cover information found in metadata');
@@ -962,7 +968,7 @@ it('Sets formatSelector value from localStorage', async () => {
 
     it('Returns null for empty author in metadata', async () => {
         const controller = new PopupController();
-        global.serviceRegistry.getServiceByUrl = vi.fn(() => ({
+        mocks.serviceRegistry.getServiceByUrl = vi.fn(() => ({
             name: 'ranobelib',
             getManga: vi.fn(async () => ({
                 rus_name: 'Title',
@@ -978,14 +984,14 @@ it('Sets formatSelector value from localStorage', async () => {
             value: { search: '' },
             writable: true
         });
-        global.extensionApi.tabs.query = vi.fn(async () => ([{ url: 'https://ranobelib.me/manga/slug' }]));
+        mocks.extensionApi.tabs.query = vi.fn(async () => ([{ url: 'https://ranobelib.me/manga/slug' }]));
         await controller.loadMetadata();
         expect(document.getElementById('logoInfo').textContent).toContain('Авторы: Author');
     });
 
     it('Returns null for author object without name fields', async () => {
         const controller = new PopupController();
-        global.serviceRegistry.getServiceByUrl = vi.fn(() => ({
+        mocks.serviceRegistry.getServiceByUrl = vi.fn(() => ({
             name: 'ranobelib',
             getManga: vi.fn(async () => ({
                 rus_name: 'Title',
@@ -1001,14 +1007,14 @@ it('Sets formatSelector value from localStorage', async () => {
             value: { search: '' },
             writable: true
         });
-        global.extensionApi.tabs.query = vi.fn(async () => ([{ url: 'https://ranobelib.me/manga/slug' }]));
+        mocks.extensionApi.tabs.query = vi.fn(async () => ([{ url: 'https://ranobelib.me/manga/slug' }]));
         await controller.loadMetadata();
         expect(document.getElementById('logoInfo').textContent).toContain('Авторы: Author');
     });
 
     it('Normalizes string authors via MangaPatcher', async () => {
         const controller = new PopupController();
-        global.serviceRegistry.getServiceByUrl = vi.fn(() => ({
+        mocks.serviceRegistry.getServiceByUrl = vi.fn(() => ({
             name: 'ranobelib',
             getManga: vi.fn(async () => ({
                 rus_name: 'Title',
@@ -1024,14 +1030,14 @@ it('Sets formatSelector value from localStorage', async () => {
             value: { search: '' },
             writable: true
         });
-        global.extensionApi.tabs.query = vi.fn(async () => ([{ url: 'https://ranobelib.me/manga/slug' }]));
+        mocks.extensionApi.tabs.query = vi.fn(async () => ([{ url: 'https://ranobelib.me/manga/slug' }]));
         await controller.loadMetadata();
         expect(document.getElementById('logoInfo').textContent).toContain('Авторы: Ivan');
     });
 
     it('Warns if no age restriction label found in metadata', async () => {
         const controller = new PopupController();
-        global.serviceRegistry.getServiceByUrl = vi.fn(() => ({
+        mocks.serviceRegistry.getServiceByUrl = vi.fn(() => ({
             name: 'ranobelib',
             getManga: vi.fn(async () => ({
                 rus_name: 'Title',
@@ -1047,7 +1053,7 @@ it('Sets formatSelector value from localStorage', async () => {
             value: { search: '' },
             writable: true
         });
-        global.extensionApi.tabs.query = vi.fn(async () => ([{ url: 'https://ranobelib.me/manga/slug' }]));
+        mocks.extensionApi.tabs.query = vi.fn(async () => ([{ url: 'https://ranobelib.me/manga/slug' }]));
         const consoleWarnSpy = vi.spyOn(console, 'warn');
         await controller.loadMetadata();
         expect(consoleWarnSpy).toHaveBeenCalledWith('[PopupController] No age restriction label found in metadata');
@@ -1057,7 +1063,7 @@ it('Sets formatSelector value from localStorage', async () => {
     it('Sets release date from releaseDate or releaseDateString or release_date or published or year or date or empty', async () => {
         const controller = new PopupController();
 
-        global.serviceRegistry.getServiceByUrl = vi.fn(() => ({
+        mocks.serviceRegistry.getServiceByUrl = vi.fn(() => ({
             name: 'ranobelib',
             getManga: vi.fn(async () => ({
                 rus_name: 'Title',
@@ -1069,11 +1075,11 @@ it('Sets formatSelector value from localStorage', async () => {
             })),
             getChapterList: vi.fn(async () => [{}, {}])
         }));
-        global.extensionApi.tabs.query = vi.fn(async () => ([{ url: 'https://ranobelib.me/manga/slug1' }]));
+        mocks.extensionApi.tabs.query = vi.fn(async () => ([{ url: 'https://ranobelib.me/manga/slug1' }]));
         await controller.loadMetadata();
         expect(document.getElementById('releaseDate').textContent).toContain('2022-01-01');
 
-        global.serviceRegistry.getServiceByUrl = vi.fn(() => ({
+        mocks.serviceRegistry.getServiceByUrl = vi.fn(() => ({
             name: 'ranobelib',
             getManga: vi.fn(async () => ({
                 rus_name: 'Title',
@@ -1085,11 +1091,11 @@ it('Sets formatSelector value from localStorage', async () => {
             })),
             getChapterList: vi.fn(async () => [{}, {}])
         }));
-        global.extensionApi.tabs.query = vi.fn(async () => ([{ url: 'https://ranobelib.me/manga/slug2' }]));
+        mocks.extensionApi.tabs.query = vi.fn(async () => ([{ url: 'https://ranobelib.me/manga/slug2' }]));
         await controller.loadMetadata();
         expect(document.getElementById('releaseDate').textContent).toContain('2023-02-02');
 
-        global.serviceRegistry.getServiceByUrl = vi.fn(() => ({
+        mocks.serviceRegistry.getServiceByUrl = vi.fn(() => ({
             name: 'ranobelib',
             getManga: vi.fn(async () => ({
                 rus_name: 'Title',
@@ -1101,11 +1107,11 @@ it('Sets formatSelector value from localStorage', async () => {
             })),
             getChapterList: vi.fn(async () => [{}, {}])
         }));
-        global.extensionApi.tabs.query = vi.fn(async () => ([{ url: 'https://ranobelib.me/manga/slug3' }]));
+        mocks.extensionApi.tabs.query = vi.fn(async () => ([{ url: 'https://ranobelib.me/manga/slug3' }]));
         await controller.loadMetadata();
         expect(document.getElementById('releaseDate').textContent).toContain('2024-03-03');
 
-        global.serviceRegistry.getServiceByUrl = vi.fn(() => ({
+        mocks.serviceRegistry.getServiceByUrl = vi.fn(() => ({
             name: 'ranobelib',
             getManga: vi.fn(async () => ({
                 rus_name: 'Title',
@@ -1117,11 +1123,11 @@ it('Sets formatSelector value from localStorage', async () => {
             })),
             getChapterList: vi.fn(async () => [{}, {}])
         }));
-        global.extensionApi.tabs.query = vi.fn(async () => ([{ url: 'https://ranobelib.me/manga/slug4' }]));
+        mocks.extensionApi.tabs.query = vi.fn(async () => ([{ url: 'https://ranobelib.me/manga/slug4' }]));
         await controller.loadMetadata();
         expect(document.getElementById('releaseDate').textContent).toContain('2025-04-04');
 
-        global.serviceRegistry.getServiceByUrl = vi.fn(() => ({
+        mocks.serviceRegistry.getServiceByUrl = vi.fn(() => ({
             name: 'ranobelib',
             getManga: vi.fn(async () => ({
                 rus_name: 'Title',
@@ -1133,11 +1139,11 @@ it('Sets formatSelector value from localStorage', async () => {
             })),
             getChapterList: vi.fn(async () => [{}, {}])
         }));
-        global.extensionApi.tabs.query = vi.fn(async () => ([{ url: 'https://ranobelib.me/manga/slug5' }]));
+        mocks.extensionApi.tabs.query = vi.fn(async () => ([{ url: 'https://ranobelib.me/manga/slug5' }]));
         await controller.loadMetadata();
         expect(document.getElementById('releaseDate').textContent).toContain('2026');
 
-        global.serviceRegistry.getServiceByUrl = vi.fn(() => ({
+        mocks.serviceRegistry.getServiceByUrl = vi.fn(() => ({
             name: 'ranobelib',
             getManga: vi.fn(async () => ({
                 rus_name: 'Title',
@@ -1149,11 +1155,11 @@ it('Sets formatSelector value from localStorage', async () => {
             })),
             getChapterList: vi.fn(async () => [{}, {}])
         }));
-        global.extensionApi.tabs.query = vi.fn(async () => ([{ url: 'https://ranobelib.me/manga/slug6' }]));
+        mocks.extensionApi.tabs.query = vi.fn(async () => ([{ url: 'https://ranobelib.me/manga/slug6' }]));
         await controller.loadMetadata();
         expect(document.getElementById('releaseDate').textContent).toContain('2027-06-06');
 
-        global.serviceRegistry.getServiceByUrl = vi.fn(() => ({
+        mocks.serviceRegistry.getServiceByUrl = vi.fn(() => ({
             name: 'ranobelib',
             getManga: vi.fn(async () => ({
                 rus_name: 'Title',
@@ -1164,14 +1170,14 @@ it('Sets formatSelector value from localStorage', async () => {
             })),
             getChapterList: vi.fn(async () => [{}, {}])
         }));
-        global.extensionApi.tabs.query = vi.fn(async () => ([{ url: 'https://ranobelib.me/manga/slug7' }]));
+        mocks.extensionApi.tabs.query = vi.fn(async () => ([{ url: 'https://ranobelib.me/manga/slug7' }]));
         await controller.loadMetadata();
         expect(document.getElementById('releaseDate').textContent).toBe('');
     });
 
     it('Warns if release date element found when setting release date', async () => {
         const controller = new PopupController();
-        global.serviceRegistry.getServiceByUrl = vi.fn(() => ({
+        mocks.serviceRegistry.getServiceByUrl = vi.fn(() => ({
             name: 'ranobelib',
             getManga: vi.fn(async () => ({
                 rus_name: 'Title',
@@ -1187,7 +1193,7 @@ it('Sets formatSelector value from localStorage', async () => {
             value: { search: '' },
             writable: true
         });
-        global.extensionApi.tabs.query = vi.fn(async () => ([{ url: 'https://ranobelib.me/manga/slug' }]));
+        mocks.extensionApi.tabs.query = vi.fn(async () => ([{ url: 'https://ranobelib.me/manga/slug' }]));
         const releaseEl = document.getElementById('releaseDate');
         if (releaseEl && releaseEl.parentNode) releaseEl.parentNode.removeChild(releaseEl);
         const consoleWarnSpy = vi.spyOn(console, 'warn');
@@ -1198,7 +1204,7 @@ it('Sets formatSelector value from localStorage', async () => {
 
     it('Warns if status element not found when setting ready to download message', async () => {
         const controller = new PopupController();
-        global.serviceRegistry.getServiceByUrl = vi.fn(() => ({
+        mocks.serviceRegistry.getServiceByUrl = vi.fn(() => ({
             name: 'ranobelib',
             getManga: vi.fn(async () => ({
                 rus_name: 'Title',
@@ -1214,7 +1220,7 @@ it('Sets formatSelector value from localStorage', async () => {
             value: { search: '' },
             writable: true
         });
-        global.extensionApi.tabs.query = vi.fn(async () => ([{ url: 'https://ranobelib.me/manga/slug' }]));
+        mocks.extensionApi.tabs.query = vi.fn(async () => ([{ url: 'https://ranobelib.me/manga/slug' }]));
         const status = document.getElementById('status');
         if (status && status.parentNode) status.parentNode.removeChild(status);
         const consoleWarnSpy = vi.spyOn(console, 'warn');
@@ -1225,7 +1231,7 @@ it('Sets formatSelector value from localStorage', async () => {
 
     it('Warns if window created but no ID found', async () => {
         const controller = new PopupController();
-        const windowsCreateSpy = vi.spyOn(global.extensionApi.windows, 'create').mockResolvedValue({});
+        const windowsCreateSpy = vi.spyOn(mocks.extensionApi.windows, 'create').mockResolvedValue({});
         const consoleWarnSpy = vi.spyOn(console, 'warn');
         await controller.openInNewContext('popup.html?download=true');
         expect(consoleWarnSpy).toHaveBeenCalledWith('[PopupController] Window created but no ID found:', {});
@@ -1245,8 +1251,8 @@ it('Sets formatSelector value from localStorage', async () => {
         controller.currentSlug = 'slug';
         controller.currentServiceKey = 'ranobelib';
         const isInSeparateWindowSpy = vi.spyOn(controller, 'isInSeparateWindow').mockResolvedValue(false);
-        const windowsCreateSpy = vi.spyOn(global.extensionApi.windows, 'create').mockResolvedValue({ id: 123 });
-        const windowsUpdateSpy = vi.spyOn(global.extensionApi.windows, 'update').mockResolvedValue({});
+        const windowsCreateSpy = vi.spyOn(mocks.extensionApi.windows, 'create').mockResolvedValue({ id: 123 });
+        const windowsUpdateSpy = vi.spyOn(mocks.extensionApi.windows, 'update').mockResolvedValue({});
         const getElementByIdSpy = vi.spyOn(document, 'getElementById');
         const downloadBtn = document.getElementById('downloadBtn');
         await downloadBtn.click();
@@ -1305,8 +1311,8 @@ it('Sets formatSelector value from localStorage', async () => {
 
     it('openInNewContext sends openWindowWithUrl to background in Chrome mode', async () => {
         const sendMessageMock = vi.fn(async () => ({ ok: true }));
-        global.extensionApi.runtime.sendMessage = sendMessageMock;
-        global.browserEnv = { isFirefox: false };
+        mocks.extensionApi.runtime.sendMessage = sendMessageMock;
+        mocks.browserEnv = { isFirefox: false };
         const controller = new PopupController();
         await controller.openInNewContext('popup.html?download=true');
         expect(sendMessageMock).toHaveBeenCalledWith({ action: 'openWindowWithUrl', url: 'popup.html?download=true' });
@@ -1316,8 +1322,8 @@ it('Sets formatSelector value from localStorage', async () => {
         const error = new Error('port closed');
         const sendMessageMock = vi.fn(async () => { throw error; });
         const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
-        global.extensionApi.runtime.sendMessage = sendMessageMock;
-        global.browserEnv = { isFirefox: false };
+        mocks.extensionApi.runtime.sendMessage = sendMessageMock;
+        mocks.browserEnv = { isFirefox: false };
         const controller = new PopupController();
         await expect(controller.openInNewContext('popup.html?download=true')).resolves.toBeUndefined();
         await vi.waitFor(() => expect(warnSpy)
@@ -1370,7 +1376,7 @@ it('Sets formatSelector value from localStorage', async () => {
     });
 
     it('splitPagesContainer shown for mangalib service in loadMetadata', async () => {
-        global.MangaLibService = class {
+        mocks.MangaLibService = class {
             getManga = vi.fn(async () => ({ rus_name: 'Title', summary: 'Summary', cover: 'cover.png', authors: ['Author'], ageRestriction: { label: '18+' }, releaseDate: '2020' }));
             getChapterList = vi.fn(async () => [{}, {}]);
         };
@@ -1390,7 +1396,7 @@ it('Sets formatSelector value from localStorage', async () => {
             value: { search: '' },
             writable: true
         });
-        global.extensionApi.tabs.query = vi.fn(async () => ([{ url: 'https://ranobelib.me/manga/slug' }]));
+        mocks.extensionApi.tabs.query = vi.fn(async () => ([{ url: 'https://ranobelib.me/manga/slug' }]));
         await controller.loadMetadata();
         const container = document.getElementById('splitPagesContainer');
         expect(container.style.display).toBe('none');
@@ -1398,7 +1404,7 @@ it('Sets formatSelector value from localStorage', async () => {
 
     it('splitPages URL param applied to checkbox only, not to the saved setting', async () => {
         const controller = new PopupController();
-        global.MangaLibService = class {
+        mocks.MangaLibService = class {
             getManga = vi.fn(async () => ({ rus_name: 'Title', summary: 'Summary', cover: 'cover.png', authors: ['Author'], ageRestriction: { label: '18+' }, releaseDate: '2020' }));
             getChapterList = vi.fn(async () => [{}, {}]);
         };

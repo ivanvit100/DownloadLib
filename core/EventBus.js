@@ -7,7 +7,7 @@
  * @version 1.1.0
  */
 
-import { createLogger } from './logger.js';
+import { createLogger } from './ConsoleLogger.js';
 
 const log = createLogger('EventBus');
 

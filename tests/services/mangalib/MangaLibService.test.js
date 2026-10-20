@@ -1,13 +1,18 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 
+const mocks = vi.hoisted(() => ({}));
+
 vi.mock('../../../core/BrowserApi.js', async () =>
-    (await import('../../helpers/globalBridge.js')).globalBridge('extensionApi'));
+    (await import('../../helpers/ModuleMock.js')).mockExports(mocks, 'extensionApi'));
 vi.mock('../../../core/TabNetwork.js', async () =>
-    (await import('../../helpers/globalBridge.js')).globalBridge('requestViaTab', 'fetchViaTab', 'NoServiceTabError'));
+    (await import('../../helpers/ModuleMock.js')).mockExports(mocks, 'requestViaTab', 'fetchViaTab', 'NoServiceTabError'));
 vi.mock('../../../core/ImageCompressor.js', async () =>
-    (await import('../../helpers/globalBridge.js')).globalBridge('ImageCompressor', 'PAGE_ASPECT'));
+    (await import('../../helpers/ModuleMock.js')).mockExports(mocks, 'ImageCompressor', 'PAGE_ASPECT'));
 vi.mock('../../../services/mangalib/config.js', async () =>
-    (await import('../../helpers/globalBridge.js')).globalBridge('mangalibConfig'));
+    (await import('../../helpers/ModuleMock.js')).mockExports(mocks, 'mangalibConfig'));
+
+import { ImageCompressor } from '../../../core/ImageCompressor.js';
+import { fetchViaTab, requestViaTab } from '../../../core/TabNetwork.js';
 
 let MangaLibService, CdnLibsService;
 
@@ -16,13 +21,13 @@ const reply = (status, text = '') => ({ ok: status >= 200 && status < 300, statu
 beforeEach(async () => {
     vi.resetModules();
     vi.spyOn(console, 'debug').mockImplementation(() => {});
-    globalThis.extensionApi = {};
-    globalThis.NoServiceTabError = class NoServiceTabError extends Error {};
-    globalThis.PAGE_ASPECT = 297 / 210;
-    globalThis.ImageCompressor = { process: vi.fn(async (base64, contentType) => [{ base64, contentType }]) };
-    globalThis.fetchViaTab = vi.fn(async () => ({ ok: true, status: 200, noTab: false, base64: 'IMG', contentType: 'image/jpeg' }));
-    globalThis.requestViaTab = vi.fn(async () => reply(200, '{"data":{}}'));
-    globalThis.mangalibConfig = {
+    mocks.extensionApi = {};
+    mocks.NoServiceTabError = class NoServiceTabError extends Error {};
+    mocks.PAGE_ASPECT = 297 / 210;
+    mocks.ImageCompressor = { process: vi.fn(async (base64, contentType) => [{ base64, contentType }]) };
+    mocks.fetchViaTab = vi.fn(async () => ({ ok: true, status: 200, noTab: false, base64: 'IMG', contentType: 'image/jpeg' }));
+    mocks.requestViaTab = vi.fn(async () => reply(200, '{"data":{}}'));
+    mocks.mangalibConfig = {
         name: 'mangalib',
         baseUrl: 'https://api.test',
         headers: { 'Site-Id': '1' },
@@ -40,7 +45,7 @@ beforeEach(async () => {
 afterEach(() => {
     vi.restoreAllMocks();
     ['extensionApi', 'NoServiceTabError', 'PAGE_ASPECT', 'ImageCompressor', 'fetchViaTab', 'requestViaTab', 'mangalibConfig']
-        .forEach(name => delete globalThis[name]);
+        .forEach(name => delete mocks[name]);
 });
 
 describe('MangaLibService', () => {
@@ -49,7 +54,7 @@ describe('MangaLibService', () => {
         expect(svc).toBeInstanceOf(CdnLibsService);
         expect(svc.name).toBe('mangalib');
         expect(svc.baseUrl).toBe('https://api.test');
-        expect(svc.config).toEqual(globalThis.mangalibConfig);
+        expect(svc.config).toEqual(mocks.mangalibConfig);
         expect(console.debug).toHaveBeenCalledWith('[MangaLibService] Instance created');
     });
 
@@ -57,7 +62,7 @@ describe('MangaLibService', () => {
         const first = new MangaLibService();
         first.setAuthToken('t');
         expect(new MangaLibService().config.headers).toEqual({ 'Site-Id': '1' });
-        expect(globalThis.mangalibConfig.headers).toEqual({ 'Site-Id': '1' });
+        expect(mocks.mangalibConfig.headers).toEqual({ 'Site-Id': '1' });
     });
 
     it('Matches the site hosts from the config, including subdomains', () => {

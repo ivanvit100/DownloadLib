@@ -1,13 +1,15 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 
+const mocks = vi.hoisted(() => ({}));
+
 vi.mock('../../core/BrowserApi.js', async () =>
-    (await import('../helpers/globalBridge.js')).globalBridge('extensionApi'));
+    (await import('../helpers/ModuleMock.js')).mockExports(mocks, 'extensionApi'));
 vi.mock('../../core/TabNetwork.js', async () =>
-    (await import('../helpers/globalBridge.js')).globalBridge('requestViaTab', 'fetchViaTab', 'NoServiceTabError'));
+    (await import('../helpers/ModuleMock.js')).mockExports(mocks, 'requestViaTab', 'fetchViaTab', 'NoServiceTabError'));
 vi.mock('../../core/RateLimitClient.js', async () =>
-    (await import('../helpers/globalBridge.js')).globalBridge('RateLimitClient'));
+    (await import('../helpers/ModuleMock.js')).mockExports(mocks, 'RateLimitClient'));
 vi.mock('../../core/AuthManager.js', async () =>
-    (await import('../helpers/globalBridge.js')).globalBridge('AuthManager'));
+    (await import('../helpers/ModuleMock.js')).mockExports(mocks, 'AuthManager'));
 
 let BaseService, parseRetryAfter;
 
@@ -24,18 +26,18 @@ const reply = (status, extra = {}) => ({ ok: status >= 200 && status < 300, stat
 beforeEach(async () => {
     vi.resetModules();
     vi.spyOn(console, 'debug').mockImplementation(() => {});
-    globalThis.RateLimitClient = { throttle: vi.fn() };
-    globalThis.AuthManager = { invalidate: vi.fn(async () => {}) };
-    globalThis.NoServiceTabError = class NoServiceTabError extends Error {};
-    globalThis.requestViaTab = vi.fn(async () => reply(200, { text: '{"data":{}}' }));
-    globalThis.fetchViaTab = vi.fn();
+    mocks.RateLimitClient = { throttle: vi.fn() };
+    mocks.AuthManager = { invalidate: vi.fn(async () => {}) };
+    mocks.NoServiceTabError = class NoServiceTabError extends Error {};
+    mocks.requestViaTab = vi.fn(async () => reply(200, { text: '{"data":{}}' }));
+    mocks.fetchViaTab = vi.fn();
     ({ BaseService, parseRetryAfter } = await import('../../services/BaseService.js'));
 });
 
 afterEach(() => {
     vi.restoreAllMocks();
     ['RateLimitClient', 'AuthManager', 'NoServiceTabError', 'requestViaTab', 'fetchViaTab', 'extensionApi']
-        .forEach(name => delete globalThis[name]);
+        .forEach(name => delete mocks[name]);
 });
 
 /**
@@ -124,7 +126,7 @@ describe('BaseService', () => {
 
     it('extensionApi returns the shared BrowserApi instance', () => {
         const fakeApi = { runtime: {} };
-        globalThis.extensionApi = fakeApi;
+        mocks.extensionApi = fakeApi;
         expect(new BaseService(config).extensionApi).toBe(fakeApi);
     });
 
@@ -214,9 +216,9 @@ describe('parseRetryAfter', () => {
 describe('BaseService._request', () => {
     it('Sends the API request through the service tab with the config headers', async () => {
         const { svc } = service();
-        globalThis.requestViaTab.mockResolvedValue(reply(200, { text: '{"data":{"id":1}}' }));
+        mocks.requestViaTab.mockResolvedValue(reply(200, { text: '{"data":{"id":1}}' }));
         await expect(svc._request('https://test.com/api/x', { what: 'тест' })).resolves.toEqual({ data: { id: 1 } });
-        expect(globalThis.requestViaTab).toHaveBeenCalledWith(
+        expect(mocks.requestViaTab).toHaveBeenCalledWith(
             'https://test.com/api/x',
             { method: 'GET', headers: { 'Site-Id': '1' }, mode: 'cors', credentials: 'include', cache: 'no-store' },
             'TestService',
@@ -227,7 +229,7 @@ describe('BaseService._request', () => {
     it('Checks the download checkpoint before the request and once the rate limiter grants it', async () => {
         const { svc } = service();
         svc.attach({ checkpoint: vi.fn(async () => {}) });
-        globalThis.requestViaTab.mockImplementation(async (url, init, key, { beforeSend }) => {
+        mocks.requestViaTab.mockImplementation(async (url, init, key, { beforeSend }) => {
             await beforeSend();
             return reply(200, { text: '{}' });
         });
@@ -237,24 +239,24 @@ describe('BaseService._request', () => {
 
     it('Returns text or a Response-like object when asked', async () => {
         const { svc } = service();
-        globalThis.requestViaTab.mockResolvedValue(reply(404, { text: 'nope', retryAfter: '3' }));
+        mocks.requestViaTab.mockResolvedValue(reply(404, { text: 'nope', retryAfter: '3' }));
         const response = await svc._request('u', { as: 'response' });
         expect(response).toMatchObject({ ok: false, status: 404 });
         expect(response.text()).toBe('nope');
         expect(response.headers.get('Retry-After')).toBe('3');
         expect(response.headers.get('Content-Type')).toBeNull();
 
-        globalThis.requestViaTab.mockResolvedValue(reply(200, { text: 'plain' }));
+        mocks.requestViaTab.mockResolvedValue(reply(200, { text: 'plain' }));
         await expect(svc._request('u', { as: 'text' })).resolves.toBe('plain');
     });
 
     it('Throws NoServiceTabError without a service tab and does not retry', async () => {
         const { svc } = service();
-        globalThis.requestViaTab.mockResolvedValue(reply(0, { ok: false, noTab: true }));
+        mocks.requestViaTab.mockResolvedValue(reply(0, { ok: false, noTab: true }));
         const error = await svc._request('u').catch(e => e);
-        expect(error).toBeInstanceOf(globalThis.NoServiceTabError);
+        expect(error).toBeInstanceOf(mocks.NoServiceTabError);
         expect(error.message).toBe('Откройте страницу тайтла на https://test.site, чтобы продолжить загрузку');
-        expect(globalThis.requestViaTab).toHaveBeenCalledTimes(1);
+        expect(mocks.requestViaTab).toHaveBeenCalledTimes(1);
     });
 
     it.each([
@@ -263,7 +265,7 @@ describe('BaseService._request', () => {
     ])('Retries %s with a growing pause', async (_case, failure) => {
         const { svc, delay } = service();
         vi.spyOn(console, 'warn').mockImplementation(() => {});
-        globalThis.requestViaTab
+        mocks.requestViaTab
             .mockResolvedValueOnce(failure)
             .mockResolvedValueOnce(failure)
             .mockResolvedValueOnce(reply(200, { text: '{"ok":1}' }));
@@ -271,23 +273,34 @@ describe('BaseService._request', () => {
         expect(delay.mock.calls).toEqual([[1000], [2000]]);
     });
 
+    it('Explains a network error without details and a 401 of a service without a site URL', async () => {
+        const { svc } = service({ ...config, siteUrl: undefined });
+        vi.spyOn(console, 'warn').mockImplementation(() => {});
+        mocks.requestViaTab.mockResolvedValue(reply(0, { ok: false }));
+        await expect(svc._request('u', { what: 'глава', attempts: 1 }))
+            .rejects.toThrow('Сетевая ошибка при запросе к API (глава): нет ответа');
+        mocks.requestViaTab.mockResolvedValue(reply(401));
+        await expect(svc._request('u', { what: 'глава' }))
+            .rejects.toThrow('Сервер отклонил авторизацию (глава): войдите на сайт сервиса и повторите');
+    });
+
     it('Gives up after the last attempt with a clear error', async () => {
         const { svc } = service();
         vi.spyOn(console, 'warn').mockImplementation(() => {});
-        globalThis.requestViaTab.mockResolvedValue(reply(0, { ok: false, error: 'TypeError: Failed to fetch' }));
+        mocks.requestViaTab.mockResolvedValue(reply(0, { ok: false, error: 'TypeError: Failed to fetch' }));
         await expect(svc._request('u', { what: 'список глав' }))
             .rejects.toThrow('Сетевая ошибка при запросе к API (список глав): TypeError: Failed to fetch');
-        expect(globalThis.requestViaTab).toHaveBeenCalledTimes(3);
+        expect(mocks.requestViaTab).toHaveBeenCalledTimes(3);
 
-        globalThis.requestViaTab.mockResolvedValue(reply(503));
+        mocks.requestViaTab.mockResolvedValue(reply(503));
         await expect(svc._request('u', { what: 'глава', attempts: 2 })).rejects.toThrow('Ошибка API (глава): HTTP 503');
     });
 
     it('Does not retry client errors', async () => {
         const { svc } = service();
-        globalThis.requestViaTab.mockResolvedValue(reply(404));
+        mocks.requestViaTab.mockResolvedValue(reply(404));
         await expect(svc._request('u', { what: 'глава' })).rejects.toThrow('Ошибка API (глава): HTTP 404');
-        expect(globalThis.requestViaTab).toHaveBeenCalledTimes(1);
+        expect(mocks.requestViaTab).toHaveBeenCalledTimes(1);
     });
 
     it('On 429 waits Retry-After, holds back all windows, notifies the download and retries', async () => {
@@ -295,13 +308,13 @@ describe('BaseService._request', () => {
         const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
         const pause = vi.spyOn(svc, 'interruptibleDelay').mockResolvedValue();
         svc.attach({ on429: vi.fn(), checkpoint: async () => {} });
-        globalThis.requestViaTab
+        mocks.requestViaTab
             .mockResolvedValueOnce(reply(429, { retryAfter: '2' }))
             .mockResolvedValueOnce(reply(200, { text: '{}' }));
         await expect(svc._request('u')).resolves.toEqual({});
         expect(warn).toHaveBeenCalledWith('[TestService] 429 Too Many Requests (attempt 1/5), waiting 2000ms...');
         expect(svc.ctx.on429).toHaveBeenCalledWith(2000);
-        expect(globalThis.RateLimitClient.throttle).toHaveBeenCalledWith(2000);
+        expect(mocks.RateLimitClient.throttle).toHaveBeenCalledWith(2000);
         expect(pause).toHaveBeenCalledWith(2000);
     });
 
@@ -311,7 +324,7 @@ describe('BaseService._request', () => {
         try {
             const { svc, delay } = service();
             vi.spyOn(console, 'warn').mockImplementation(() => {});
-            globalThis.requestViaTab
+            mocks.requestViaTab
                 .mockResolvedValueOnce(reply(429, { retryAfter: 'Fri, 09 Oct 2026 12:00:45 GMT' }))
                 .mockResolvedValueOnce(reply(200, { text: '{}' }));
             await svc._request('u');
@@ -324,7 +337,7 @@ describe('BaseService._request', () => {
     it('On 429 without a usable Retry-After waits 30 seconds', async () => {
         const { svc, delay } = service();
         vi.spyOn(console, 'warn').mockImplementation(() => {});
-        globalThis.requestViaTab
+        mocks.requestViaTab
             .mockResolvedValueOnce(reply(429, { retryAfter: 'later' }))
             .mockResolvedValueOnce(reply(200, { text: '{}' }));
         await svc._request('u');
@@ -334,26 +347,26 @@ describe('BaseService._request', () => {
     it('Stops after the last 429 attempt without waiting again', async () => {
         const { svc, delay } = service();
         vi.spyOn(console, 'warn').mockImplementation(() => {});
-        globalThis.requestViaTab.mockResolvedValue(reply(429, { retryAfter: '1' }));
+        mocks.requestViaTab.mockResolvedValue(reply(429, { retryAfter: '1' }));
         await expect(svc._request('u', { rateLimitAttempts: 3 })).rejects.toThrow('Rate limited after 3 retries (429)');
-        expect(globalThis.requestViaTab).toHaveBeenCalledTimes(3);
+        expect(mocks.requestViaTab).toHaveBeenCalledTimes(3);
         expect(delay).toHaveBeenCalledTimes(2);
     });
 
     it('On 401 drops the token of the instance and of the background and explains what to do', async () => {
         const { svc } = service();
         svc.setAuthToken('stale');
-        globalThis.requestViaTab.mockResolvedValue(reply(401));
+        mocks.requestViaTab.mockResolvedValue(reply(401));
         await expect(svc._request('u', { what: 'метаданные тайтла' }))
             .rejects.toThrow('Сервер отклонил авторизацию (метаданные тайтла): войдите на https://test.site и повторите');
-        expect(globalThis.AuthManager.invalidate).toHaveBeenCalledWith('TestService');
+        expect(mocks.AuthManager.invalidate).toHaveBeenCalledWith('TestService');
         expect(svc.config.headers.Authorization).toBeUndefined();
-        expect(globalThis.requestViaTab).toHaveBeenCalledTimes(1);
+        expect(mocks.requestViaTab).toHaveBeenCalledTimes(1);
     });
 
     it.each([['an empty body', ''], ['broken JSON', '{"data":']])('Reports %s as a parse error', async (_case, text) => {
         const { svc } = service();
-        globalThis.requestViaTab.mockResolvedValue(reply(200, { text }));
+        mocks.requestViaTab.mockResolvedValue(reply(200, { text }));
         await expect(svc._request('u', { what: 'глава' })).rejects.toThrow('Ошибка разбора ответа API (глава)');
     });
 });
@@ -361,52 +374,72 @@ describe('BaseService._request', () => {
 describe('BaseService request wrappers kept for plugins', () => {
     it('fetchWithRetry returns a Response-like object for any status', async () => {
         const { svc } = service();
-        globalThis.requestViaTab.mockResolvedValue(reply(404, { text: 'body' }));
+        mocks.requestViaTab.mockResolvedValue(reply(404, { text: 'body' }));
         const response = await svc.fetchWithRetry('u', { method: 'POST' });
         expect(response).toMatchObject({ ok: false, status: 404 });
         expect(await response.text()).toBe('body');
-        expect(globalThis.requestViaTab.mock.calls[0][1]).toEqual({ method: 'POST' });
+        expect(mocks.requestViaTab.mock.calls[0][1]).toEqual({ method: 'POST' });
     });
 
     it('fetchWithRetry limits the attempts after network errors', async () => {
         const { svc } = service();
         vi.spyOn(console, 'warn').mockImplementation(() => {});
-        globalThis.requestViaTab.mockResolvedValue(reply(0, { ok: false }));
+        mocks.requestViaTab.mockResolvedValue(reply(0, { ok: false }));
         await expect(svc.fetchWithRetry('u', {}, 2)).resolves.toMatchObject({ status: 0 });
-        expect(globalThis.requestViaTab).toHaveBeenCalledTimes(2);
+        expect(mocks.requestViaTab).toHaveBeenCalledTimes(2);
     });
 
     it('fetchWithRateLimitRetry limits the attempts after 429', async () => {
         const { svc } = service();
         vi.spyOn(console, 'warn').mockImplementation(() => {});
-        globalThis.requestViaTab
+        mocks.requestViaTab
             .mockResolvedValueOnce(reply(429, { retryAfter: '1' }))
             .mockResolvedValueOnce(reply(200, { text: 'ok' }));
         const response = await svc.fetchWithRateLimitRetry('u', {}, 2);
         expect(response.status).toBe(200);
 
-        globalThis.requestViaTab.mockResolvedValue(reply(429, { retryAfter: '1' }));
+        mocks.requestViaTab.mockResolvedValue(reply(429, { retryAfter: '1' }));
         await expect(svc.fetchWithRateLimitRetry('u', {}, 2)).rejects.toThrow('Rate limited after 2 retries (429)');
+    });
+
+    it('fetchWithRateLimitRetry allows five 429 attempts by default', async () => {
+        const { svc } = service();
+        vi.spyOn(console, 'warn').mockImplementation(() => {});
+        mocks.requestViaTab.mockResolvedValue(reply(429, { retryAfter: '1' }));
+        await expect(svc.fetchWithRateLimitRetry('u', {})).rejects.toThrow('Rate limited after 5 retries (429)');
+        expect(mocks.requestViaTab).toHaveBeenCalledTimes(5);
+    });
+
+    it('The Response-like object reads only Retry-After, null when it is absent, and an empty body', async () => {
+        const { svc } = service();
+        mocks.requestViaTab.mockResolvedValue(reply(404, { text: undefined, retryAfter: null }));
+        const response = await svc.fetchWithRetry('u', {});
+        expect(response.headers.get('Retry-After')).toBeNull();
+        expect(response.headers.get('Content-Type')).toBeNull();
+        expect(response.text()).toBe('');
+
+        mocks.requestViaTab.mockResolvedValue(reply(503, { retryAfter: '9' }));
+        expect((await svc.fetchWithRetry('u', {}, 1)).headers.get('retry-after')).toBe('9');
     });
 });
 
 describe('BaseService API methods', () => {
     it('fetchMangaMetadata requests the fields from the config and returns the parsed response', async () => {
         const { svc } = service({ ...config, fields: ['summary', 'authors'] });
-        globalThis.requestViaTab.mockResolvedValue(reply(200, { text: '{"data":{"name":"X"}}' }));
+        mocks.requestViaTab.mockResolvedValue(reply(200, { text: '{"data":{"name":"X"}}' }));
         await expect(svc.fetchMangaMetadata('slug')).resolves.toEqual({ data: { name: 'X' } });
-        expect(globalThis.requestViaTab.mock.calls[0][0]).toBe('https://test.com/api/manga/slug?fields[]=summary&fields[]=authors');
+        expect(mocks.requestViaTab.mock.calls[0][0]).toBe('https://test.com/api/manga/slug?fields[]=summary&fields[]=authors');
     });
 
     it('fetchMangaMetadata falls back to other URLs on 403/404', async () => {
         const { svc } = service({ ...config, fields: ['summary'] });
         vi.spyOn(console, 'warn').mockImplementation(() => {});
-        globalThis.requestViaTab
+        mocks.requestViaTab
             .mockResolvedValueOnce(reply(403))
             .mockResolvedValueOnce(reply(404))
             .mockResolvedValueOnce(reply(200, { text: '{"data":{"id":7}}' }));
         await expect(svc.fetchMangaMetadata('7--title')).resolves.toEqual({ data: { id: 7 } });
-        expect(globalThis.requestViaTab.mock.calls.map(([url]) => url)).toEqual([
+        expect(mocks.requestViaTab.mock.calls.map(([url]) => url)).toEqual([
             'https://test.com/api/manga/7--title?fields[]=summary',
             'https://test.com/api/manga/7--title',
             'https://test.com/api/manga/7'
@@ -416,7 +449,7 @@ describe('BaseService API methods', () => {
     it('fetchMangaMetadata throws a clear error when the last URL fails', async () => {
         const { svc } = service();
         vi.spyOn(console, 'error').mockImplementation(() => {});
-        globalThis.requestViaTab.mockResolvedValue(reply(404, { text: 'not found' }));
+        mocks.requestViaTab.mockResolvedValue(reply(404, { text: 'not found' }));
         await expect(svc.fetchMangaMetadata('slug')).rejects.toThrow('Ошибка API (метаданные тайтла): HTTP 404');
     });
 
@@ -433,17 +466,17 @@ describe('BaseService API methods', () => {
 
     it('fetchChaptersList returns the parsed response', async () => {
         const { svc } = service();
-        globalThis.requestViaTab.mockResolvedValue(reply(200, { text: '{"data":[{"id":1}]}' }));
+        mocks.requestViaTab.mockResolvedValue(reply(200, { text: '{"data":[{"id":1}]}' }));
         await expect(svc.fetchChaptersList('slug')).resolves.toEqual({ data: [{ id: 1 }] });
-        expect(globalThis.requestViaTab.mock.calls[0][0]).toBe('https://test.com/api/manga/slug/chapters');
+        expect(mocks.requestViaTab.mock.calls[0][0]).toBe('https://test.com/api/manga/slug/chapters');
     });
 
     it('fetchChapter builds the query from number, volume, branch and extra params', async () => {
         const { svc } = service();
-        globalThis.requestViaTab.mockResolvedValue(reply(200, { text: '{"data":{}}' }));
+        mocks.requestViaTab.mockResolvedValue(reply(200, { text: '{"data":{}}' }));
         await svc.fetchChapter('slug', '2', '3', 123, { server: 'compress' });
         await svc.fetchChapter('slug');
-        expect(globalThis.requestViaTab.mock.calls.map(([url]) => url)).toEqual([
+        expect(mocks.requestViaTab.mock.calls.map(([url]) => url)).toEqual([
             'https://test.com/api/manga/slug/chapter?number=2&volume=3&branch_id=123&server=compress',
             'https://test.com/api/manga/slug/chapter?number=1&volume=1'
         ]);
@@ -451,14 +484,14 @@ describe('BaseService API methods', () => {
 
     it('getManga, getChapterList and getChapter return the data of the response', async () => {
         const { svc } = service();
-        globalThis.requestViaTab
+        mocks.requestViaTab
             .mockResolvedValueOnce(reply(200, { text: '{"data":{"name":"X"}}' }))
             .mockResolvedValueOnce(reply(200, { text: '{"data":[{"id":1}]}' }))
             .mockResolvedValueOnce(reply(200, { text: '{"data":{"content":[]}}' }));
         await expect(svc.getManga('slug')).resolves.toEqual({ name: 'X' });
         await expect(svc.getChapterList('slug')).resolves.toEqual([{ id: 1 }]);
         await expect(svc.getChapter('slug', '1', '1', 5)).resolves.toEqual({ content: [] });
-        expect(globalThis.requestViaTab.mock.calls[2][0]).toContain('branch_id=5');
+        expect(mocks.requestViaTab.mock.calls[2][0]).toContain('branch_id=5');
     });
 
     it('get* methods use the overridden fetch* methods of subclasses', async () => {
@@ -471,7 +504,7 @@ describe('BaseService API methods', () => {
         await expect(svc.getManga('s')).resolves.toEqual({ name: 'no wrapper' });
         await expect(svc.getChapterList('s')).resolves.toEqual([]);
         await expect(svc.getChapter('s', '1', '2', null)).resolves.toEqual({ args: ['s', '1', '2', null] });
-        expect(globalThis.requestViaTab).not.toHaveBeenCalled();
+        expect(mocks.requestViaTab).not.toHaveBeenCalled();
     });
 
     it('fetchChapters returns the chapter list in reading order', async () => {
@@ -530,23 +563,29 @@ describe('BaseService.fetchChapterBlocks', () => {
 describe('BaseService.loadPageAsBase64', () => {
     it('Loads the page through the service tab and returns a data-URL', async () => {
         const { svc } = service();
-        globalThis.fetchViaTab.mockResolvedValue({ ok: true, status: 200, noTab: false, base64: 'abc', contentType: 'image/png' });
+        mocks.fetchViaTab.mockResolvedValue({ ok: true, status: 200, noTab: false, base64: 'abc', contentType: 'image/png' });
         await expect(svc.loadPageAsBase64('https://img.test/1.png', { cache: 'no-store' })).resolves.toBe('data:image/png;base64,abc');
-        expect(globalThis.fetchViaTab).toHaveBeenCalledWith('https://img.test/1.png', 'TestService', {
+        expect(mocks.fetchViaTab).toHaveBeenCalledWith('https://img.test/1.png', 'TestService', {
             init: { cache: 'no-store' }, beforeSend: expect.any(Function)
         });
     });
 
     it('Throws NoServiceTabError without a service tab', async () => {
         const { svc } = service();
-        globalThis.fetchViaTab.mockResolvedValue({ ok: false, status: 0, noTab: true });
-        await expect(svc.loadPageAsBase64('u')).rejects.toBeInstanceOf(globalThis.NoServiceTabError);
+        mocks.fetchViaTab.mockResolvedValue({ ok: false, status: 0, noTab: true });
+        await expect(svc.loadPageAsBase64('u')).rejects.toBeInstanceOf(mocks.NoServiceTabError);
     });
 
     it('Throws when the page cannot be loaded', async () => {
         const { svc } = service();
-        globalThis.fetchViaTab.mockResolvedValue({ ok: false, status: 404, noTab: false, error: 'HTTP 404' });
+        mocks.fetchViaTab.mockResolvedValue({ ok: false, status: 404, noTab: false, error: 'HTTP 404' });
         await expect(svc.loadPageAsBase64('https://img.test/1.png')).rejects.toThrow('Не удалось загрузить страницу https://img.test/1.png: HTTP 404');
+    });
+
+    it('Names the HTTP status when the failure has no error text', async () => {
+        const { svc } = service();
+        mocks.fetchViaTab.mockResolvedValue({ ok: false, status: 502, noTab: false });
+        await expect(svc.loadPageAsBase64('https://img.test/1.png')).rejects.toThrow('https://img.test/1.png: HTTP 502');
     });
 });
 
@@ -555,9 +594,9 @@ describe('BaseService.fetchImage', () => {
 
     it('Loads the image through the service tab and returns the result', async () => {
         const { svc } = service();
-        globalThis.fetchViaTab.mockResolvedValue(image);
+        mocks.fetchViaTab.mockResolvedValue(image);
         await expect(svc.fetchImage('https://img.test/1.png')).resolves.toBe(image);
-        expect(globalThis.fetchViaTab).toHaveBeenCalledWith('https://img.test/1.png', 'TestService', {
+        expect(mocks.fetchViaTab).toHaveBeenCalledWith('https://img.test/1.png', 'TestService', {
             init: undefined, beforeSend: expect.any(Function)
         });
     });
@@ -565,21 +604,21 @@ describe('BaseService.fetchImage', () => {
     it('Returns a failed result for the caller to handle', async () => {
         const { svc } = service();
         const failure = { ok: false, status: 404, noTab: false, error: 'HTTP 404' };
-        globalThis.fetchViaTab.mockResolvedValue(failure);
+        mocks.fetchViaTab.mockResolvedValue(failure);
         await expect(svc.fetchImage('u')).resolves.toBe(failure);
     });
 
     it('Throws NoServiceTabError without a service tab', async () => {
         const { svc } = service();
-        globalThis.fetchViaTab.mockResolvedValue({ ok: false, status: 0, noTab: true });
-        await expect(svc.fetchImage('u')).rejects.toBeInstanceOf(globalThis.NoServiceTabError);
+        mocks.fetchViaTab.mockResolvedValue({ ok: false, status: 0, noTab: true });
+        await expect(svc.fetchImage('u')).rejects.toBeInstanceOf(mocks.NoServiceTabError);
     });
 
     it('Checks the download before, after the rate limit grant and after the response', async () => {
         const { svc } = service();
         const calls = [];
         svc.attach({ checkpoint: vi.fn(async () => { calls.push('checkpoint'); }) });
-        globalThis.fetchViaTab.mockImplementation(async (url, key, { beforeSend }) => {
+        mocks.fetchViaTab.mockImplementation(async (url, key, { beforeSend }) => {
             await beforeSend();
             calls.push('fetch');
             return image;
@@ -593,6 +632,6 @@ describe('BaseService.fetchImage', () => {
         const aborted = Object.assign(new Error('Download aborted'), { aborted: true });
         svc.attach({ checkpoint: vi.fn().mockRejectedValue(aborted) });
         await expect(svc.fetchImage('u')).rejects.toBe(aborted);
-        expect(globalThis.fetchViaTab).not.toHaveBeenCalled();
+        expect(mocks.fetchViaTab).not.toHaveBeenCalled();
     });
 });

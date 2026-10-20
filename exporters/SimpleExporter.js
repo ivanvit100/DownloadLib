@@ -7,7 +7,7 @@
  * @version 1.1.0
  */
 
-import { sanitizeFilename } from '../core/text.js';
+import { sanitizeFilename } from '../core/TextUtils.js';
 import { BaseExporter } from './BaseExporter.js';
 
 /**

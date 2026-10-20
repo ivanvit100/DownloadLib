@@ -1,15 +1,17 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 
-vi.mock('../../core/BrowserApi.js', async () => (await import('../helpers/globalBridge.js')).globalBridge('extensionApi'));
-vi.mock('../../core/TabNetwork.js', async () => (await import('../helpers/globalBridge.js'))
-    .globalBridge('fetchViaTab', 'NoServiceTabError'));
-vi.mock('../../core/EventBus.js', async () => (await import('../helpers/globalBridge.js')).globalBridge('EventBus'));
-vi.mock('../../core/ImageCompressor.js', async () => (await import('../helpers/globalBridge.js')).globalBridge('ImageCompressor'));
-vi.mock('../../core/MangaPatcher.js', async () => (await import('../helpers/globalBridge.js')).globalBridge('MangaPatcher'));
-vi.mock('../../core/PluginManager.js', async () => (await import('../helpers/globalBridge.js')).globalBridge('PluginManager'));
-vi.mock('../../core/RateLimitClient.js', async () => (await import('../helpers/globalBridge.js')).globalBridge('RateLimitClient'));
-vi.mock('../../exporters/ExporterRegistry.js', async () => (await import('../helpers/globalBridge.js')).globalBridge('ExporterRegistry'));
-vi.mock('../../services/ServiceRegistry.js', async () => (await import('../helpers/globalBridge.js')).globalBridge('serviceRegistry'));
+const mocks = vi.hoisted(() => ({}));
+
+vi.mock('../../core/BrowserApi.js', async () => (await import('../helpers/ModuleMock.js')).mockExports(mocks, 'extensionApi'));
+vi.mock('../../core/TabNetwork.js', async () => (await import('../helpers/ModuleMock.js'))
+    .mockExports(mocks, 'fetchViaTab', 'NoServiceTabError'));
+vi.mock('../../core/EventBus.js', async () => (await import('../helpers/ModuleMock.js')).mockExports(mocks, 'EventBus'));
+vi.mock('../../core/ImageCompressor.js', async () => (await import('../helpers/ModuleMock.js')).mockExports(mocks, 'ImageCompressor'));
+vi.mock('../../core/MangaPatcher.js', async () => (await import('../helpers/ModuleMock.js')).mockExports(mocks, 'MangaPatcher'));
+vi.mock('../../core/PluginManager.js', async () => (await import('../helpers/ModuleMock.js')).mockExports(mocks, 'PluginManager'));
+vi.mock('../../core/RateLimitClient.js', async () => (await import('../helpers/ModuleMock.js')).mockExports(mocks, 'RateLimitClient'));
+vi.mock('../../exporters/ExporterRegistry.js', async () => (await import('../helpers/ModuleMock.js')).mockExports(mocks, 'ExporterRegistry'));
+vi.mock('../../services/ServiceRegistry.js', async () => (await import('../helpers/ModuleMock.js')).mockExports(mocks, 'serviceRegistry'));
 
 let DownloadManager, safeFilename, DEFERRED_SETTINGS, BaseService;
 let globalMock, eventBusMock, exporterMock, serviceMock, downloadsMock, exported;
@@ -79,11 +81,11 @@ beforeEach(async () => {
         createService: vi.fn(key => key === 'ranobelib' ? asService({ ...serviceMock, name: 'ranobelib' }) : serviceMock)
     };
 
-    globalThis.EventBus = globalMock.EventBus;
-    globalThis.ExporterRegistry = globalMock.ExporterRegistry;
-    globalThis.MangaPatcher = globalMock.MangaPatcher;
-    globalThis.serviceRegistry = globalMock.serviceRegistry;
-    globalThis.extensionApi = { downloads: downloadsMock };
+    mocks.EventBus = globalMock.EventBus;
+    mocks.ExporterRegistry = globalMock.ExporterRegistry;
+    mocks.MangaPatcher = globalMock.MangaPatcher;
+    mocks.serviceRegistry = globalMock.serviceRegistry;
+    mocks.extensionApi = { downloads: downloadsMock };
 
     globalThis.document = {
         createElement: vi.fn(() => ({ href: '', download: '', click: vi.fn(), remove: vi.fn() })),
@@ -99,11 +101,11 @@ beforeEach(async () => {
         this.readAsDataURL = function () { setTimeout(() => this.onloadend && this.onloadend(), 0); };
     });
 
-    globalThis.fetchViaTab = vi.fn(async () => NO_TAB);
-    globalThis.NoServiceTabError = class NoServiceTabError extends Error {};
-    globalThis.PluginManager = { loadAll: vi.fn(async () => {}) };
-    globalThis.ImageCompressor = { compress: vi.fn(async (base64, contentType) => ({ base64, contentType })) };
-    globalThis.RateLimitClient = {
+    mocks.fetchViaTab = vi.fn(async () => NO_TAB);
+    mocks.NoServiceTabError = class NoServiceTabError extends Error {};
+    mocks.PluginManager = { loadAll: vi.fn(async () => {}) };
+    mocks.ImageCompressor = { compress: vi.fn(async (base64, contentType) => ({ base64, contentType })) };
+    mocks.RateLimitClient = {
         acquire: vi.fn(async () => {}),
         isHeldBack: vi.fn(() => false),
         throttle: vi.fn()
@@ -114,7 +116,7 @@ beforeEach(async () => {
 });
 
 afterEach(() => {
-    delete globalThis.extensionApi;
+    delete mocks.extensionApi;
 });
 
 describe('DownloadManager', () => {
@@ -299,7 +301,7 @@ describe('DownloadManager', () => {
 
         it('Fails clearly without the downloads API', async () => {
             const dm = new DownloadManager();
-            delete globalThis.extensionApi;
+            delete mocks.extensionApi;
             await expect(dm.saveFile(new Blob(['x']), 'a.fb2')).rejects.toThrow('Сохранение файла недоступно');
             expect(globalThis.URL.createObjectURL).not.toHaveBeenCalled();
         });
@@ -360,17 +362,17 @@ describe('DownloadManager', () => {
                 return { data: { content: [] } };
             })
         });
-        globalThis.serviceRegistry.createService = vi.fn(() => stoppingService);
+        mocks.serviceRegistry.createService = vi.fn(() => stoppingService);
         await dm.startDownload({ slug: 'slug', serviceKey: 'mangalib', format: 'fb2', controller });
         expect(stoppingService.fetchChapter).toHaveBeenCalledTimes(1);
-        expect(globalThis.fetchViaTab).not.toHaveBeenCalled();
+        expect(mocks.fetchViaTab).not.toHaveBeenCalled();
         expect(exporterMock.export).not.toHaveBeenCalled();
         expect(stoppingService.ctx).toBeNull();
     });
 
     it('Gives every download its own context and detaches the service afterwards', async () => {
         const dm = new DownloadManager();
-        globalThis.fetchViaTab = vi.fn(async () => ({ ok: true, status: 200, noTab: false, base64: 'x', contentType: 'image/jpeg' }));
+        mocks.fetchViaTab = vi.fn(async () => ({ ok: true, status: 200, noTab: false, base64: 'x', contentType: 'image/jpeg' }));
         const contexts = [];
         const nestedService = asService({
             ...serviceMock,
@@ -387,7 +389,7 @@ describe('DownloadManager', () => {
                 return { data: { content: [{ type: 'text', text: 'ok' }] } };
             })
         });
-        globalThis.serviceRegistry.createService = vi.fn(key => key === 'ranobelib' ? nestedService : outerService);
+        mocks.serviceRegistry.createService = vi.fn(key => key === 'ranobelib' ? nestedService : outerService);
         const result = await dm.startDownload({ slug: 'slug', serviceKey: 'mangalib', format: 'fb2' });
         expect(result.success).toBe(true);
         expect(contexts[0]).toBeTruthy();
@@ -395,6 +397,21 @@ describe('DownloadManager', () => {
         expect(outerService.ctx).toBeNull();
         expect(nestedService.ctx).toBeNull();
         expect(exporterMock.export).toHaveBeenCalled();
+    });
+
+    it('Leaves a service alone that was attached to another context during the download', async () => {
+        const dm = new DownloadManager();
+        const otherCtx = { checkpoint: async () => {} };
+        const service = asService({
+            ...serviceMock,
+            fetchChapter: vi.fn(async function () {
+                this.attach(otherCtx);
+                return { data: { content: [{ type: 'text', text: 'ok' }] } };
+            })
+        });
+        mocks.serviceRegistry.createService = vi.fn(() => service);
+        await dm.startDownload({ slug: 'slug', serviceKey: 'mangalib', format: 'fb2' });
+        expect(service.ctx).toBe(otherCtx);
     });
 
     it('Holds a finished image fetch until download is resumed', async () => {
@@ -409,7 +426,7 @@ describe('DownloadManager', () => {
                 while (paused) await new Promise(resolve => setTimeout(resolve, 5));
             }
         };
-        globalThis.fetchViaTab = vi.fn(async () => {
+        mocks.fetchViaTab = vi.fn(async () => {
             paused = true;
             resumed = false;
             setTimeout(() => { resumed = true; paused = false; }, 30);
@@ -425,14 +442,14 @@ describe('DownloadManager', () => {
                 return { data: { content: [{ type: 'text', text: 'ok' }] } };
             })
         });
-        globalThis.serviceRegistry.createService = vi.fn(() => pausingService);
+        mocks.serviceRegistry.createService = vi.fn(() => pausingService);
         await dm.startDownload({ slug: 'slug', serviceKey: 'mangalib', format: 'fb2', controller });
         expect(observedResumed.length).toBeGreaterThan(0);
         expect(observedResumed.every(Boolean)).toBe(true);
     });
 
     it('Start download with unknown service', async () => {
-        globalThis.serviceRegistry.createService = vi.fn(() => null);
+        mocks.serviceRegistry.createService = vi.fn(() => null);
         const dm = new DownloadManager();
         await expect(dm.startDownload({ serviceKey: 'unknown' })).rejects.toThrow('Unknown service: unknown');
     });
@@ -443,7 +460,7 @@ describe('DownloadManager', () => {
     });
 
     it('Start download for a site no service matches', async () => {
-        globalThis.serviceRegistry.findServiceKey = vi.fn(() => null);
+        mocks.serviceRegistry.findServiceKey = vi.fn(() => null);
         const dm = new DownloadManager();
         await expect(dm.startDownload({ url: 'https://site/manga/slug' })).rejects.toThrow('Unsupported service');
     });
@@ -451,15 +468,15 @@ describe('DownloadManager', () => {
     it('Creates its own service instance for a download started by URL', async () => {
         const dm = new DownloadManager();
         await dm.startDownload({ url: 'https://mangalib.me/ru/manga/slug', format: 'fb2' });
-        expect(globalThis.serviceRegistry.findServiceKey).toHaveBeenCalledWith('https://mangalib.me/ru/manga/slug');
-        expect(globalThis.serviceRegistry.createService).toHaveBeenCalledWith('mangalib');
-        expect(globalThis.serviceRegistry.getServiceByUrl).not.toHaveBeenCalled();
+        expect(mocks.serviceRegistry.findServiceKey).toHaveBeenCalledWith('https://mangalib.me/ru/manga/slug');
+        expect(mocks.serviceRegistry.createService).toHaveBeenCalledWith('mangalib');
+        expect(mocks.serviceRegistry.getServiceByUrl).not.toHaveBeenCalled();
     });
 
     it('Calls RanobeLib service via serviceRegistry.createService', async () => {
         const ranobeMock = asService({ name: 'ranobelib', fetchMangaMetadata: vi.fn(async () => ({ data: {} })), fetchChaptersList: vi.fn(async () => ({ data: [createChapter('1', '1')] })), fetchChapter: vi.fn(async () => ({ data: { content: [] } })), extractText: vi.fn(), processChapterContent: vi.fn() });
         const createServiceSpy = vi.fn(key => key === 'ranobelib' ? ranobeMock : null);
-        globalThis.serviceRegistry = { getServiceByUrl: vi.fn(() => null), createService: createServiceSpy };
+        mocks.serviceRegistry = { getServiceByUrl: vi.fn(() => null), createService: createServiceSpy };
 
         const dm = new DownloadManager();
         await dm.startDownload({ serviceKey: 'ranobelib', url: 'https://site/book/slug' });
@@ -477,7 +494,7 @@ describe('DownloadManager', () => {
             processChapterContent: vi.fn(async (content) => content)
         });
 
-        globalThis.serviceRegistry = { getServiceByUrl: vi.fn(() => serviceWithoutData), createService: vi.fn(() => serviceWithoutData) };
+        mocks.serviceRegistry = { getServiceByUrl: vi.fn(() => serviceWithoutData), createService: vi.fn(() => serviceWithoutData) };
 
         const dm = new DownloadManager();
 
@@ -487,7 +504,7 @@ describe('DownloadManager', () => {
     });
 
     it('Fetches cover for ranobelib service via fetchViaTab', async () => {
-        globalThis.fetchViaTab = vi.fn(async () => ({ ok: true, status: 200, noTab: false, contentType: 'image/jpeg', base64: 'abc123' }));
+        mocks.fetchViaTab = vi.fn(async () => ({ ok: true, status: 200, noTab: false, contentType: 'image/jpeg', base64: 'abc123' }));
 
         const ranobeMock = asService({
             name: 'ranobelib',
@@ -498,7 +515,7 @@ describe('DownloadManager', () => {
             extractText: vi.fn(),
             processChapterContent: vi.fn()
         });
-        globalThis.serviceRegistry = {
+        mocks.serviceRegistry = {
             getServiceByUrl: vi.fn(() => ranobeMock),
             createService: vi.fn(() => ranobeMock)
         };
@@ -506,7 +523,7 @@ describe('DownloadManager', () => {
         const dm = new DownloadManager();
         await dm.startDownload({ serviceKey: 'ranobelib', url: 'https://ranobelib.me/book/slug' });
 
-        expect(globalThis.fetchViaTab).toHaveBeenCalledWith('ranobe-cover', 'ranobelib', expect.any(Object));
+        expect(mocks.fetchViaTab).toHaveBeenCalledWith('ranobe-cover', 'ranobelib', expect.any(Object));
     });
 
     it('Catches and handles error in startDownload', async () => {
@@ -644,7 +661,7 @@ describe('DownloadManager', () => {
                 return { data: { content: [{ type: 'text', text: 'ok' }] } };
             })
         });
-        globalThis.serviceRegistry.createService = vi.fn(() => service);
+        mocks.serviceRegistry.createService = vi.fn(() => service);
 
         const { downloadId } = await dm.startDownload({ slug: 'slug', serviceKey: 'mangalib', format: 'fb2' });
 
@@ -661,7 +678,7 @@ describe('DownloadManager', () => {
                 return content;
             })
         });
-        globalThis.serviceRegistry.createService = vi.fn(() => service);
+        mocks.serviceRegistry.createService = vi.fn(() => service);
 
         const { downloadId } = await dm.startDownload({ slug: 'slug', serviceKey: 'mangalib', format: 'fb2' });
 
@@ -719,14 +736,14 @@ describe('DownloadManager', () => {
     });
 
     it('Throws Unknown service when createService returns null', async () => {
-        globalThis.serviceRegistry.createService = vi.fn(() => null);
+        mocks.serviceRegistry.createService = vi.fn(() => null);
         const dm = new DownloadManager();
         await expect(dm.startDownload({ serviceKey: 'nonexistent' })).rejects.toThrow('Unknown service: nonexistent');
     });
 
     it('_fetchCoverBase64 returns empty string when fetchViaTab throws', async () => {
         const dm = new DownloadManager();
-        globalThis.fetchViaTab = vi.fn(async () => { throw new Error('Network error'); });
+        mocks.fetchViaTab = vi.fn(async () => { throw new Error('Network error'); });
         const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
         const result = await dm._fetchCoverBase64(asService({ name: 'mangalib' }), 'https://cover.url');
         expect(result).toBe('');
@@ -737,33 +754,33 @@ describe('DownloadManager', () => {
     it('_resolveService gives the token to its own service instance', () => {
         const dm = new DownloadManager();
         const mockService = asService({ name: 'mangalib', config: { headers: {} } });
-        globalThis.serviceRegistry.createService = vi.fn(() => mockService);
+        mocks.serviceRegistry.createService = vi.fn(() => mockService);
         expect(dm._resolveService('mangalib', null, 'mytoken')).toBe(mockService);
         expect(mockService.config.headers['Authorization']).toBe('Bearer mytoken');
     });
 
     it('_createExporter skips plugin load when format is supported', async () => {
         const dm = new DownloadManager();
-        globalThis.PluginManager = { loadAll: vi.fn(async () => {}) };
+        mocks.PluginManager = { loadAll: vi.fn(async () => {}) };
         await dm._createExporter('fb2');
-        expect(globalThis.PluginManager.loadAll).not.toHaveBeenCalled();
-        expect(globalThis.ExporterRegistry.create).toHaveBeenCalledWith('fb2');
-        delete globalThis.PluginManager;
+        expect(mocks.PluginManager.loadAll).not.toHaveBeenCalled();
+        expect(mocks.ExporterRegistry.create).toHaveBeenCalledWith('fb2');
+        delete mocks.PluginManager;
     });
 
     it('_createExporter loads plugins when format is not supported', async () => {
         const dm = new DownloadManager();
-        globalThis.PluginManager = { loadAll: vi.fn(async () => {}) };
+        mocks.PluginManager = { loadAll: vi.fn(async () => {}) };
         await dm._createExporter('myplugin');
-        expect(globalThis.PluginManager.loadAll).toHaveBeenCalled();
-        expect(globalThis.ExporterRegistry.create).toHaveBeenCalledWith('myplugin');
-        delete globalThis.PluginManager;
+        expect(mocks.PluginManager.loadAll).toHaveBeenCalled();
+        expect(mocks.ExporterRegistry.create).toHaveBeenCalledWith('myplugin');
+        delete mocks.PluginManager;
     });
 
     it('_fetchCoverBase64 returns empty string and warns when fetchViaTab returns ok=false', async () => {
         const dm = new DownloadManager();
         const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
-        globalThis.fetchViaTab = vi.fn(async () => ({ ok: false, status: 404, noTab: false, error: 'HTTP 404' }));
+        mocks.fetchViaTab = vi.fn(async () => ({ ok: false, status: 404, noTab: false, error: 'HTTP 404' }));
         const result = await dm._fetchCoverBase64(asService({ name: 'mangalib' }), 'https://cover.url');
         expect(result).toBe('');
         expect(warnSpy).toHaveBeenCalledWith('[DownloadManager] Failed to load cover:', 'HTTP 404');
@@ -781,17 +798,17 @@ describe('DownloadManager', () => {
 
     it('_fetchCoverBase64 fits cover into imageFit via ImageCompressor', async () => {
         const dm = new DownloadManager();
-        globalThis.fetchViaTab = vi.fn(async () => ({ ok: true, contentType: 'image/png', base64: 'orig' }));
+        mocks.fetchViaTab = vi.fn(async () => ({ ok: true, contentType: 'image/png', base64: 'orig' }));
         const compress = vi.fn(async () => ({ base64: 'small', contentType: 'image/jpeg' }));
-        const prevCompressor = globalThis.ImageCompressor;
-        globalThis.ImageCompressor = { compress };
+        const prevCompressor = mocks.ImageCompressor;
+        mocks.ImageCompressor = { compress };
         try {
             const fit = { maxWidth: 560, maxHeight: 740 };
             const result = await dm._fetchCoverBase64(asService({ name: 'ranobelib' }), 'https://cover.url', fit);
             expect(compress).toHaveBeenCalledWith('orig', 'image/png', fit);
             expect(result).toBe('data:image/jpeg;base64,small');
         } finally {
-            globalThis.ImageCompressor = prevCompressor;
+            mocks.ImageCompressor = prevCompressor;
         }
     });
 
@@ -867,18 +884,18 @@ describe('DownloadManager', () => {
     describe('keep-alive port', () => {
         it('returns null and does not throw when runtime.connect is unavailable', () => {
             const dm = new DownloadManager();
-            globalThis.extensionApi = { runtime: {} };
+            mocks.extensionApi = { runtime: {} };
             expect(dm._startKeepAlive()).toBeNull();
-            delete globalThis.extensionApi;
+            delete mocks.extensionApi;
         });
 
         it('connects through the shared extension api', () => {
             const dm = new DownloadManager();
             const connect = vi.fn(() => ({ postMessage: vi.fn(), disconnect: vi.fn(), onDisconnect: { addListener: vi.fn() } }));
-            globalThis.extensionApi = { runtime: { connect } };
+            mocks.extensionApi = { runtime: { connect } };
             expect(dm._startKeepAlive()).not.toBeNull();
             expect(connect).toHaveBeenCalledWith({ name: 'downloadKeepAlive' });
-            delete globalThis.extensionApi;
+            delete mocks.extensionApi;
         });
 
         it('does not reconnect if stopped externally right before a pending reconnect fires', () => {
@@ -890,7 +907,7 @@ describe('DownloadManager', () => {
                 disconnect: vi.fn(),
                 onDisconnect: { addListener: (cb) => { disconnectHandler = cb; } }
             }));
-            globalThis.extensionApi = { runtime: { connect } };
+            mocks.extensionApi = { runtime: { connect } };
 
             const keepAlive = dm._startKeepAlive();
             disconnectHandler();
@@ -898,7 +915,7 @@ describe('DownloadManager', () => {
             vi.advanceTimersByTime(2000);
             expect(connect).toHaveBeenCalledTimes(1);
 
-            delete globalThis.extensionApi;
+            delete mocks.extensionApi;
             vi.useRealTimers();
         });
 
@@ -908,7 +925,7 @@ describe('DownloadManager', () => {
             const postMessage = vi.fn();
             const disconnect = vi.fn();
             const connect = vi.fn(() => ({ postMessage, disconnect, onDisconnect: { addListener: vi.fn() } }));
-            globalThis.extensionApi = { runtime: { connect } };
+            mocks.extensionApi = { runtime: { connect } };
 
             const keepAlive = dm._startKeepAlive();
             expect(connect).toHaveBeenCalledWith({ name: 'downloadKeepAlive' });
@@ -922,8 +939,20 @@ describe('DownloadManager', () => {
             vi.advanceTimersByTime(20000);
             expect(postMessage).toHaveBeenCalledTimes(1);
 
-            delete globalThis.extensionApi;
+            delete mocks.extensionApi;
             vi.useRealTimers();
+        });
+
+        it('stops quietly when the port is already disconnected', () => {
+            const dm = new DownloadManager();
+            const debug = vi.spyOn(console, 'debug').mockImplementation(() => {});
+            const gone = new Error('Attempting to use a disconnected port object');
+            const port = { postMessage: vi.fn(), disconnect: vi.fn(() => { throw gone; }), onDisconnect: { addListener: vi.fn() } };
+            mocks.extensionApi = { runtime: { connect: vi.fn(() => port) } };
+            const keepAlive = dm._startKeepAlive();
+            expect(() => dm._stopKeepAlive(keepAlive)).not.toThrow();
+            expect(debug).toHaveBeenCalledWith('[DownloadManager] Keep-alive port is already disconnected:', gone);
+            delete mocks.extensionApi;
         });
 
         it('stops pinging once postMessage starts throwing (port already gone)', () => {
@@ -931,7 +960,7 @@ describe('DownloadManager', () => {
             const dm = new DownloadManager();
             const postMessage = vi.fn(() => { throw new Error('port closed'); });
             const connect = vi.fn(() => ({ postMessage, disconnect: vi.fn(), onDisconnect: { addListener: vi.fn() } }));
-            globalThis.extensionApi = { runtime: { connect } };
+            mocks.extensionApi = { runtime: { connect } };
 
             dm._startKeepAlive();
             vi.advanceTimersByTime(20000);
@@ -940,14 +969,14 @@ describe('DownloadManager', () => {
             vi.advanceTimersByTime(20000);
             expect(postMessage).toHaveBeenCalledTimes(1);
 
-            delete globalThis.extensionApi;
+            delete mocks.extensionApi;
             vi.useRealTimers();
         });
 
         it('warns and returns a state without throwing when runtime.connect itself throws', () => {
             const dm = new DownloadManager();
             const connect = vi.fn(() => { throw new Error('connect failed'); });
-            globalThis.extensionApi = { runtime: { connect } };
+            mocks.extensionApi = { runtime: { connect } };
             const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
 
             const keepAlive = dm._startKeepAlive();
@@ -955,7 +984,7 @@ describe('DownloadManager', () => {
             expect(() => dm._stopKeepAlive(keepAlive)).not.toThrow();
 
             warnSpy.mockRestore();
-            delete globalThis.extensionApi;
+            delete mocks.extensionApi;
         });
 
         it('reconnects after the service worker force-restarts the port mid-download', () => {
@@ -967,7 +996,7 @@ describe('DownloadManager', () => {
                 disconnect: vi.fn(),
                 onDisconnect: { addListener: (cb) => { disconnectHandler = cb; } }
             }));
-            globalThis.extensionApi = { runtime: { connect } };
+            mocks.extensionApi = { runtime: { connect } };
 
             dm._startKeepAlive();
             expect(connect).toHaveBeenCalledTimes(1);
@@ -977,7 +1006,7 @@ describe('DownloadManager', () => {
             vi.advanceTimersByTime(2000);
             expect(connect).toHaveBeenCalledTimes(2);
 
-            delete globalThis.extensionApi;
+            delete mocks.extensionApi;
             vi.useRealTimers();
         });
 
@@ -990,7 +1019,7 @@ describe('DownloadManager', () => {
                 disconnect: vi.fn(),
                 onDisconnect: { addListener: (cb) => disconnectHandlers.push(cb) }
             }));
-            globalThis.extensionApi = { runtime: { connect } };
+            mocks.extensionApi = { runtime: { connect } };
 
             dm._startKeepAlive();
             disconnectHandlers[0]();
@@ -998,7 +1027,7 @@ describe('DownloadManager', () => {
             disconnectHandlers[0]();
             expect(connect).toHaveBeenCalledTimes(1);
 
-            delete globalThis.extensionApi;
+            delete mocks.extensionApi;
             vi.useRealTimers();
         });
 
@@ -1011,7 +1040,7 @@ describe('DownloadManager', () => {
                 disconnect: vi.fn(),
                 onDisconnect: { addListener: (cb) => { disconnectHandler = cb; } }
             }));
-            globalThis.extensionApi = { runtime: { connect } };
+            mocks.extensionApi = { runtime: { connect } };
 
             const keepAlive = dm._startKeepAlive();
             dm._stopKeepAlive(keepAlive);
@@ -1019,7 +1048,7 @@ describe('DownloadManager', () => {
             vi.advanceTimersByTime(5000);
             expect(connect).toHaveBeenCalledTimes(1);
 
-            delete globalThis.extensionApi;
+            delete mocks.extensionApi;
             vi.useRealTimers();
         });
     });
@@ -1030,7 +1059,7 @@ describe('DownloadManager', () => {
             let stopped = false;
             const controller = { isPaused: () => false, shouldStop: () => stopped, stop: vi.fn(), waitIfPaused: async () => {} };
             let sent = false;
-            globalThis.fetchViaTab = vi.fn(async (url, key, { beforeSend }) => {
+            mocks.fetchViaTab = vi.fn(async (url, key, { beforeSend }) => {
                 stopped = true;
                 await beforeSend();
                 sent = true;
@@ -1043,9 +1072,9 @@ describe('DownloadManager', () => {
                     return { data: { content: [] } };
                 })
             });
-            globalThis.serviceRegistry.createService = vi.fn(() => service);
+            mocks.serviceRegistry.createService = vi.fn(() => service);
             await dm.startDownload({ slug: 'slug', serviceKey: 'mangalib', format: 'fb2', controller });
-            expect(globalThis.fetchViaTab).toHaveBeenCalledTimes(1);
+            expect(mocks.fetchViaTab).toHaveBeenCalledTimes(1);
             expect(sent).toBe(false);
         });
     });
@@ -1082,7 +1111,7 @@ describe('DownloadManager', () => {
 
         afterEach(() => {
             Object.assign(settings, saved);
-            delete globalThis.RateLimitClient;
+            delete mocks.RateLimitClient;
             vi.restoreAllMocks();
         });
 
@@ -1094,7 +1123,7 @@ describe('DownloadManager', () => {
             };
             const useService = overrides => {
                 const service = asService({ ...serviceMock, ...overrides });
-                globalThis.serviceRegistry.createService = vi.fn(() => service);
+                mocks.serviceRegistry.createService = vi.fn(() => service);
                 return service;
             };
             const exportedChapters = (call = 0) => exported[call].chapters;
@@ -1286,7 +1315,7 @@ describe('DownloadManager', () => {
 
             it('loads the cover in background and saves without it if it never arrives', async () => {
                 const dm = new DownloadManager();
-                globalThis.fetchViaTab = vi.fn(never);
+                mocks.fetchViaTab = vi.fn(never);
                 useService({ fetchMangaMetadata: vi.fn(async () => ({ data: { cover: 'https://img.example.com/c.jpg' } })) });
                 await dm.startDownload({ slug: 'slug', serviceKey: 'mangalib', format: 'fb2' });
                 expect(exporterMock.export.mock.calls[0][2]).toBe('');
@@ -1295,14 +1324,14 @@ describe('DownloadManager', () => {
 
             it('uses the cover loaded in background for every saved file', async () => {
                 const dm = new DownloadManager();
-                globalThis.fetchViaTab = vi.fn(async () => ({ ok: true, base64: 'CV', contentType: 'image/png' }));
+                mocks.fetchViaTab = vi.fn(async () => ({ ok: true, base64: 'CV', contentType: 'image/png' }));
                 useService({
                     fetchMangaMetadata: vi.fn(async () => ({ data: { cover: 'https://img.example.com/c.jpg' } })),
                     fetchChaptersList: vi.fn(async () => ({ data: [createChapter('1', '1'), createChapter('2', '1')] }))
                 });
                 const res = await dm.startDownload({ slug: 'slug', serviceKey: 'mangalib', format: 'fb2' });
                 expect(exporterMock.export.mock.calls.map(c => c[2])).toEqual(['data:image/png;base64,CV', 'data:image/png;base64,CV']);
-                expect(globalThis.fetchViaTab).toHaveBeenCalledTimes(1);
+                expect(mocks.fetchViaTab).toHaveBeenCalledTimes(1);
                 expect(dm.activeDownloads.get(res.downloadId).coverBase64).toBe('data:image/png;base64,CV');
             });
 

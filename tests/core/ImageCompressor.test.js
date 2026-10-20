@@ -59,6 +59,12 @@ describe('ImageCompressor.process', () => {
         expect(bitmap.close).toHaveBeenCalled();
     });
 
+    it('Uses the requested format when the encoded Blob has no type', async () => {
+        stubCanvas({ blobType: '' });
+        const [part] = await ImageCompressor.process(btoa('raw'), 'image/png', { format: 'image/webp' });
+        expect(part.contentType).toBe('image/webp');
+    });
+
     it('Fills the background white for JPEG only', async () => {
         stubCanvas();
         await ImageCompressor.process(btoa('raw'), 'image/png');
@@ -122,7 +128,8 @@ describe('ImageCompressor.process', () => {
         stubCanvas({ decodeFails: true });
         const parts = await ImageCompressor.process('b3JpZw==', 'image/gif', { splitAspect: PAGE_ASPECT });
         expect(parts).toEqual([{ base64: 'b3JpZw==', contentType: 'image/gif' }]);
-        expect(console.warn).toHaveBeenCalledWith('[ImageCompressor] Failed to decode image, keeping original:', 'bad image');
+        expect(console.warn).toHaveBeenCalledWith('[ImageCompressor] Failed to decode image, keeping original:',
+            expect.objectContaining({ message: 'bad image' }));
     });
 
     it('Does not need document', async () => {

@@ -9,21 +9,21 @@
 
 import { AuthManager } from '../core/AuthManager.js';
 import { browserEnv, extensionApi } from '../core/BrowserApi.js';
+import { createLogger } from '../core/ConsoleLogger.js';
 import { createController } from '../core/DownloadContext.js';
 import { DownloadHistory } from '../core/DownloadHistory.js';
 import { DownloadManager } from '../core/DownloadManager.js';
-import { createLogger } from '../core/logger.js';
 import { MangaPatcher } from '../core/MangaPatcher.js';
-import { MSG } from '../core/messages.js';
+import { MSG } from '../core/MessageTypes.js';
 import { PluginManager } from '../core/PluginManager.js';
 import { DEFAULT_RATE_LIMIT } from '../core/RateLimiter.js';
 import { RateLimitClient } from '../core/RateLimitClient.js';
 import { fetchViaTab, setServiceTab } from '../core/TabNetwork.js';
 import { ExporterRegistry } from '../exporters/ExporterRegistry.js';
-import { extractSlug } from '../services/hosts.js';
+import { extractSlug } from '../services/ServiceHosts.js';
 import { serviceRegistry } from '../services/ServiceRegistry.js';
 import { ChapterController } from './ChapterController.js';
-import { $el, createEl, setDisplay } from './dom.js';
+import { $el, createEl, setDisplay } from './DomUtils.js';
 import { HistoryController } from './HistoryController.js';
 import { SettingsController } from './SettingsController.js';
 import { TemplateLoader } from './TemplateLoader.js';

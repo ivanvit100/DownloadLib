@@ -7,7 +7,7 @@
  * @version 1.1.0
  */
 
-import { createLogger } from '../../core/logger.js';
+import { createLogger } from '../../core/ConsoleLogger.js';
 import { CdnLibsService } from '../CdnLibsService.js';
 import { mangalibConfig } from './config.js';
 

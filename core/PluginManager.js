@@ -8,12 +8,12 @@
  */
 
 import { browserEnv, extensionApi } from './BrowserApi.js';
-import { createLogger } from './logger.js';
-import { MSG } from './messages.js';
+import { createLogger } from './ConsoleLogger.js';
+import { MSG } from './MessageTypes.js';
 import { BaseExporter } from '../exporters/BaseExporter.js';
 import { ExporterRegistry } from '../exporters/ExporterRegistry.js';
 import { CdnLibsService } from '../services/CdnLibsService.js';
-import { matchesHosts } from '../services/hosts.js';
+import { matchesHosts } from '../services/ServiceHosts.js';
 import { serviceRegistry } from '../services/ServiceRegistry.js';
 
 const log = createLogger('PluginManager');

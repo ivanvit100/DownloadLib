@@ -9,7 +9,7 @@
  */
 
 import { BaseExporter } from './BaseExporter.js';
-import { base64ToBytes } from '../core/encoding.js';
+import { base64ToBytes } from '../core/Base64Codec.js';
 
 /**
  * Накопительный бинарный писатель: собирает бинарные структуры формата MOBI

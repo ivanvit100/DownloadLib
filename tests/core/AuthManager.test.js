@@ -201,6 +201,12 @@ describe('AuthManager getToken — executeScript inner func (JWT extraction)', (
         expect(capturedFunc()).toBeNull();
     });
 
+    it('rejects a JWT whose payload is not readable JSON', () => {
+        const brokenPayload = btoa('{"exp":').replace(/=+$/, '');
+        localStorage.setItem('token', `${base64url({ alg: 'HS256' })}.${brokenPayload}.signature`);
+        expect(capturedFunc()).toBeNull();
+    });
+
     it('returns null for non-JWT plain string', () => {
         localStorage.setItem('plain', 'just-a-string');
         expect(capturedFunc()).toBeNull();

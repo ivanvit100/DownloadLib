@@ -1,14 +1,16 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 
-vi.mock('../../core/BrowserApi.js', async () => (await import('../helpers/globalBridge.js'))
-    .globalBridge('extensionApi', 'browserEnv'));
-vi.mock('../../core/TabNetwork.js', async () => (await import('../helpers/globalBridge.js')).globalBridge('NoServiceTabError'));
-vi.mock('../../core/ImageCompressor.js', async () => (await import('../helpers/globalBridge.js'))
-    .globalBridge('ImageCompressor', 'PAGE_ASPECT'));
-vi.mock('../../exporters/BaseExporter.js', async () => (await import('../helpers/globalBridge.js')).globalBridge('BaseExporter'));
-vi.mock('../../exporters/ExporterRegistry.js', async () => (await import('../helpers/globalBridge.js')).globalBridge('ExporterRegistry'));
-vi.mock('../../services/BaseService.js', async () => (await import('../helpers/globalBridge.js')).globalBridge('BaseService'));
-vi.mock('../../services/ServiceRegistry.js', async () => (await import('../helpers/globalBridge.js')).globalBridge('serviceRegistry'));
+const mocks = vi.hoisted(() => ({}));
+
+vi.mock('../../core/BrowserApi.js', async () => (await import('../helpers/ModuleMock.js'))
+    .mockExports(mocks, 'extensionApi', 'browserEnv'));
+vi.mock('../../core/TabNetwork.js', async () => (await import('../helpers/ModuleMock.js')).mockExports(mocks, 'NoServiceTabError'));
+vi.mock('../../core/ImageCompressor.js', async () => (await import('../helpers/ModuleMock.js'))
+    .mockExports(mocks, 'ImageCompressor', 'PAGE_ASPECT'));
+vi.mock('../../exporters/BaseExporter.js', async () => (await import('../helpers/ModuleMock.js')).mockExports(mocks, 'BaseExporter'));
+vi.mock('../../exporters/ExporterRegistry.js', async () => (await import('../helpers/ModuleMock.js')).mockExports(mocks, 'ExporterRegistry'));
+vi.mock('../../services/BaseService.js', async () => (await import('../helpers/ModuleMock.js')).mockExports(mocks, 'BaseService'));
+vi.mock('../../services/ServiceRegistry.js', async () => (await import('../helpers/ModuleMock.js')).mockExports(mocks, 'serviceRegistry'));
 
 let PluginManager;
 
@@ -25,14 +27,14 @@ async function loadModule() {
 // Vite фиксирует базовый класс `extends` при загрузке модуля,
 // поэтому заглушки BaseService/BaseExporter задаются до импорта.
 beforeEach(async () => {
-    delete globalThis.extensionApi;
-    globalThis.BaseService = MockBaseService;
-    globalThis.BaseExporter = class {};
-    delete globalThis.ExporterRegistry;
-    delete globalThis.serviceRegistry;
-    globalThis.browserEnv = { isFirefox: false };
-    globalThis.NoServiceTabError = class NoServiceTabError extends Error {};
-    globalThis.ImageCompressor = { compress: vi.fn(async (base64, contentType) => ({ base64, contentType })) };
+    delete mocks.extensionApi;
+    mocks.BaseService = MockBaseService;
+    mocks.BaseExporter = class {};
+    delete mocks.ExporterRegistry;
+    delete mocks.serviceRegistry;
+    mocks.browserEnv = { isFirefox: false };
+    mocks.NoServiceTabError = class NoServiceTabError extends Error {};
+    mocks.ImageCompressor = { compress: vi.fn(async (base64, contentType) => ({ base64, contentType })) };
     await loadModule();
 });
 
@@ -108,18 +110,18 @@ describe('list() / _storageGet', () => {
     });
 
     it('reads plugins from storage.local of the extension api', async () => {
-        globalThis.extensionApi = { storage: { local: { get: vi.fn().mockResolvedValue({ custom_plugins: [{ id: '2' }] }) } } };
+        mocks.extensionApi = { storage: { local: { get: vi.fn().mockResolvedValue({ custom_plugins: [{ id: '2' }] }) } } };
         expect(await PluginManager.list()).toEqual([{ id: '2' }]);
     });
 
     it('returns [] when storage.local.get result has no custom_plugins key', async () => {
-        globalThis.extensionApi = { storage: { local: { get: vi.fn().mockResolvedValue({}) } } };
+        mocks.extensionApi = { storage: { local: { get: vi.fn().mockResolvedValue({}) } } };
         expect(await PluginManager.list()).toEqual([]);
     });
 
     it('returns [] and warns when storage.local.get throws', async () => {
         const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
-        globalThis.extensionApi = { storage: { local: { get: vi.fn().mockRejectedValue(new Error('fail')) } } };
+        mocks.extensionApi = { storage: { local: { get: vi.fn().mockRejectedValue(new Error('fail')) } } };
         expect(await PluginManager.list()).toEqual([]);
         expect(warn).toHaveBeenCalled();
         warn.mockRestore();
@@ -131,7 +133,7 @@ describe('save() — format branch', () => {
     beforeEach(() => {
         mockGet = vi.fn().mockResolvedValue({});
         mockSet = vi.fn().mockResolvedValue();
-        globalThis.extensionApi = { storage: { local: { get: mockGet, set: mockSet } } };
+        mocks.extensionApi = { storage: { local: { get: mockGet, set: mockSet } } };
     });
 
     it('extracts format metadata and stores plugin', async () => {
@@ -251,7 +253,7 @@ describe('remove()', () => {
     beforeEach(() => {
         mockGet = vi.fn().mockResolvedValue({ custom_plugins: [{ id: 'a' }, { id: 'b' }] });
         mockSet = vi.fn().mockResolvedValue();
-        globalThis.extensionApi = { storage: { local: { get: mockGet, set: mockSet } } };
+        mocks.extensionApi = { storage: { local: { get: mockGet, set: mockSet } } };
     });
 
     it('removes plugin with matching id', async () => {
@@ -265,7 +267,7 @@ describe('remove()', () => {
     });
 
     it('_storageSet returns early when no api.storage.local', async () => {
-        globalThis.extensionApi = { runtime: {} };
+        mocks.extensionApi = { runtime: {} };
         await PluginManager.remove('a');
         expect(mockSet).not.toHaveBeenCalled();
     });
@@ -276,7 +278,7 @@ describe('toggle()', () => {
     beforeEach(() => {
         mockGet = vi.fn().mockResolvedValue({ custom_plugins: [{ id: 'a', enabled: true }] });
         mockSet = vi.fn().mockResolvedValue();
-        globalThis.extensionApi = { storage: { local: { get: mockGet, set: mockSet } } };
+        mocks.extensionApi = { storage: { local: { get: mockGet, set: mockSet } } };
     });
 
     it('sets enabled=false when toggled off', async () => {
@@ -292,7 +294,7 @@ describe('toggle()', () => {
 
 describe('getFormats()', () => {
     it('returns enabled format plugins as {value, label}', async () => {
-        globalThis.extensionApi = {
+        mocks.extensionApi = {
             storage: { local: { get: vi.fn().mockResolvedValue({ custom_plugins: [
                 { format: 'fb2', label: 'FB2', enabled: true },
                 { format: 'epub', enabled: false },
@@ -304,7 +306,7 @@ describe('getFormats()', () => {
     });
 
     it('uses format.toUpperCase() as label when label absent', async () => {
-        globalThis.extensionApi = {
+        mocks.extensionApi = {
             storage: { local: { get: vi.fn().mockResolvedValue({ custom_plugins: [{ format: 'pdf' }] }) } }
         };
         const fmts = await PluginManager.getFormats();
@@ -422,37 +424,37 @@ describe('_loadViaSW()', () => {
     it('registers sandbox proxy when injectScript/blob fail for a format plugin', async () => {
         makeScriptInjector(false);
         const mockRegister = vi.fn();
-        globalThis.BaseExporter = class { };
-        globalThis.ExporterRegistry = { register: mockRegister };
+        mocks.BaseExporter = class { };
+        mocks.ExporterRegistry = { register: mockRegister };
         await PluginManager._loadViaSW(api, { format: 'fb2', code: 'x', label: 'FB2' });
         expect(mockRegister).toHaveBeenCalledWith('fb2', expect.any(Function), { label: 'FB2' });
-        delete globalThis.BaseExporter;
-        delete globalThis.ExporterRegistry;
+        delete mocks.BaseExporter;
+        delete mocks.ExporterRegistry;
     });
 
     it('uses format.toUpperCase() as label for sandbox proxy when label absent', async () => {
         makeScriptInjector(false);
         const mockRegister = vi.fn();
-        globalThis.BaseExporter = class { };
-        globalThis.ExporterRegistry = { register: mockRegister };
+        mocks.BaseExporter = class { };
+        mocks.ExporterRegistry = { register: mockRegister };
         await PluginManager._loadViaSW(api, { format: 'fb2', code: 'x' });
         expect(mockRegister).toHaveBeenCalledWith('fb2', expect.any(Function), { label: 'FB2' });
-        delete globalThis.BaseExporter;
-        delete globalThis.ExporterRegistry;
+        delete mocks.BaseExporter;
+        delete mocks.ExporterRegistry;
     });
 });
 
 function setupBaseService() {
     let capturedClass;
-    globalThis.serviceRegistry = { register: cls => { capturedClass = cls; } };
+    mocks.serviceRegistry = { register: cls => { capturedClass = cls; } };
     return () => capturedClass;
 }
 
 describe('_loadServiceProxy()', () => {
     afterEach(() => {
-        delete globalThis.BaseService;
-        delete globalThis.serviceRegistry;
-        delete globalThis.ImageCompressor;
+        delete mocks.BaseService;
+        delete mocks.serviceRegistry;
+        delete mocks.ImageCompressor;
         vi.restoreAllMocks();
     });
 
@@ -628,7 +630,7 @@ describe('loadAll()', () => {
     let mockGet;
     beforeEach(() => {
         mockGet = vi.fn().mockResolvedValue({});
-        globalThis.extensionApi = {
+        mocks.extensionApi = {
             storage: { local: { get: mockGet } },
             runtime: { sendMessage: vi.fn().mockResolvedValue({ ok: true }) },
             tabs: { getCurrent: vi.fn().mockResolvedValue({ id: 5 }) }
@@ -652,7 +654,7 @@ describe('loadAll()', () => {
 
     it('logs error when no api.runtime.sendMessage', async () => {
         mockGet.mockResolvedValue({ custom_plugins: [{ format: 'fb2', enabled: true }] });
-        globalThis.extensionApi = { storage: { local: { get: mockGet } } };
+        mocks.extensionApi = { storage: { local: { get: mockGet } } };
         await PluginManager.loadAll();
         expect(console.error).toHaveBeenCalledWith(expect.stringContaining('No runtime.sendMessage'));
     });
@@ -666,7 +668,7 @@ describe('loadAll()', () => {
 
     it('warns and sets ownTabId=null when tabs.getCurrent throws', async () => {
         mockGet.mockResolvedValue({ custom_plugins: [{ format: 'fb2', enabled: true }] });
-        globalThis.extensionApi.tabs.getCurrent = vi.fn().mockRejectedValue(new Error('no tab'));
+        mocks.extensionApi.tabs.getCurrent = vi.fn().mockRejectedValue(new Error('no tab'));
         const loadViaSW = vi.spyOn(PluginManager, '_loadViaSW').mockResolvedValue();
         await PluginManager.loadAll();
         expect(console.warn).toHaveBeenCalledWith(expect.stringContaining('Failed to get current tab ID'), expect.any(Error));
@@ -675,7 +677,7 @@ describe('loadAll()', () => {
 
     it('skips scripting exec when ownTabId is null (tab.id absent)', async () => {
         mockGet.mockResolvedValue({ custom_plugins: [{ format: 'fb2', enabled: true }] });
-        globalThis.extensionApi.tabs.getCurrent = vi.fn().mockResolvedValue(null);
+        mocks.extensionApi.tabs.getCurrent = vi.fn().mockResolvedValue(null);
         const loadViaSW = vi.spyOn(PluginManager, '_loadViaSW').mockResolvedValue();
         const scriptingExec = vi.spyOn(PluginManager, '_tryScriptingExec');
         await PluginManager.loadAll();
@@ -752,9 +754,9 @@ describe('FormatSandboxProxy.export() + _createSandbox', () => {
         });
 
         const mockRegister = vi.fn((_fmt, Cls) => { CapturedProxy = Cls; });
-        globalThis.BaseExporter = class {};
-        globalThis.ExporterRegistry = { register: mockRegister };
-        globalThis.extensionApi = {
+        mocks.BaseExporter = class {};
+        mocks.ExporterRegistry = { register: mockRegister };
+        mocks.extensionApi = {
             runtime: {
                 sendMessage: vi.fn().mockResolvedValue({ ok: true }),
                 getURL: vi.fn(p => `chrome-extension://abc/${p}`)
@@ -765,12 +767,12 @@ describe('FormatSandboxProxy.export() + _createSandbox', () => {
             Promise.resolve().then(() => el.onerror?.());
         });
 
-        await PluginManager._loadViaSW(globalThis.extensionApi, { format: 'fb2', code: 'const x=1;', label: 'FB2' });
+        await PluginManager._loadViaSW(mocks.extensionApi, { format: 'fb2', code: 'const x=1;', label: 'FB2' });
     });
 
     afterEach(() => {
-        delete globalThis.BaseExporter;
-        delete globalThis.ExporterRegistry;
+        delete mocks.BaseExporter;
+        delete mocks.ExporterRegistry;
         vi.restoreAllMocks();
         vi.useRealTimers();
     });
@@ -784,8 +786,8 @@ describe('FormatSandboxProxy.export() + _createSandbox', () => {
     });
 
     it('_createSandbox: builds the Firefox iframe.srcdoc from sandbox.js of the extension', async () => {
-        globalThis.browserEnv = { isFirefox: true };
-        const sandboxCode = 'global.ExporterRegistry = {}; /* </script> */';
+        mocks.browserEnv = { isFirefox: true };
+        const sandboxCode = 'mocks.ExporterRegistry = {}; /* </script> */';
         vi.stubGlobal('fetch', vi.fn(async url => (url === 'chrome-extension://abc/sandbox.js'
             ? { ok: true, status: 200, text: async () => sandboxCode }
             : { ok: false, status: 404 })));
@@ -794,22 +796,22 @@ describe('FormatSandboxProxy.export() + _createSandbox', () => {
         expect(result.filename).toBe('out.fb2');
         expect(fetch).toHaveBeenCalledWith('chrome-extension://abc/sandbox.js');
         expect(fakeIframe.srcdoc).toBe(
-            '<!DOCTYPE html><html><body><script>global.ExporterRegistry = {}; /* <\\/script> */</script></body></html>');
+            '<!DOCTYPE html><html><body><script>mocks.ExporterRegistry = {}; /* <\\/script> */</script></body></html>');
         vi.unstubAllGlobals();
-        delete globalThis.browserEnv;
+        delete mocks.browserEnv;
     });
 
     it('_createSandbox: fails when sandbox.js cannot be read in Firefox', async () => {
-        globalThis.browserEnv = { isFirefox: true };
+        mocks.browserEnv = { isFirefox: true };
         vi.stubGlobal('fetch', vi.fn(async () => ({ ok: false, status: 404 })));
         const inst = new CapturedProxy();
         await expect(inst.export({}, [], null)).rejects.toThrow('Failed to load sandbox.js: HTTP 404');
         vi.unstubAllGlobals();
-        delete globalThis.browserEnv;
+        delete mocks.browserEnv;
     });
 
     it('export() calls sandbox.exec(jsZipCode) when runtimeApi.getURL and fetch succeed', async () => {
-        globalThis.extensionApi.runtime.getURL = vi.fn(() => 'chrome-ext://abc/lib/jszip.min.js');
+        mocks.extensionApi.runtime.getURL = vi.fn(() => 'chrome-ext://abc/lib/jszip.min.js');
         globalThis.fetch = vi.fn().mockResolvedValue({ ok: true, text: async () => 'jszip-code' });
         const execCalls = [];
         fakeContentWindow.postMessage.mockImplementation(msg => {
@@ -848,7 +850,7 @@ describe('FormatSandboxProxy.export() + _createSandbox', () => {
     });
 
     it('export() covers resp.ok=false branch (jszip not loaded)', async () => {
-        globalThis.extensionApi.runtime.getURL = vi.fn(() => 'chrome-ext://abc/lib/jszip.min.js');
+        mocks.extensionApi.runtime.getURL = vi.fn(() => 'chrome-ext://abc/lib/jszip.min.js');
         globalThis.fetch = vi.fn().mockResolvedValue({ ok: false });
         const execCalls = [];
         fakeContentWindow.postMessage.mockImplementation(msg => {
@@ -869,19 +871,19 @@ describe('FormatSandboxProxy.export() + _createSandbox', () => {
     });
 
     it('export() fails clearly without runtime.getURL and fetches nothing', async () => {
-        globalThis.browserEnv = { isFirefox: true };
-        globalThis.extensionApi = { runtime: { sendMessage: vi.fn().mockResolvedValue({ ok: true }) } };
+        mocks.browserEnv = { isFirefox: true };
+        mocks.extensionApi = { runtime: { sendMessage: vi.fn().mockResolvedValue({ ok: true }) } };
         const fetchSpy = vi.fn();
         vi.stubGlobal('fetch', fetchSpy);
         const inst = new CapturedProxy();
         await expect(inst.export({}, [], null)).rejects.toThrow('Cannot resolve sandbox URL');
         expect(fetchSpy).not.toHaveBeenCalled();
         vi.unstubAllGlobals();
-        delete globalThis.browserEnv;
+        delete mocks.browserEnv;
     });
 
     it('export() covers fetch throw branch', async () => {
-        globalThis.extensionApi.runtime.getURL = vi.fn(() => 'chrome-ext://abc/lib/jszip.min.js');
+        mocks.extensionApi.runtime.getURL = vi.fn(() => 'chrome-ext://abc/lib/jszip.min.js');
         globalThis.fetch = vi.fn().mockRejectedValue(new Error('network'));
         const inst = new CapturedProxy();
         await inst.export({}, [], null);
@@ -1015,11 +1017,11 @@ describe('FormatSandboxProxy.export() + _createSandbox', () => {
     });
 
     it('_createSandbox: rejects when sandbox URL cannot be resolved', async () => {
-        const origGetURL = globalThis.extensionApi.runtime.getURL;
-        globalThis.extensionApi.runtime.getURL = vi.fn(() => undefined);
+        const origGetURL = mocks.extensionApi.runtime.getURL;
+        mocks.extensionApi.runtime.getURL = vi.fn(() => undefined);
         const inst = new CapturedProxy();
         await expect(inst.export({}, [], null)).rejects.toThrow('Cannot resolve sandbox URL');
-        globalThis.extensionApi.runtime.getURL = origGetURL;
+        mocks.extensionApi.runtime.getURL = origGetURL;
     });
 
     it('destroy() removes message listener and removes iframe', async () => {

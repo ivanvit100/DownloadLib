@@ -7,8 +7,8 @@
  * @version 1.1.0
  */
 
-import { chapterKey } from './chapters.js';
-import { createLogger } from './logger.js';
+import { chapterKey } from './ChapterList.js';
+import { createLogger } from './ConsoleLogger.js';
 
 const log = createLogger('DeferredQueue');
 

@@ -8,9 +8,9 @@
  */
 
 import { extensionApi } from './BrowserApi.js';
-import { createLogger } from './logger.js';
+import { createLogger } from './ConsoleLogger.js';
 import { RateLimitClient } from './RateLimitClient.js';
-import { tabPatterns } from '../services/hosts.js';
+import { tabPatterns } from '../services/ServiceHosts.js';
 
 const log = createLogger('TabNetwork');
 
@@ -198,7 +198,7 @@ async function runInTab(url, init, mode, serviceKey, beforeSend) {
                     continue;
                 }
             }
-            log.warn('executeScript failed:', e?.message || e);
+            log.warn('executeScript failed:', e);
             return { ok: false, status: 0, noTab: false, error: String(e?.message || e) };
         }
     }

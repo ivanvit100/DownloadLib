@@ -8,10 +8,10 @@
  */
 
 import { BaseService } from '../BaseService.js';
+import { createLogger } from '../../core/ConsoleLogger.js';
 import { ImageCompressor } from '../../core/ImageCompressor.js';
-import { createLogger } from '../../core/logger.js';
 import { NoServiceTabError } from '../../core/TabNetwork.js';
-import { decodeEntities, escapeHtml } from '../../core/text.js';
+import { decodeEntities, escapeHtml } from '../../core/TextUtils.js';
 import { ranobelibConfig } from './config.js';
 
 const log = createLogger('RanobeLibService');
@@ -40,7 +40,7 @@ export class RanobeLibService extends BaseService {
     /**
      * Удаляет HTML-разметку из строки, превращая её в чистый текст: заменяет
      * &lt;br&gt;/&lt;/p&gt; переносами строк, вырезает остальные теги и декодирует
-     * основные HTML-сущности (&amp;amp; — последней, см. text.decodeEntities).
+     * основные HTML-сущности (&amp;amp; — последней, см. TextUtils.decodeEntities).
      * @param {?string} str - Исходная HTML-строка.
      * @returns {string} Очищенный текст, либо пустая строка для falsy-значений.
      */

@@ -8,8 +8,8 @@
  */
 
 import { extensionApi } from './BrowserApi.js';
-import { createLogger } from './logger.js';
-import { MSG } from './messages.js';
+import { createLogger } from './ConsoleLogger.js';
+import { MSG } from './MessageTypes.js';
 
 const log = createLogger('AuthManager');
 

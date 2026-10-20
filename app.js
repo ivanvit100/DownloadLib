@@ -8,13 +8,13 @@
  * @version 1.1.0
  */
 
-import './core/pluginApi.js';
-import './services/index.js';
-import './exporters/index.js';
+import './core/PluginApi.js';
+import './services/BuiltinServices.js';
+import './exporters/BuiltinExporters.js';
 import { extensionApi } from './core/BrowserApi.js';
-import { createLogger, watchLogLevel } from './core/logger.js';
+import { createLogger, watchLogLevel } from './core/ConsoleLogger.js';
 import { PluginManager } from './core/PluginManager.js';
-import { $el } from './ui/dom.js';
+import { $el } from './ui/DomUtils.js';
 import { PopupController } from './ui/PopupController.js';
 
 const log = createLogger('App');

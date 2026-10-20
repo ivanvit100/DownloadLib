@@ -14,7 +14,7 @@
 
 **Popup-контекст** (`popup.html`) — открывается браузером при клике на иконку расширения или в отдельном окне при запуске загрузки. Имеет доступ к DOM, может делать fetch, но не может напрямую перехватывать сетевые запросы.
 
-**Background-контекст** — для Firefox: `background/background.html`, для Chrome MV3: модульный service worker `background/service-worker.js`. Оба загружают один модуль `background/main.js`, который импортирует `RequestInterceptor` и `MessageRouter`. Фон тонкий: в нём живут общий ограничитель частоты запросов, хранилище токенов, захват токенов из запросов страниц сервиса, правила блокировки рекламы и маршрутизация сообщений. Экспортёры, JSZip, MangaPatcher и классы сервисов фон не загружает (это проверяет `tests/modules.test.js`).
+**Background-контекст** — для Firefox: `background/background.html`, для Chrome MV3: модульный service worker `background/service-worker.js`. Оба загружают один модуль `background/BackgroundMain.js`, который импортирует `RequestInterceptor` и `MessageRouter`. Фон тонкий: в нём живут общий ограничитель частоты запросов, хранилище токенов, захват токенов из запросов страниц сервиса, правила блокировки рекламы и маршрутизация сообщений. Экспортёры, JSZip, MangaPatcher и классы сервисов фон не загружает (это проверяет `tests/ModuleGraph.test.js`).
 
 **Content scripts** (`content/`) — два скрипта, исполняемых на страницах сайтов: `AdCleaner.js` и `DownloadButton.js`. В логике загрузки не участвуют.
 
@@ -26,8 +26,8 @@
 
 | Задача | Владелец |
 |---|---|
-| Ограничение частоты запросов к сервису для всех окон | фон, `background/rateLimitService.js`; окна обращаются через `core/RateLimitClient.js` |
-| Токены авторизации | фон, `background/tokenStore.js` (`storage.session`) |
+| Ограничение частоты запросов к сервису для всех окон | фон, `background/RateLimitService.js`; окна обращаются через `core/RateLimitClient.js` |
+| Токены авторизации | фон, `background/TokenStore.js` (`storage.session`) |
 | Сетевой запрос в контексте вкладки сервиса | `core/TabNetwork.js` (`fetchViaTab`, `requestViaTab`); перед каждым запросом — `RateLimitClient.acquire` |
 | Движок загрузки, экспорт, сохранение | окно загрузки (`DownloadManager`) |
 | Пауза, остановка, отложенные загрузки и колбэки одной загрузки | `core/DownloadContext.js`: свой контекст у каждой загрузки, сервис получает его через `service.attach(ctx)` |
@@ -35,11 +35,11 @@
 
 ### Сообщения
 
-Имена действий — константы `MSG` из `core/messages.js`, имя порта keep-alive — `PORT_KEEP_ALIVE`. Content scripts не импортируют модули, поэтому `DownloadButton.js` пишет строку `'openDownloadWindow'`. Её совпадение с `MSG.OPEN_DOWNLOAD_WINDOW` проверяет тест.
+Имена действий — константы `MSG` из `core/MessageTypes.js`, имя порта keep-alive — `PORT_KEEP_ALIVE`. Content scripts не импортируют модули, поэтому `DownloadButton.js` пишет строку `'openDownloadWindow'`. Её совпадение с `MSG.OPEN_DOWNLOAD_WINDOW` проверяет тест.
 
 | Действие | Отправитель | Что делает фон |
 |---|---|---|
-| `getAuthToken`, `cacheAuthToken`, `authInvalidate` | страницы расширения (`AuthManager`) | читает, сохраняет, удаляет токен сервиса в `tokenStore` |
+| `getAuthToken`, `cacheAuthToken`, `authInvalidate` | страницы расширения (`AuthManager`) | читает, сохраняет, удаляет токен сервиса в `TokenStore` |
 | `rateAcquire` `{serviceKey}` | страницы расширения (`RateLimitClient`) | отвечает `{ok: true}`, когда общий ограничитель разрешит запрос |
 | `rateThrottle` `{ms}` | страницы расширения (`RateLimitClient`) | блокирует запросы всех окон, отвечает `{ok: true, blockedUntil}` |
 | `openWindowWithUrl` `{url}` | страницы расширения | открывает окно расширения |
@@ -62,19 +62,19 @@
 - Сторонние `lib/jszip.min.js` и `lib/html2pdf.min.js`. Они подключаются в `popup.html` обычными `<script>`, модули обращаются к ним через `globalThis.JSZip` и `globalThis.html2pdf`.
 
 Точки входа:
-- `popup.html` → `app.js`. Это composition root попапа: импортирует `core/pluginApi.js`, `services/index.js`, `exporters/index.js`, затем вызывает `PluginManager.loadAll()` и создаёт `PopupController`.
-- `background/background.html` и `background/service-worker.js` → `background/main.js`.
+- `popup.html` → `app.js`. Это composition root попапа: импортирует `core/PluginApi.js`, `services/BuiltinServices.js`, `exporters/BuiltinExporters.js`, затем вызывает `PluginManager.loadAll()` и создаёт `PopupController`.
+- `background/background.html` и `background/service-worker.js` → `background/BackgroundMain.js`.
 
 ### Регистрация встроенных сервисов и экспортеров
 
-Классы сервисов и экспортеров сами себя не регистрируют. Это делают два index-модуля:
+Классы сервисов и экспортеров сами себя не регистрируют. Это делают два модуля регистрации встроенных классов:
 
 ```js
-// services/index.js
+// services/BuiltinServices.js
 serviceRegistry.register(MangaLibService);
 serviceRegistry.register(RanobeLibService);
 
-// exporters/index.js
+// exporters/BuiltinExporters.js
 ExporterRegistry.register('fb2', FB2Exporter, { label: 'FB2' });
 // … epub, mobi, pdf, simple
 ```
@@ -83,7 +83,7 @@ ExporterRegistry.register('fb2', FB2Exporter, { label: 'FB2' });
 
 ### API для плагинов
 
-Плагины остаются классическими скриптами и не могут импортировать модули расширения. Поэтому `core/pluginApi.js` публикует их API в `globalThis`. Это единственное место в расширении с намеренными глобалами. `app.js` импортирует его до `PluginManager.loadAll()`.
+Плагины остаются классическими скриптами и не могут импортировать модули расширения. Поэтому `core/PluginApi.js` публикует их API в `globalThis`. Это единственное место в расширении с намеренными глобалами. `app.js` импортирует его до `PluginManager.loadAll()`.
 
 - **Поддерживаемый API:** `BaseExporter`, `ExporterRegistry`, `BaseService`, `serviceRegistry`, а также `JSZip` и `html2pdf`. Последние два `popup.html` подключает обычными скриптами.
 - **Устаревшие, но поддерживаемые глобалы:** то, что было доступно плагинам до версии 1.1. Они не удаляются:
@@ -91,7 +91,7 @@ ExporterRegistry.register('fb2', FB2Exporter, { label: 'FB2' });
   - встроенные экспортеры и сервисы, их конфиги `mangalibConfig`, `ranolibConfig`;
   - функции: `fetchPageImage`, `loadImageOrDefer`, `NoServiceTabError`, `getExtensionApi`/`getBrowserEnv`/`extensionApi`/`browserEnv`, `fetchViaTab`/`requestViaTab`/`hasServiceTab`/`setServiceTab`. Они опубликованы обёртками: при изменениях внутри расширения правятся обёртки, а имена и формы результатов остаются прежними. Например, `fetchViaTab` для плагинов по-прежнему возвращает `{ok, base64, contentType}` или `null`, хотя `TabNetwork.fetchViaTab` при неудаче возвращает `{ok: false, error}`. `fetchPageImage(url, serviceKey)` загружает картинку через `TabNetwork` и возвращает `{ok, base64, contentType}` или `{ok: false, error}`, а без вкладки сервиса бросает `NoServiceTabError`. `loadImageOrDefer(label, load)` откладывает картинку в текущей загрузке (`DownloadContext.current`), а вне загрузки просто выполняет `load()`.
 
-Контракт плагинов (метаданные `@dl-*`, поля `@dl-service-config`, данные `export()`, публичные методы базовых классов, API песочницы, глобалы) проверяют тесты `tests/plugins/` на настоящих файлах из `plugins/`.
+Полностью то, на что могут опираться плагины, описано в разделе [«Контракт плагинов»](#контракт-плагинов).
 
 ### Маршрут данных при загрузке
 
@@ -99,14 +99,14 @@ ExporterRegistry.register('fb2', FB2Exporter, { label: 'FB2' });
 PopupController.loadMetadata()
     → serviceRegistry.findServiceKey(url) → createService(key)   [свой экземпляр сервиса]
     → AuthManager.apply(serviceKey, tabId, service)             [service.setAuthToken]
-        → runtime.sendMessage({ action: MSG.GET_AUTH_TOKEN })     [фон: tokenStore]
+        → runtime.sendMessage({ action: MSG.GET_AUTH_TOKEN })     [фон: TokenStore]
         ↓  если не найден:
         → scripting.executeScript(tabId, findTokenInPageStorage)  [localStorage/sessionStorage вкладки]
-        → runtime.sendMessage({ action: MSG.CACHE_AUTH_TOKEN })   [фон: tokenStore]
+        → runtime.sendMessage({ action: MSG.CACHE_AUTH_TOKEN })   [фон: TokenStore]
     → service.getManga(slug)               [BaseService: fetchMangaMetadata → _request → .data]
         → TabNetwork.requestViaTab(url, init, serviceKey)
             → RateLimitClient.acquire(serviceKey)
-                → runtime.sendMessage({ action: MSG.RATE_ACQUIRE })  [фон: rateLimitService]
+                → runtime.sendMessage({ action: MSG.RATE_ACQUIRE })  [фон: RateLimitService]
             → scripting.executeScript(tabId, tabFetch, 'text')    [вкладка сервиса]
     → MangaPatcher.patch(meta)             [core]
     → ChapterController.loadAndPopulate(service, slug, …)
@@ -117,7 +117,7 @@ PopupController.startDownload()                             [controller = create
     → DownloadManager.startDownload({chapters, chapterRange: {fromKey, toKey}, branchId, …})
         → serviceRegistry.createService(key), service.setAuthToken(token)
         → service.attach(new DownloadContext({controller, settings, onPageProgress, on429}))
-        → selectRange(filterByBranch(chapters, branchId), chapterRange)   [core/chapters.js]
+        → selectRange(filterByBranch(chapters, branchId), chapterRange)   [core/ChapterList.js]
         → service.fetchChapterBlocks(chapter, {slug, mangaId, splitLongImages, imageFit})
             → service.getChapter(slug, num, vol, branchId)
             → service.extractText(raw.content)
@@ -139,8 +139,61 @@ PopupController.startDownload()                             [controller = create
         → runtime.sendMessage({ action: MSG.RATE_THROTTLE, ms })  [фон: блокировка для всех окон]
 Ответ HTTP 401 (BaseService._request)
     → AuthManager.invalidate(serviceKey)
-        → runtime.sendMessage({ action: MSG.AUTH_INVALIDATE })    [фон: tokenStore]
+        → runtime.sendMessage({ action: MSG.AUTH_INVALIDATE })    [фон: TokenStore]
 ```
+
+---
+
+## Контракт плагинов
+
+Плагины пользователей должны работать без изменений во всех версиях 1.x. Ниже — всё, на что они могут опираться. Это **не меняется**: новое поведение добавляется новыми методами и полями рядом со старыми, старые имена остаются и делегируют к новым. Исправления ошибок допустимы, если не меняют сигнатуры и формы данных.
+
+Контракт проверяют тесты `tests/plugins/` на настоящих файлах из `plugins/`: CBZ-экспортёр, HLib-сервис, снимок поверхности API, данные `export()`, песочница. Эти тесты не подгоняются под изменения внутри расширения: их изменение означает изменение контракта.
+
+**1. Метаданные и хранение**
+- Теги в doc-комментарии плагина: `@dl-format`, `@dl-label` (плагин формата), `@dl-service`, `@dl-service-label`, `@dl-host` (плагин сервиса) и JSON-блок `@dl-service-config`.
+- Записи `custom_plugins` в `storage.local`, кэши `__dl_plugin_formats__` и `__dl_plugin_services__` в `localStorage`.
+- id content scripts плагинов `dl-plugin-<key>` и виртуальный путь кода `/plugin-runtime/<key>.js`.
+
+**2. Поля `@dl-service-config`** и их смысл: `name`, `baseUrl`, `imagesDomain`, `imageServers` (`{domain, label, compress}`), `defaultImageServer`, `siteId`, `fields`, `headers`, `imageHeaders`, `splitLongImages`, `maxImageHeight`, `label`, `siteUrl`, `primaryColor`, `secondaryColor`, `logo`. Поля встроенных конфигов `hosts`, `imageHosts`, `titleUrl`, `adBlock` для плагинов необязательны: хосты плагина берутся из `@dl-host`.
+
+**3. Загрузка кода плагина формата:** `plugin:exec` во вкладке расширения, `plugin:cache` + `/plugin-runtime/`, blob-модуль, в крайнем случае — песочница. Песочница (`sandbox.js`; в Firefox тот же текст встраивается в `srcdoc`) даёт заглушки `BaseService(config)`, `BaseExporter` с `escapeXml`/`escapeHtml`/`sanitizeText`/`stripHtml`/`extractText`, `ExporterRegistry.register` и протокол сообщений `sb-exec`/`sb-export`. Её API можно только расширять.
+
+**4. Публичная поверхность классов** — имена, сигнатуры и формы результатов:
+- `BaseExporter`: конструктор, `export`, `sanitizeText`, `escapeXml`, `escapeHtml`, `stripHtml`, `extractText`;
+- `ExporterRegistry`: `register(format, Class, meta)`, `create`, `getSupportedFormats`, `getFormats`;
+- `BaseService`:
+  - поля `config`, `name`, `baseUrl` и геттер `extensionApi`;
+  - запросы `fetchMangaMetadata(slug)`, `fetchChaptersList(slug)`, `fetchChapter(slug, number, volume, branchId, extraParams)` — возвращают разобранный JSON ответа (`{data: …}`). Расширение вызывает их через `getManga`/`getChapterList`/`getChapter`, поэтому переопределение в плагине учитывается;
+  - `extractPages`, `checkpoint`, `interruptibleDelay`, `delay`, `fetchWithRetry`, `fetchWithRateLimitRetry`, `loadPageAsBase64`, `blobToBase64`, `static matches`;
+- `ServiceRegistry` / `serviceRegistry`: `register`, `getServiceByUrl`, `getService`, `createService`, `getAllServices`;
+- `ImageCompressor.compress(base64, contentType, options)` → `{base64, contentType}`, `MangaPatcher.patch(raw)`.
+
+**5. Данные `export(manga, chapters, coverBase64)`**
+- `manga` — объект `MangaPatcher.patch` с прежними полями (`name` дополнен номером тома и части);
+- `chapters` — `[{title, content, volume, number}]`;
+- блоки `content` — `{type: 'text', text}` и `{type: 'image', id, data: {base64, contentType}, originalIndex?}`;
+- `coverBase64` — data-URL или `''`;
+- результат — `{blob, filename, mimeType}`.
+
+Новые поля только добавляются (так появились `key` у главы и `partIndex`/`totalParts` у частей разрезанной страницы), убирать и переименовывать нельзя. После того как промис `export()` разрешился и файл сохранён, расширение освобождает `content` глав пакета — экспортёр не должен рассчитывать на них после возврата.
+
+**6. Глобалы** (публикует `core/PluginApi.js`, см. [«API для плагинов»](#api-для-плагинов))
+- Поддерживаемый API: `BaseExporter`, `ExporterRegistry`, `BaseService`, `serviceRegistry`, а также `JSZip` и `html2pdf`.
+- Устаревшие, но поддерживаемые — **не будут удалены**:
+  - `ImageCompressor`, `MangaPatcher`, `EventBus`, `RateLimiter`, `globalRateLimiter`, `ServiceRegistry`;
+  - `FB2Exporter`, `EPUBExporter`, `MOBIExporter`, `PDFExporter`, `SimpleExporter`, `MangaLibService`, `RanobeLibService`;
+  - `mangalibConfig`, `ranolibConfig` (прежнее имя конфига RanobeLib);
+  - `fetchPageImage`, `loadImageOrDefer`, `NoServiceTabError`;
+  - `getExtensionApi`, `getBrowserEnv`, `extensionApi`, `browserEnv`;
+  - `fetchViaTab`, `requestViaTab`, `hasServiceTab`, `setServiceTab`.
+- В контракт **не входят**: внутреннее состояние приложения (UI-контроллеры, `DownloadManager`, `PluginManager`, `AuthManager`, `DownloadHistory`, `SafeStorage`, логгер) и runtime-сообщения фона, кроме `plugin:exec` и `plugin:cache`.
+
+**Изменения поведения в 1.1, видимые плагинам** (исправления без смены контракта):
+- `stripHtml` раскодирует `&amp;` последним (`&amp;lt;` → текст «&lt;»);
+- `BaseService.loadPageAsBase64` снова работает;
+- сервисные плагины учитывают `splitLongImages`/`maxImageHeight` и галочку «Разделять страницы» — длинные страницы режутся так же, как в MangaLib;
+- `EventBus.once` срабатывает ровно один раз, даже если колбэк бросил ошибку или повторно эмитит то же событие.
 
 ---
 
@@ -162,24 +215,24 @@ PopupController.startDownload()                             [controller = create
 Единственный сетевой слой расширения: все запросы к сервису (API, изображения, обложки) выполняются в контексте открытой вкладки сервиса. Браузер сам подставляет cookies, Referer и Origin сайта, подделывать заголовки не нужно.
 - `tabFetch(url, init, mode)` — одна функция, которую `scripting.executeScript` внедряет во вкладку. Она самодостаточна и не обращается ни к чему вне своего тела. Режим `'text'` возвращает `{ok, status, retryAfter, text}`, режим `'base64'` — `{ok, status, retryAfter, base64, contentType}`. Ошибки `fetch` и `FileReader` (`onerror`, `onabort`) превращаются в `{ok: false, status, error}`; `status: 0` означает, что ответа нет.
 - `requestViaTab(url, init, serviceKey, {beforeSend})` и `fetchViaTab(url, serviceKey, {init, beforeSend})` — тонкие обёртки. Перед каждым запросом они ждут `RateLimitClient.acquire(serviceKey)`, так что лимит действует на все запросы из любого окна. `beforeSend` вызывается после разрешения ограничителя, прямо перед отправкой; через него загрузка проверяет, не остановлена ли она. Результат всегда объект, а не `null`. Поле `noTab: true` означает, что вкладки сервиса нет и запрос не выполнялся.
-- Поиск вкладки: `setServiceTab(tabId)`, `hasServiceTab(serviceKey)`. Найденная вкладка запоминается на час. Шаблоны берутся из `hosts.tabPatterns`, для сервисных плагинов — по хостам из `custom_plugins`. Если запомненная вкладка закрыта, она забывается, и запрос один раз повторяется через другую открытую вкладку сервиса. Если вкладок больше нет, результат — `noTab`.
+- Поиск вкладки: `setServiceTab(tabId)`, `hasServiceTab(serviceKey)`. Найденная вкладка запоминается на час. Шаблоны берутся из `ServiceHosts.tabPatterns`, для сервисных плагинов — по хостам из `custom_plugins`. Если запомненная вкладка закрыта, она забывается, и запрос один раз повторяется через другую открытую вкладку сервиса. Если вкладок больше нет, результат — `noTab`.
 - `NoServiceTabError` — ошибка «нет открытой вкладки сервиса». Её бросают `BaseService` (`_request`, `fetchImage`) и устаревший глобал `fetchPageImage`, чтобы прервать операцию целиком, а не терять страницу за страницей.
 
 ---
 
-### `core/encoding.js`
+### `core/Base64Codec.js`
 
 Преобразования для кода, который не внедряется во вкладку: `blobToDataUrl(blob)`, `blobToBase64(blob)` (оба с обработкой `onerror`/`onabort` у `FileReader`) и `base64ToBytes(base64)`.
 
 ---
 
-### `core/text.js`
+### `core/TextUtils.js`
 
 Общие для сервисов и экспортёров функции: `escapeXml`, `escapeHtml`, `decodeEntities` (основные HTML-сущности, `&amp;` — последней, поэтому `&amp;lt;` превращается в текст «&lt;», а не в «<») и `sanitizeFilename` (запрещённые в именах файлов и управляющие символы → `_`, длина до 200). `BaseExporter`, `PDFExporter`, `SimpleExporter`, `RanobeLibService` и `DownloadManager.saveFile` делегируют сюда.
 
 ---
 
-### `core/chapters.js`
+### `core/ChapterList.js`
 
 Список глав и выбранный диапазон — одни и те же функции для попапа и загрузки:
 - `chapterKey(chapter)` — ключ главы: `id`, а без него `v{volume}_ch{number}`. Ключи — значения `<option>` диапазона и параметров `chapterFrom`/`chapterTo` окна загрузки, поэтому диапазон не зависит от порядка и фильтров списка.
@@ -226,18 +279,18 @@ PopupController.startDownload()                             [controller = create
 
 ---
 
-### `core/logger.js`
+### `core/ConsoleLogger.js`
 
 Логирование всех ES-модулей (контент-скрипты, `sandbox.js` и `sw.js` — классические скрипты и пишут в `console` напрямую).
 - `createLogger(scope)` → `{debug, info, warn, error}`. Сообщение выводится методом консоли своего уровня (`console.debug`/`info`/`warn`/`error`) с префиксом `[scope]`; если первый аргумент — строка, префикс становится её частью: `log.warn('Failed:', e)` → `console.warn('[Scope] Failed:', e)`. Сервисы пишут с префиксом своего имени (`createLogger(this.name)`).
-- Уровень берётся из `storage.local['downloadlib_log_level']` (`debug`, `info`, `warn`, `error`; по умолчанию `warn`). Его читает и отслеживает `watchLogLevel(extensionApi)` в точках входа (`app.js`, `background/main.js`), изменения применяются без перезапуска. Включить подробные логи: в DevTools страницы расширения выполнить `chrome.storage.local.set({downloadlib_log_level: 'debug'})` (в Firefox — `browser.storage.local.set(...)`).
+- Уровень берётся из `storage.local['downloadlib_log_level']` (`debug`, `info`, `warn`, `error`; по умолчанию `warn`). Его читает и отслеживает `watchLogLevel(extensionApi)` в точках входа (`app.js`, `background/BackgroundMain.js`), изменения применяются без перезапуска. Включить подробные логи: в DevTools страницы расширения выполнить `chrome.storage.local.set({downloadlib_log_level: 'debug'})` (в Firefox — `browser.storage.local.set(...)`).
 - Тесты запускаются с уровнем `debug` (переменная `DOWNLOADLIB_LOG_LEVEL` в `vitest.config.js`, читается через `import.meta.env`; в расширении её нет).
 - Уровни: `debug` — трассировка (создание экземпляров, URL запросов, метаданные, причины неудавшихся запасных путей); `info` — заметные события (старт загрузки, выбранные главы, загруженные плагины, фоновые догрузки); `warn` — сбои, которые расширение обходит; `error` — сбои, после которых операция не выполнена.
 - Ошибки не глотаются молча: пустые `catch {}` заменены на `log.debug(…, e)` (или `warn`, если пользователь что-то теряет — например, невалидный JSON `@dl-service-config`). Исключение — функции, внедряемые во вкладку (`tabFetch`, поиск токена): они самодостаточны и возвращают причину в результате.
 
 ---
 
-### `core/messages.js`
+### `core/MessageTypes.js`
 
 Протокол сообщений между окнами расширения, content scripts и фоном: замороженный объект `MSG` с именами действий и имя порта `PORT_KEEP_ALIVE`. Строки `plugin:cache` и `plugin:exec` входят в контракт плагинов и не меняются. Таблица действий — в разделе «Сообщения».
 
@@ -271,7 +324,7 @@ PopupController.startDownload()                             [controller = create
 
 `invalidate(serviceKey)` — просит фон удалить токен сервиса (`authInvalidate`), например после ответа 401.
 
-Токены хранит фон — `background/tokenStore.js`.
+Токены хранит фон — `background/TokenStore.js`.
 
 ---
 
@@ -289,7 +342,7 @@ PopupController.startDownload()                             [controller = create
 
 ### `core/RateLimiter.js`
 
-Класс `RateLimiter` — ограничитель со скользящим окном в одну минуту. Модуль также экспортирует ключ настройки `RATE_LIMIT_STORAGE_KEY`, лимит по умолчанию `DEFAULT_RATE_LIMIT` (85 в минуту) и `normalizeRateLimit(value)` (2..200, нечисловое значение — лимит по умолчанию). Общего экземпляра модуль не создаёт: единственный экземпляр живёт в `background/rateLimitService.js`.
+Класс `RateLimiter` — ограничитель со скользящим окном в одну минуту. Модуль также экспортирует ключ настройки `RATE_LIMIT_STORAGE_KEY`, лимит по умолчанию `DEFAULT_RATE_LIMIT` (85 в минуту) и `normalizeRateLimit(value)` (2..200, нечисловое значение — лимит по умолчанию). Общего экземпляра модуль не создаёт: единственный экземпляр живёт в `background/RateLimitService.js`.
 
 - `acquire(name)` / `trackRequest(name)` — промис, который разрешается, когда за последнюю минуту выдано меньше `limit` разрешений и нет блокировки. Ожидающие запросы стоят в очереди. Для всей очереди заводится один таймер — до момента, когда освободится ближайший слот.
 - `throttle(ms)` — блокирует выдачу разрешений до `now + ms`. Более раннюю блокировку продлевает, более позднюю не сокращает. Возвращает момент окончания блокировки.
@@ -330,7 +383,7 @@ PopupController.startDownload()                             [controller = create
 1. Создаёт свой экземпляр сервиса с токеном (`authToken`, его находит `AuthManager` попапа).
 2. Загружает метаданные → `MangaPatcher.patch()`.
 3. Загружает обложку в фоне.
-4. Берёт список глав, уже загруженный `ChapterController` (`chapters`), а без него — `service.fetchChapters(slug)`. Оставляет главы ветки `branchId` и диапазон по ключам (`core/chapters.js`). `branchId`, равный `NaN`, считается отсутствующим (с предупреждением). Если глава диапазона не найдена, начало позже конца или глав нет — ошибка с понятным текстом.
+4. Берёт список глав, уже загруженный `ChapterController` (`chapters`), а без него — `service.fetchChapters(slug)`. Оставляет главы ветки `branchId` и диапазон по ключам (`core/ChapterList.js`). `branchId`, равный `NaN`, считается отсутствующим (с предупреждением). Если глава диапазона не найдена, начало позже конца или глав нет — ошибка с понятным текстом.
 5. `downloadWithSizeLimit()` — итерирует главы, разбивая на части при смене тома и превышении `maxSizeMB`.
 
 **Одна глава** — `_loadChapter()` вызывает `service.fetchChapterBlocks(chapter, opts)` и добавляет к результату `title`, `volume`, `number` и `key` (ключ главы). Разворачивание ответа и вызовы `extractText`/`processChapterContent` живут только в `BaseService`.
@@ -341,7 +394,7 @@ PopupController.startDownload()                             [controller = create
 
 **`createController()`** — контроллер из `DownloadContext.createController()`: `{ pause(), resume(), stop(), isPaused(), shouldStop(), waitIfPaused(), whenStopped() }` с промисными `waitIfPaused()` и `whenStopped()` без опроса.
 
-**Сохранение файла.** `saveFile(blob, filename)` сохраняет через `downloads.download({url: blob-URL, filename, conflictAction: 'uniquify'})`. Имя очищает `safeFilename`: недопустимые символы — через `text.sanitizeFilename`, пробелы и точки по краям убираются, расширение сохраняется, пустое имя заменяется на `download`. Blob-URL освобождается по `downloads.onChanged` (`complete` или `interrupted`), а если событие не пришло — через 10 минут. Без downloads API сохранение завершается понятной ошибкой.
+**Сохранение файла.** `saveFile(blob, filename)` сохраняет через `downloads.download({url: blob-URL, filename, conflictAction: 'uniquify'})`. Имя очищает `safeFilename`: недопустимые символы — через `TextUtils.sanitizeFilename`, пробелы и точки по краям убираются, расширение сохраняется, пустое имя заменяется на `download`. Blob-URL освобождается по `downloads.onChanged` (`complete` или `interrupted`), а если событие не пришло — через 10 минут. Без downloads API сохранение завершается понятной ошибкой.
 
 **Память.** Готовые главы хранятся только в пакете текущего файла. После `export()` и сохранения файла `content` глав пакета обнуляется, а сам пакет очищается, поэтому изображения сохранённых томов не держатся в памяти до конца загрузки. Экспортёр получает данные прежней формы; обнуление происходит только после того, как его промис разрешился.
 
@@ -358,7 +411,7 @@ PopupController.startDownload()                             [controller = create
 
 ### `services/ServiceRegistry.js`
 
-Реестр сервисов. Экспортирует класс `ServiceRegistry` и общий экземпляр `serviceRegistry`. Сам ничего не подключает: встроенные сервисы регистрирует `services/index.js`, сервисы плагинов — `PluginManager`.
+Реестр сервисов. Экспортирует класс `ServiceRegistry` и общий экземпляр `serviceRegistry`. Сам ничего не подключает: встроенные сервисы регистрирует `services/BuiltinServices.js`, сервисы плагинов — `PluginManager`.
 
 Методы:
 - `register(ServiceClass)` — создаёт экземпляр, сохраняет `{ class, instance, matcher }`.
@@ -390,10 +443,10 @@ PopupController.startDownload()                             [controller = create
 - `fetchChapter(slug, number, volume, branchId, extraParams)` — `GET /api/manga/{slug}/chapter?number=...`.
 
 Для кода расширения — те же данные без обёртки ответа: `getManga(slug)`, `getChapterList(slug)` (всегда массив, в порядке ответа API), `getChapter(slug, number, volume, branchId)`. Они вызывают `fetch*`-методы, поэтому учитывают их переопределение в подклассах и плагинах. Поверх них:
-- `fetchChapters(slug)` — список глав в порядке чтения (`chapters.sortChapters`); единственное место сортировки, им пользуются и попап, и загрузка;
+- `fetchChapters(slug)` — список глав в порядке чтения (`ChapterList.sortChapters`); единственное место сортировки, им пользуются и попап, и загрузка;
 - `fetchChapterBlocks(chapter, {slug, mangaId, splitLongImages, imageFit})` — весь конвейер главы: `getChapter` (том по умолчанию `'1'`, ветка `chapter.branchId`), `raw.content || raw`, `extractText` и `processChapterContent(extracted, null, {chapterMeta, chapterObj, mangaSlug, mangaId, splitLongImages, imageFit})`, если сервис их поддерживает.
 
-Сохранены для плагинов: `fetchWithRetry` и `fetchWithRateLimitRetry` — обёртки над `_request` в режиме `'response'`; `loadPageAsBase64(url, opts)` — загружает страницу через `fetchImage` и возвращает data-URL; `blobToBase64(blob)` — data-URL через `encoding.blobToDataUrl`.
+Сохранены для плагинов: `fetchWithRetry` и `fetchWithRateLimitRetry` — обёртки над `_request` в режиме `'response'`; `loadPageAsBase64(url, opts)` — загружает страницу через `fetchImage` и возвращает data-URL; `blobToBase64(blob)` — data-URL через `Base64Codec.blobToDataUrl`.
 
 ---
 
@@ -424,7 +477,7 @@ PopupController.startDownload()                             [controller = create
 
 ---
 
-### `services/hosts.js`
+### `services/ServiceHosts.js`
 
 Чистые функции над конфигами встроенных сервисов (`serviceConfigs`) и хостами плагинов. Ни один модуль не держит собственных списков доменов.
 - `serviceKeyForUrl(url, pluginHosts?)` — сервис сайта или CDN по имени хоста (не по подстроке URL);
@@ -438,7 +491,7 @@ PopupController.startDownload()                             [controller = create
 
 ### `exporters/ExporterRegistry.js`
 
-Реестр экспортеров со статическим приватным полем `#registry`. Сам ничего не подключает: встроенные экспортеры регистрирует `exporters/index.js`, форматы плагинов — сами плагины или `PluginManager`.
+Реестр экспортеров со статическим приватным полем `#registry`. Сам ничего не подключает: встроенные экспортеры регистрирует `exporters/BuiltinExporters.js`, форматы плагинов — сами плагины или `PluginManager`.
 
 Методы:
 - `register(format, Class, meta)` — регистрация по строковому ключу формата.
@@ -450,7 +503,7 @@ PopupController.startDownload()                             [controller = create
 
 ### `exporters/BaseExporter.js`
 
-Базовый класс. Предоставляет утилиты: `escapeXml()`, `escapeHtml()`, `stripHtml()`, `sanitizeText()`, `extractText()`. Экранирование и раскодирование сущностей делегируются `core/text.js`.
+Базовый класс. Предоставляет утилиты: `escapeXml()`, `escapeHtml()`, `stripHtml()`, `sanitizeText()`, `extractText()`. Экранирование и раскодирование сущностей делегируются `core/TextUtils.js`.
 
 Обязательный метод для переопределения: `async export(manga, chapters, coverBase64)` — должен вернуть `{ blob, filename, mimeType }`.
 
@@ -477,7 +530,7 @@ Content script. Инжектирует кнопку «Скачать» рядо�
 
 Наблюдает за сетевыми запросами к сервисам. Сам запросы не делает и не считает: учёт частоты — только через `rateAcquire`. Ничего не экспортирует.
 
-**Захват токенов (оба браузера).** Неблокирующий `webRequest.onBeforeSendHeaders`. Если страница сервиса обращается к API с заголовком `Authorization: Bearer …`, токен сохраняется в `tokenStore`. Сервис определяется:
+**Захват токенов (оба браузера).** Неблокирующий `webRequest.onBeforeSendHeaders`. Если страница сервиса обращается к API с заголовком `Authorization: Bearer …`, токен сохраняется в `TokenStore`. Сервис определяется:
 1. по заголовку `Site-Id` встроенного сервиса;
 2. иначе по хосту страницы, сделавшей запрос (`originUrl`/`initiator`), включая сайты сервисных плагинов.
 
@@ -491,11 +544,11 @@ Content script. Инжектирует кнопку «Скачать» рядо�
 
 Origin запроса запоминается в `onBeforeSendHeaders` и забывается в `onHeadersReceived`, `onCompleted` или `onErrorOccurred`, так что карта не растёт.
 
-Фильтр URL слушателей и распознавание сервиса берутся из `services/hosts.js`.
+Фильтр URL слушателей и распознавание сервиса берутся из `services/ServiceHosts.js`.
 
 ---
 
-### `background/tokenStore.js`
+### `background/TokenStore.js`
 
 Единственное хранилище токенов авторизации. Токены лежат в `storage.session`: они переживают перезапуск service worker'а, но не закрытие браузера. Без `storage.session` токены хранятся только в памяти.
 
@@ -506,7 +559,7 @@ Origin запроса запоминается в `onBeforeSendHeaders` и за�
 
 ---
 
-### `background/rateLimitService.js`
+### `background/RateLimitService.js`
 
 Единственный экземпляр `RateLimiter` на всё расширение. Обслуживает сообщения `rateAcquire` и `rateThrottle` всех окон.
 - Лимит читает из `storage.local['downloadlib_default_rate_limit']` до выдачи первого разрешения. Затем следит за этим ключом через `storage.onChanged`.
@@ -516,15 +569,15 @@ Origin запроса запоминается в `onBeforeSendHeaders` и за�
 
 ---
 
-### `background/pluginHosts.js`
+### `background/PluginHosts.js`
 
 Хосты сайтов включённых сервисных плагинов из `storage.local['custom_plugins']`. `syncPluginHosts()` перечитывает их и возвращает включённые плагины с хостами. `getPluginHosts()` отдаёт карту «ключ сервиса → хосты», по которой `RequestInterceptor` определяет сервис токена, а `MessageRouter` — сайт вкладки-отправителя.
 
 ---
 
-### `background/netRules.js`
+### `background/AdBlockRules.js`
 
-Строит сессионные правила declarativeNetRequest из `config.adBlock`: правило `block` для каждого фильтра, только для запросов со страниц сайтов сервиса (`initiatorDomains` = `config.hosts`). `installAdBlockRules()` заменяет ранее установленные правила своего диапазона id одним `updateSessionRules`. `background/main.js` вызывает её при загрузке фона и на `runtime.onStartup`, потому что сессионные правила живут до закрытия браузера.
+Строит сессионные правила declarativeNetRequest из `config.adBlock`: правило `block` для каждого фильтра, только для запросов со страниц сайтов сервиса (`initiatorDomains` = `config.hosts`). `installAdBlockRules()` заменяет ранее установленные правила своего диапазона id одним `updateSessionRules`. `background/BackgroundMain.js` вызывает её при загрузке фона и на `runtime.onStartup`, потому что сессионные правила живут до закрытия браузера.
 
 ---
 
@@ -540,7 +593,7 @@ Origin запроса запоминается в `onBeforeSendHeaders` и за�
 
 ---
 
-### `ui/dom.js`
+### `ui/DomUtils.js`
 
 Общие помощники DOM для `app.js` и всех UI-контроллеров:
 - `$el(id)` — `document.getElementById`;
@@ -567,9 +620,9 @@ Origin запроса запоминается в `onBeforeSendHeaders` и за�
 
 `getChapters()` — все загруженные главы; `PopupController` передаёт их в `DownloadManager.startDownload`, чтобы не запрашивать список повторно.
 
-`getFilteredChapters(branchId)` — главы нужной ветки перевода (`chapters.filterByBranch`).
+`getFilteredChapters(branchId)` — главы нужной ветки перевода (`ChapterList.filterByBranch`).
 
-`repopulateSelects(chapters, fromSelect, toSelect)` — пересобирает `<option>` в обоих селектах при смене переводчика. Значение опции — ключ главы (`chapters.chapterKey`); в режиме томов — ключ первой (в «от») и последней (в «до») главы тома. `PopupController` сравнивает выбор «от» и «до» по `selectedIndex`, а не по значению.
+`repopulateSelects(chapters, fromSelect, toSelect)` — пересобирает `<option>` в обоих селектах при смене переводчика. Значение опции — ключ главы (`ChapterList.chapterKey`); в режиме томов — ключ первой (в «от») и последней (в «до») главы тома. `PopupController` сравнивает выбор «от» и «до» по `selectedIndex`, а не по значению.
 
 ---
 
@@ -622,7 +675,7 @@ export class XyzExporter extends BaseExporter {
 }
 ```
 
-2. Импортировать его в `exporters/index.js` и зарегистрировать:
+2. Импортировать его в `exporters/BuiltinExporters.js` и зарегистрировать:
 
 ```js
 import { XyzExporter } from './XyzExporter.js';
@@ -699,6 +752,6 @@ export class NewSiteService extends BaseService {
 
 Если сервис работает на API cdnlibs.org и главы — это страницы-картинки, достаточно унаследоваться от `CdnLibsService` и передать конфиг: загрузка, нарезка и сборка главы уже там.
 
-3. Импортировать класс в `services/index.js` и вызвать `serviceRegistry.register(NewSiteService)`.
+3. Импортировать класс в `services/BuiltinServices.js` и вызвать `serviceRegistry.register(NewSiteService)`.
 
-4. Добавить конфиг в массив `serviceConfigs` в `services/hosts.js`. Отсюда фон берёт фильтры `webRequest`, паттерны поиска вкладки, регистрацию content scripts и правила блокировки рекламы. Правки манифестов, `RequestInterceptor` и `MessageRouter` не нужны: `host_permissions` (`https://*/*`) уже покрывает любой сайт.
+4. Добавить конфиг в массив `serviceConfigs` в `services/ServiceHosts.js`. Отсюда фон берёт фильтры `webRequest`, паттерны поиска вкладки, регистрацию content scripts и правила блокировки рекламы. Правки манифестов, `RequestInterceptor` и `MessageRouter` не нужны: `host_permissions` (`https://*/*`) уже покрывает любой сайт.

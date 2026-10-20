@@ -1,9 +1,14 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 
+const mocks = vi.hoisted(() => ({}));
+
 vi.mock('../../core/TabNetwork.js', async () =>
-    (await import('../helpers/globalBridge.js')).globalBridge('fetchViaTab', 'requestViaTab', 'NoServiceTabError'));
+    (await import('../helpers/ModuleMock.js')).mockExports(mocks, 'fetchViaTab', 'requestViaTab', 'NoServiceTabError'));
 vi.mock('../../core/ImageCompressor.js', async () =>
-    (await import('../helpers/globalBridge.js')).globalBridge('ImageCompressor', 'PAGE_ASPECT'));
+    (await import('../helpers/ModuleMock.js')).mockExports(mocks, 'ImageCompressor', 'PAGE_ASPECT'));
+
+import { ImageCompressor } from '../../core/ImageCompressor.js';
+import { fetchViaTab, NoServiceTabError } from '../../core/TabNetwork.js';
 
 let CdnLibsService, DownloadContext;
 
@@ -25,10 +30,10 @@ beforeEach(async () => {
     vi.spyOn(console, 'warn').mockImplementation(() => {});
     vi.spyOn(console, 'error').mockImplementation(() => {});
     localStorage.clear();
-    globalThis.NoServiceTabError = class NoServiceTabError extends Error {};
-    globalThis.PAGE_ASPECT = 297 / 210;
-    globalThis.fetchViaTab = vi.fn(async () => IMAGE);
-    globalThis.ImageCompressor = {
+    mocks.NoServiceTabError = class NoServiceTabError extends Error {};
+    mocks.PAGE_ASPECT = 297 / 210;
+    mocks.fetchViaTab = vi.fn(async () => IMAGE);
+    mocks.ImageCompressor = {
         process: vi.fn(async (base64, contentType, opts) => [{ base64: `${base64}:${opts.format}`, contentType: opts.format }])
     };
     ({ CdnLibsService } = await import('../../services/CdnLibsService.js'));
@@ -38,7 +43,7 @@ beforeEach(async () => {
 afterEach(() => {
     vi.restoreAllMocks();
     localStorage.clear();
-    ['NoServiceTabError', 'PAGE_ASPECT', 'fetchViaTab', 'ImageCompressor'].forEach(name => delete globalThis[name]);
+    ['NoServiceTabError', 'PAGE_ASPECT', 'fetchViaTab', 'ImageCompressor'].forEach(name => delete mocks[name]);
 });
 
 describe('CdnLibsService: page references', () => {
@@ -68,6 +73,10 @@ describe('CdnLibsService: page references', () => {
         ]);
         expect(svc.extractText({})).toEqual([]);
     });
+
+    it('extractText keeps a page without a known reference field as text', () => {
+        expect(service().extractText({ pages: [{ other: 1 }] })).toEqual([{ type: 'image', src: '[object Object]' }]);
+    });
 });
 
 describe('CdnLibsService: image server', () => {
@@ -89,6 +98,14 @@ describe('CdnLibsService: image server', () => {
         expect(svc._activeServer()).toBe(servers.compression);
         expect(service({ imageServers: { other: servers.original } })._activeServer())
             .toEqual({ domain: 'https://img.test', compress: true });
+    });
+
+    it('Uses defaultImageServer where localStorage is not available', () => {
+        const debug = vi.spyOn(console, 'debug').mockImplementation(() => {});
+        const denied = new Error('SecurityError');
+        vi.spyOn(Storage.prototype, 'getItem').mockImplementation(() => { throw denied; });
+        expect(service({ imageServers: servers, defaultImageServer: 'original' })._activeServer()).toBe(servers.original);
+        expect(debug).toHaveBeenCalledWith('[cdn] localStorage is not available, using the default image server:', denied);
     });
 
     it('Builds page URLs on the domain of the active server', () => {
@@ -236,6 +253,21 @@ describe('CdnLibsService.processChapterContent', () => {
         fetchViaTab.mockResolvedValueOnce(IMAGE).mockResolvedValueOnce({ ok: false, status: 500, noTab: false });
         const blocks = await service().processChapterContent([], null, { chapterMeta: { pages: pages(2) } });
         expect(blocks[1]).toEqual({ type: 'text', text: '[Ошибка загрузки изображения 2]' });
+    });
+
+    it('Leaves an error text in place of a page whose processing threw', async () => {
+        const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+        const failure = new Error('canvas');
+        ImageCompressor.process.mockRejectedValueOnce(failure);
+        const blocks = await service().processChapterContent([], null, { chapterMeta: { pages: pages(1) } });
+        expect(blocks).toEqual([{ type: 'text', text: '[Ошибка загрузки изображения 1]' }]);
+        expect(warn).toHaveBeenCalledWith('[cdn] Failed to load page 1:', failure);
+    });
+
+    it('Treats a page without a content type as JPEG', async () => {
+        fetchViaTab.mockResolvedValue({ ok: true, status: 200, noTab: false, base64: 'RAW' });
+        await service().processChapterContent([], null, { chapterMeta: { pages: pages(1) } });
+        expect(ImageCompressor.process).toHaveBeenCalledWith('RAW', 'image/jpeg', expect.any(Object));
     });
 
     it('Stops the whole chapter without a service tab', async () => {

@@ -1,7 +1,9 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 
-vi.mock('../../background/tokenStore.js', async () => (await import('../helpers/globalBridge.js')).globalBridge('setToken'));
-vi.mock('../../background/pluginHosts.js', async () => (await import('../helpers/globalBridge.js')).globalBridge('getPluginHosts'));
+const mocks = vi.hoisted(() => ({}));
+
+vi.mock('../../background/TokenStore.js', async () => (await import('../helpers/ModuleMock.js')).mockExports(mocks, 'setToken'));
+vi.mock('../../background/PluginHosts.js', async () => (await import('../helpers/ModuleMock.js')).mockExports(mocks, 'getPluginHosts'));
 
 let webRequest;
 let listeners;
@@ -34,7 +36,7 @@ async function load(mode) {
     if (mode === 'firefox') globalThis.browser = api;
     if (mode === 'chrome') globalThis.chrome = { ...api, declarativeNetRequest: {} };
 
-    ({ webRequestUrls } = await import('../../services/hosts.js'));
+    ({ webRequestUrls } = await import('../../services/ServiceHosts.js'));
     await import('../../background/RequestInterceptor.js');
 }
 
@@ -48,8 +50,8 @@ const apiRequest = (extra = {}) => ({
 
 beforeEach(() => {
     vi.spyOn(console, 'log').mockImplementation(() => {});
-    globalThis.setToken = vi.fn(async () => true);
-    globalThis.getPluginHosts = vi.fn(() => ({}));
+    mocks.setToken = vi.fn(async () => true);
+    mocks.getPluginHosts = vi.fn(() => ({}));
 });
 
 afterEach(() => {
@@ -96,40 +98,52 @@ describe('Auth token capture', () => {
 
     it('Detects the built-in service by the Site-Id header', () => {
         capture(apiRequest({ requestHeaders: [...apiRequest().requestHeaders, { name: 'Site-Id', value: '3' }] }));
-        expect(globalThis.setToken).toHaveBeenCalledWith('ranobelib', JWT);
+        expect(mocks.setToken).toHaveBeenCalledWith('ranobelib', JWT);
     });
 
     it('Detects the service by the host of the page that made the request', () => {
         capture(apiRequest({ originUrl: 'https://mangalib.org/ru/manga/x' }));
-        expect(globalThis.setToken).toHaveBeenCalledWith('mangalib', JWT);
+        expect(mocks.setToken).toHaveBeenCalledWith('mangalib', JWT);
     });
 
     it('Uses the Chrome initiator origin', () => {
         capture(apiRequest({ initiator: 'https://ranobelib.me' }));
-        expect(globalThis.setToken).toHaveBeenCalledWith('ranobelib', JWT);
+        expect(mocks.setToken).toHaveBeenCalledWith('ranobelib', JWT);
     });
 
     it('Detects service plugins by their hosts', () => {
-        globalThis.getPluginHosts = vi.fn(() => ({ hlib: ['hentailib.me'] }));
+        mocks.getPluginHosts = vi.fn(() => ({ hlib: ['hentailib.me'] }));
         capture(apiRequest({
             originUrl: 'https://hentailib.me/ru/manga/x',
             requestHeaders: [...apiRequest().requestHeaders, { name: 'Site-Id', value: '4' }]
         }));
-        expect(globalThis.setToken).toHaveBeenCalledWith('hlib', JWT);
+        expect(mocks.setToken).toHaveBeenCalledWith('hlib', JWT);
     });
 
     it('Does not store a token when the service is unknown', () => {
         capture(apiRequest({ originUrl: 'https://unknown.example/' }));
         capture(apiRequest({ initiator: 'chrome-extension://abc' }));
         capture(apiRequest());
-        expect(globalThis.setToken).not.toHaveBeenCalled();
+        expect(mocks.setToken).not.toHaveBeenCalled();
+    });
+
+    it('Logs a captured token only when it changed', async () => {
+        const info = vi.spyOn(console, 'info').mockImplementation(() => {});
+        mocks.setToken = vi.fn(async () => false);
+        capture(apiRequest({ originUrl: 'https://mangalib.me/ru/manga/x' }));
+        await Promise.resolve();
+        expect(info).not.toHaveBeenCalled();
+
+        mocks.setToken = vi.fn(async () => true);
+        capture(apiRequest({ originUrl: 'https://mangalib.me/ru/manga/x' }));
+        await vi.waitFor(() => expect(info).toHaveBeenCalledWith('[RequestInterceptor] Captured auth token for mangalib'));
     });
 
     it('Ignores requests outside the service API and requests without a Bearer token', () => {
         capture(apiRequest({ url: 'https://img3.cdnlibs.org/a.jpg', originUrl: 'https://mangalib.me/' }));
         capture(apiRequest({ originUrl: 'https://mangalib.me/', requestHeaders: [{ name: 'Authorization', value: 'Basic x' }] }));
         capture(apiRequest({ originUrl: 'https://mangalib.me/', requestHeaders: undefined }));
-        expect(globalThis.setToken).not.toHaveBeenCalled();
+        expect(mocks.setToken).not.toHaveBeenCalled();
     });
 });
 
@@ -187,6 +201,18 @@ describe('Firefox image CORS fix', () => {
         listeners.onBeforeSendHeaders.cb(imageRequest('https://mangalib.me'));
         const result = respond({ responseHeaders: [{ name: 'Access-Control-Allow-Origin', value: '*' }] });
         expect(result.responseHeaders).toEqual([{ name: 'Access-Control-Allow-Origin', value: '*' }]);
+    });
+
+    it('Adds the headers to a response that has no header list', () => {
+        expect(corsHeaders(respond({ responseHeaders: undefined }))).toEqual({
+            'Access-Control-Allow-Origin': 'https://mangalib.me',
+            'Access-Control-Allow-Credentials': 'true'
+        });
+    });
+
+    it('Allows nothing for extension requests when the extension origin is unknown', async () => {
+        globalThis.browser.runtime.getURL = undefined;
+        expect(corsHeaders(respond({ tabId: -1 }))).toEqual({});
     });
 
     it('Leaves non-image responses alone', () => {

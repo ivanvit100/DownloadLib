@@ -6,7 +6,7 @@
  * @version 1.1.0
  */
 
-import { createLogger } from '../core/logger.js';
+import { createLogger } from '../core/ConsoleLogger.js';
 
 const log = createLogger('ServiceRegistry');
 
@@ -14,7 +14,7 @@ const log = createLogger('ServiceRegistry');
  * Реестр доступных сервисов-парсеров сайтов (встроенных и добавленных плагинами):
  * связывает имя сервиса с его классом, экземпляром-синглтоном и статическим
  * методом matches для определения сервиса по URL страницы. Встроенные сервисы
- * регистрирует services/index.js.
+ * регистрирует services/BuiltinServices.js.
  */
 export class ServiceRegistry {
     /**

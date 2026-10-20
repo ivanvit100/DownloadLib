@@ -1,21 +1,23 @@
-import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
-import { withServiceFactory } from '../helpers/serviceRegistryMock.js';
+import { describe, it, expect, beforeEach, afterEach, afterAll, vi } from 'vitest';
+import { withServiceFactory } from '../helpers/ServiceRegistryMock.js';
 
-vi.mock('../../core/AuthManager.js', async () => (await import('../helpers/globalBridge.js')).globalBridge('AuthManager'));
-vi.mock('../../core/BrowserApi.js', async () => (await import('../helpers/globalBridge.js'))
-    .globalBridge('extensionApi', 'browserEnv'));
-vi.mock('../../core/TabNetwork.js', async () => (await import('../helpers/globalBridge.js')).globalBridge('fetchViaTab', 'setServiceTab'));
-vi.mock('../../core/DownloadHistory.js', async () => (await import('../helpers/globalBridge.js')).globalBridge('DownloadHistory'));
-vi.mock('../../core/DownloadManager.js', async () => (await import('../helpers/globalBridge.js')).globalBridge('DownloadManager'));
-vi.mock('../../core/PluginManager.js', async () => (await import('../helpers/globalBridge.js')).globalBridge('PluginManager'));
-vi.mock('../../exporters/ExporterRegistry.js', async () => (await import('../helpers/globalBridge.js')).globalBridge('ExporterRegistry'));
-vi.mock('../../services/mangalib/MangaLibService.js', async () => (await import('../helpers/globalBridge.js')).globalBridge('MangaLibService'));
-vi.mock('../../services/ranobelib/RanobeLibService.js', async () => (await import('../helpers/globalBridge.js')).globalBridge('RanobeLibService'));
-vi.mock('../../services/ServiceRegistry.js', async () => (await import('../helpers/globalBridge.js')).globalBridge('serviceRegistry'));
-vi.mock('../../ui/ChapterController.js', async () => (await import('../helpers/globalBridge.js')).globalBridge('ChapterController'));
-vi.mock('../../ui/HistoryController.js', async () => (await import('../helpers/globalBridge.js')).globalBridge('HistoryController'));
-vi.mock('../../ui/SettingsController.js', async () => (await import('../helpers/globalBridge.js')).globalBridge('SettingsController'));
-vi.mock('../../ui/TemplateLoader.js', async () => (await import('../helpers/globalBridge.js')).globalBridge('TemplateLoader'));
+const mocks = vi.hoisted(() => ({}));
+
+vi.mock('../../core/AuthManager.js', async () => (await import('../helpers/ModuleMock.js')).mockExports(mocks, 'AuthManager'));
+vi.mock('../../core/BrowserApi.js', async () => (await import('../helpers/ModuleMock.js'))
+    .mockExports(mocks, 'extensionApi', 'browserEnv'));
+vi.mock('../../core/TabNetwork.js', async () => (await import('../helpers/ModuleMock.js')).mockExports(mocks, 'fetchViaTab', 'setServiceTab'));
+vi.mock('../../core/DownloadHistory.js', async () => (await import('../helpers/ModuleMock.js')).mockExports(mocks, 'DownloadHistory'));
+vi.mock('../../core/DownloadManager.js', async () => (await import('../helpers/ModuleMock.js')).mockExports(mocks, 'DownloadManager'));
+vi.mock('../../core/PluginManager.js', async () => (await import('../helpers/ModuleMock.js')).mockExports(mocks, 'PluginManager'));
+vi.mock('../../exporters/ExporterRegistry.js', async () => (await import('../helpers/ModuleMock.js')).mockExports(mocks, 'ExporterRegistry'));
+vi.mock('../../services/mangalib/MangaLibService.js', async () => (await import('../helpers/ModuleMock.js')).mockExports(mocks, 'MangaLibService'));
+vi.mock('../../services/ranobelib/RanobeLibService.js', async () => (await import('../helpers/ModuleMock.js')).mockExports(mocks, 'RanobeLibService'));
+vi.mock('../../services/ServiceRegistry.js', async () => (await import('../helpers/ModuleMock.js')).mockExports(mocks, 'serviceRegistry'));
+vi.mock('../../ui/ChapterController.js', async () => (await import('../helpers/ModuleMock.js')).mockExports(mocks, 'ChapterController'));
+vi.mock('../../ui/HistoryController.js', async () => (await import('../helpers/ModuleMock.js')).mockExports(mocks, 'HistoryController'));
+vi.mock('../../ui/SettingsController.js', async () => (await import('../helpers/ModuleMock.js')).mockExports(mocks, 'SettingsController'));
+vi.mock('../../ui/TemplateLoader.js', async () => (await import('../helpers/ModuleMock.js')).mockExports(mocks, 'TemplateLoader'));
 
 let PopupController;
 
@@ -59,12 +61,12 @@ beforeEach(async () => {
     setupDOM();
 
     global.localStorage = { getItem: vi.fn(() => null), setItem: vi.fn(), removeItem: vi.fn() };
-    global.DownloadManager = class {
+    mocks.DownloadManager = class {
         constructor() { this.eventBus = { on: vi.fn() }; }
         startDownload = vi.fn(async () => ({}));
         stop = vi.fn();
     };
-    global.serviceRegistry = {
+    mocks.serviceRegistry = {
         getServiceByUrl: vi.fn(() => ({
             name: 'ranobelib',
             getManga: vi.fn(async () => ({ rus_name: 'T', summary: 'S', cover: null, authors: [], ageRestriction: null })),
@@ -72,25 +74,25 @@ beforeEach(async () => {
         })),
         getService: vi.fn(() => null),
     };
-    withServiceFactory(global.serviceRegistry);
-    global.extensionApi = {
+    withServiceFactory(mocks.serviceRegistry, mocks);
+    mocks.extensionApi = {
         runtime: { sendMessage: vi.fn(async () => ({ ok: true })), getURL: vi.fn(() => 'popup.html') },
         windows: { getCurrent: vi.fn(async () => ({ type: 'normal' })), create: vi.fn(async () => ({ id: 1 })), update: vi.fn() },
         tabs: { query: vi.fn(async () => ([{ url: 'https://ranobelib.me/manga/slug', id: 42 }])), create: vi.fn() }
     };
     global.chrome = undefined;
-    global.ExporterRegistry = { getFormats: vi.fn(() => [{ value: 'fb2', label: 'FB2' }]) };
-    global.DownloadHistory = { add: vi.fn() };
-    global.AuthManager = { apply: vi.fn(async () => null) };
-    global.ChapterController = class { loadAndPopulate = vi.fn(async () => 0); };
-    global.TemplateLoader = { init: vi.fn(), show: vi.fn(async () => {}), current: vi.fn(() => null) };
-    global.HistoryController = { init: vi.fn() };
-    global.fetchViaTab = vi.fn(async () => ({ ok: false, status: 0, noTab: true }));
-    global.setServiceTab = vi.fn();
+    mocks.ExporterRegistry = { getFormats: vi.fn(() => [{ value: 'fb2', label: 'FB2' }]) };
+    mocks.DownloadHistory = { add: vi.fn() };
+    mocks.AuthManager = { apply: vi.fn(async () => null) };
+    mocks.ChapterController = class { loadAndPopulate = vi.fn(async () => 0); };
+    mocks.TemplateLoader = { init: vi.fn(), show: vi.fn(async () => {}), current: vi.fn(() => null) };
+    mocks.HistoryController = { init: vi.fn() };
+    mocks.fetchViaTab = vi.fn(async () => ({ ok: false, status: 0, noTab: true }));
+    mocks.setServiceTab = vi.fn();
     global.fetch = vi.fn(async () => ({ json: async () => ({ workflow_runs: [] }) }));
-    global.browserEnv = { isFirefox: true };
-    global.PluginManager = { loadAll: vi.fn(async () => {}) };
-    global.SettingsController = { init: vi.fn() };
+    mocks.browserEnv = { isFirefox: true };
+    mocks.PluginManager = { loadAll: vi.fn(async () => {}) };
+    mocks.SettingsController = { init: vi.fn() };
 
     ({ PopupController } = await import('../../ui/PopupController.js'));
 });
@@ -100,6 +102,10 @@ afterEach(() => {
     vi.useRealTimers();
 });
 
+// Окно загрузки (?download=true) запускает скачивание через 500 мс: даём таймерам
+// последних тестов сработать, пока окружение jsdom ещё не разобрано.
+afterAll(() => new Promise(resolve => setTimeout(resolve, 600)));
+
 describe('_init settings callback', () => {
     it('calls SettingsController.init via TemplateLoader.show callback', async () => {
         const origLocation = window.location;
@@ -107,15 +113,15 @@ describe('_init settings callback', () => {
             value: { search: '?settings' },
             writable: true
         });
-        global.TemplateLoader.show = vi.fn(async (name, cb) => { if (cb) await cb(); });
-        global.SettingsController = { init: vi.fn() };
+        mocks.TemplateLoader.show = vi.fn(async (name, cb) => { if (cb) await cb(); });
+        mocks.SettingsController = { init: vi.fn() };
 
         const controller = new PopupController();
         await new Promise(r => setTimeout(r, 10));
 
-        expect(global.SettingsController.init).toHaveBeenCalledWith(expect.any(Function));
+        expect(mocks.SettingsController.init).toHaveBeenCalledWith(expect.any(Function));
         const restoreSpy = vi.spyOn(controller, '_restoreMainView').mockResolvedValue();
-        global.SettingsController.init.mock.calls[0][0]();
+        mocks.SettingsController.init.mock.calls[0][0]();
         expect(restoreSpy).toHaveBeenCalled();
         Object.defineProperty(window, 'location', { value: origLocation, writable: true });
     });
@@ -124,16 +130,16 @@ describe('_init settings callback', () => {
 describe('_bindShellEvents historyBtn', () => {
     it('shows history and passes _restoreMainView as the back callback', async () => {
         document.body.innerHTML += '<button id="historyBtn"></button>';
-        global.TemplateLoader.show = vi.fn(async (name, cb) => { if (cb) await cb(); });
+        mocks.TemplateLoader.show = vi.fn(async (name, cb) => { if (cb) await cb(); });
         const controller = new PopupController();
         controller._shellEventsBound = false;
         controller._bindShellEvents();
         document.getElementById('historyBtn').click();
         await Promise.resolve();
-        expect(global.TemplateLoader.show).toHaveBeenCalledWith('history', expect.any(Function));
-        expect(global.HistoryController.init).toHaveBeenCalledWith(expect.any(Function));
+        expect(mocks.TemplateLoader.show).toHaveBeenCalledWith('history', expect.any(Function));
+        expect(mocks.HistoryController.init).toHaveBeenCalledWith(expect.any(Function));
         const restoreSpy = vi.spyOn(controller, '_restoreMainView').mockResolvedValue();
-        global.HistoryController.init.mock.calls[0][0]();
+        mocks.HistoryController.init.mock.calls[0][0]();
         expect(restoreSpy).toHaveBeenCalled();
     });
 });
@@ -153,8 +159,8 @@ describe('_bindShellEvents settingsBtn', () => {
 
 describe('_init storage.onChanged listener', () => {
     beforeEach(() => {
-        global.PluginManager = { loadAll: vi.fn().mockResolvedValue() };
-        global.extensionApi.storage = {
+        mocks.PluginManager = { loadAll: vi.fn().mockResolvedValue() };
+        mocks.extensionApi.storage = {
             onChanged: { addListener: vi.fn() }
         };
     });
@@ -162,30 +168,30 @@ describe('_init storage.onChanged listener', () => {
     async function getStorageListener() {
         new PopupController();
         await new Promise(r => setTimeout(r, 0));
-        return global.extensionApi.storage.onChanged.addListener.mock.calls[0]?.[0];
+        return mocks.extensionApi.storage.onChanged.addListener.mock.calls[0]?.[0];
     }
 
     it('registers listener when storage.onChanged exists', async () => {
         await getStorageListener();
-        expect(global.extensionApi.storage.onChanged.addListener).toHaveBeenCalled();
+        expect(mocks.extensionApi.storage.onChanged.addListener).toHaveBeenCalled();
     });
 
     it('listener early-returns when area is not local', async () => {
         const listener = await getStorageListener();
         await listener({ custom_plugins: {} }, 'sync');
-        expect(global.PluginManager.loadAll).not.toHaveBeenCalled();
+        expect(mocks.PluginManager.loadAll).not.toHaveBeenCalled();
     });
 
     it('listener early-returns when custom_plugins not in changes', async () => {
         const listener = await getStorageListener();
         await listener({ other_key: {} }, 'local');
-        expect(global.PluginManager.loadAll).not.toHaveBeenCalled();
+        expect(mocks.PluginManager.loadAll).not.toHaveBeenCalled();
     });
 
     it('listener reloads plugins and rebuilds formatSelector', async () => {
         const listener = await getStorageListener();
         await listener({ custom_plugins: { newValue: [] } }, 'local');
-        expect(global.PluginManager.loadAll).toHaveBeenCalled();
+        expect(mocks.PluginManager.loadAll).toHaveBeenCalled();
         const sel = document.getElementById('formatSelector');
         expect(sel.querySelectorAll('option').length).toBeGreaterThan(0);
     });
@@ -205,7 +211,7 @@ describe('_init storage.onChanged listener', () => {
 
         const listener = await getStorageListener();
         await listener({ custom_plugins: {} }, 'local');
-        expect(global.PluginManager.loadAll).toHaveBeenCalled();
+        expect(mocks.PluginManager.loadAll).toHaveBeenCalled();
     });
 
     it('listener does not set sel.value when current is empty', async () => {
@@ -213,14 +219,14 @@ describe('_init storage.onChanged listener', () => {
         const sel = document.getElementById('formatSelector');
         sel.innerHTML = '';
         await listener({ custom_plugins: {} }, 'local');
-        expect(global.PluginManager.loadAll).toHaveBeenCalled();
+        expect(mocks.PluginManager.loadAll).toHaveBeenCalled();
     });
 });
 
 describe('_showWrongServiceState service links', () => {
     it('renders service link buttons for services with siteUrl', async () => {
         document.body.innerHTML += '<div id="serviceLinks"></div><div id="logoInfo"></div>';
-        global.serviceRegistry.getAllServices = vi.fn(() => [
+        mocks.serviceRegistry.getAllServices = vi.fn(() => [
             { config: { name: 'ex1', siteUrl: 'https://example.com', primaryColor: '#f00', label: 'Example' } },
             { config: { name: 'ex2' } },
         ]);
@@ -232,7 +238,7 @@ describe('_showWrongServiceState service links', () => {
 
     it('renders service button without primaryColor', async () => {
         document.body.innerHTML += '<div id="serviceLinks"></div>';
-        global.serviceRegistry.getAllServices = vi.fn(() => [
+        mocks.serviceRegistry.getAllServices = vi.fn(() => [
             { config: { name: 'ex1', siteUrl: 'https://example.com', label: 'Example' } },
         ]);
         const controller = new PopupController();
@@ -244,7 +250,7 @@ describe('_showWrongServiceState service links', () => {
 
     it('service.config || {} fallback when config is null', async () => {
         document.body.innerHTML += '<div id="serviceLinks"></div>';
-        global.serviceRegistry.getAllServices = vi.fn(() => [
+        mocks.serviceRegistry.getAllServices = vi.fn(() => [
             { config: null },
             { config: { name: 'ex1', siteUrl: 'https://example.com' } },
         ]);
@@ -256,7 +262,7 @@ describe('_showWrongServiceState service links', () => {
 
     it('service link button click calls tabs.create and showNoTitleState', async () => {
         document.body.innerHTML += '<div id="serviceLinks"></div>';
-        global.serviceRegistry.getAllServices = vi.fn(() => [
+        mocks.serviceRegistry.getAllServices = vi.fn(() => [
             { config: { name: 'ex1', siteUrl: 'https://example.com', label: 'Ex' } },
         ]);
         const controller = new PopupController();
@@ -264,7 +270,7 @@ describe('_showWrongServiceState service links', () => {
         await controller._showWrongServiceState();
         document.querySelector('.ex1-link-btn').click();
         await Promise.resolve();
-        expect(global.extensionApi.tabs.create).toHaveBeenCalledWith({ url: 'https://example.com' });
+        expect(mocks.extensionApi.tabs.create).toHaveBeenCalledWith({ url: 'https://example.com' });
     });
 });
 
@@ -276,7 +282,7 @@ describe('loadMetadata tabId URL param', () => {
             getManga: vi.fn(async () => ({ rus_name: 'T', summary: 'S', cover: null, authors: [], ageRestriction: null })),
             getChapterList: vi.fn(async () => []),
         };
-        global.serviceRegistry.getService = vi.fn(() => fakeService);
+        mocks.serviceRegistry.getService = vi.fn(() => fakeService);
         const controller = new PopupController();
         const origLocation = window.location;
         Object.defineProperty(window, 'location', {

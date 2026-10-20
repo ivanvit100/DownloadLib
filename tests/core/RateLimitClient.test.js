@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
-import { MSG } from '../../core/messages.js';
+import { MSG } from '../../core/MessageTypes.js';
 import { RATE_LIMIT_STORAGE_KEY } from '../../core/RateLimiter.js';
 
 let RateLimitClient;
@@ -62,7 +62,8 @@ describe('RateLimitClient.acquire / isHeldBack', () => {
         sendMessage.mockRejectedValue(new Error('no receiver'));
         await expect(RateLimitClient.acquire('mangalib')).resolves.toBeUndefined();
         expect(RateLimitClient.isHeldBack()).toBe(false);
-        expect(warn).toHaveBeenCalledWith('[RateLimitClient] Background rate limiter unavailable:', 'no receiver');
+        expect(warn).toHaveBeenCalledWith('[RateLimitClient] Background rate limiter unavailable:',
+            expect.objectContaining({ message: 'no receiver' }));
     });
 
     it('Warns when the background refuses the request', async () => {
@@ -107,7 +108,17 @@ describe('RateLimitClient.throttle', () => {
         RateLimitClient.throttle(5000);
         await vi.advanceTimersByTimeAsync(0);
         expect(RateLimitClient.isHeldBack()).toBe(true);
-        expect(warn).toHaveBeenCalledWith('[RateLimitClient] Failed to report throttling:', 'no receiver');
+        expect(warn).toHaveBeenCalledWith('[RateLimitClient] Failed to report throttling:',
+            expect.objectContaining({ message: 'no receiver' }));
+    });
+
+    it('Keeps the local block when the background answers without a block end', async () => {
+        sendMessage.mockResolvedValue(undefined);
+        RateLimitClient.throttle(5000);
+        await vi.advanceTimersByTimeAsync(4999);
+        expect(RateLimitClient.isHeldBack()).toBe(true);
+        await vi.advanceTimersByTimeAsync(1);
+        expect(RateLimitClient.isHeldBack()).toBe(false);
     });
 
     it('reset lifts the local block', () => {
@@ -152,7 +163,17 @@ describe('RateLimitClient.getLimit / setLimit', () => {
         local.get.mockRejectedValue(new Error('read failed'));
         localStorage.setItem(RATE_LIMIT_STORAGE_KEY, '30');
         expect(await RateLimitClient.getLimit()).toBe(30);
-        expect(warn).toHaveBeenCalledWith('[RateLimitClient] Failed to read rate limit:', 'read failed');
+        expect(warn).toHaveBeenCalledWith('[RateLimitClient] Failed to read rate limit:',
+            expect.objectContaining({ message: 'read failed' }));
+    });
+
+    it('Uses the default limit where localStorage is not available', async () => {
+        const debug = vi.spyOn(console, 'debug').mockImplementation(() => {});
+        const denied = new Error('SecurityError');
+        await load({ storage: null });
+        vi.spyOn(Storage.prototype, 'getItem').mockImplementation(() => { throw denied; });
+        expect(await RateLimitClient.getLimit()).toBe(85);
+        expect(debug).toHaveBeenCalledWith('[RateLimitClient] localStorage is not available:', denied);
     });
 
     it('Keeps the legacy value where storage.local does not exist', async () => {
@@ -176,6 +197,7 @@ describe('RateLimitClient.getLimit / setLimit', () => {
         localStorage.setItem(RATE_LIMIT_STORAGE_KEY, '30');
         expect(await RateLimitClient.setLimit(50)).toBe(50);
         expect(localStorage.getItem(RATE_LIMIT_STORAGE_KEY)).toBe('30');
-        expect(warn).toHaveBeenCalledWith('[RateLimitClient] Failed to save rate limit:', 'write failed');
+        expect(warn).toHaveBeenCalledWith('[RateLimitClient] Failed to save rate limit:',
+            expect.objectContaining({ message: 'write failed' }));
     });
 });

@@ -1,5 +1,5 @@
-import { createLogger } from '../core/logger.js';
-import './main.js';
+import { createLogger } from '../core/ConsoleLogger.js';
+import './BackgroundMain.js';
 
 const log = createLogger('ServiceWorker');
 

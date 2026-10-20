@@ -7,7 +7,7 @@
  * @version 1.1.0
  */
 
-import { decodeEntities, escapeHtml, escapeXml } from '../core/text.js';
+import { decodeEntities, escapeHtml, escapeXml } from '../core/TextUtils.js';
 
 /**
  * Базовый класс экспортёра форматов: определяет общий контракт export()

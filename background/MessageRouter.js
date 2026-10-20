@@ -9,12 +9,12 @@
  */
 
 import { extensionApi, isExtensionUrl } from '../core/BrowserApi.js';
-import { createLogger } from '../core/logger.js';
-import { MSG, PORT_KEEP_ALIVE } from '../core/messages.js';
-import { extractSlug, isServiceHost, serviceConfigs, serviceKeyForUrl } from '../services/hosts.js';
-import { getPluginHosts, syncPluginHosts } from './pluginHosts.js';
-import * as rateLimitService from './rateLimitService.js';
-import * as tokenStore from './tokenStore.js';
+import { createLogger } from '../core/ConsoleLogger.js';
+import { MSG, PORT_KEEP_ALIVE } from '../core/MessageTypes.js';
+import { extractSlug, isServiceHost, serviceConfigs, serviceKeyForUrl } from '../services/ServiceHosts.js';
+import { getPluginHosts, syncPluginHosts } from './PluginHosts.js';
+import * as rateLimitService from './RateLimitService.js';
+import * as tokenStore from './TokenStore.js';
 
 const log = createLogger('MessageRouter');
 
@@ -87,13 +87,11 @@ function windowResponse(ok, failure) {
  * загрузки. В URL окна передаются только тайтл, сервис, формат и вкладка:
  * остальные параметры загрузки берутся из настроек.
  * @param {{format?: string}} msg - Сообщение с желаемым форматом экспорта.
- * @param {object} sender - Отправитель (вкладка сервиса).
+ * @param {object} sender - Отправитель: вкладка сервиса с URL (это проверил роутер, isServiceTab).
  * @returns {Promise<{ok: boolean, error?: string}>} Ответ.
  */
 async function openDownloadWindow(msg, sender) {
-    const tabUrl = sender.tab?.url;
-    if (!tabUrl) return { ok: false, error: 'No tab URL' };
-
+    const tabUrl = sender.tab.url;
     const slug = extractSlug(tabUrl);
     const serviceKey = serviceKeyForUrl(tabUrl, getPluginHosts());
     if (!slug || !serviceKey) return { ok: false, error: 'Cannot detect slug or service' };

@@ -1,5 +1,5 @@
 import { describe, it, beforeEach, afterEach, expect, vi } from 'vitest';
-import { MSG } from '../../core/messages.js';
+import { MSG } from '../../core/MessageTypes.js';
 
 describe('DownloadButton', () => {
     beforeEach(async () => {

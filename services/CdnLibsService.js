@@ -8,7 +8,7 @@
  */
 
 import { ImageCompressor, PAGE_ASPECT } from '../core/ImageCompressor.js';
-import { createLogger } from '../core/logger.js';
+import { createLogger } from '../core/ConsoleLogger.js';
 import { NoServiceTabError } from '../core/TabNetwork.js';
 import { BaseService } from './BaseService.js';
 

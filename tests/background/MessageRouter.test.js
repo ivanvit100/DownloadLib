@@ -1,9 +1,11 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 
-vi.mock('../../background/tokenStore.js', async () => (await import('../helpers/globalBridge.js'))
-    .globalBridge({ getToken: 'tsGetToken', setToken: 'tsSetToken', invalidate: 'tsInvalidate' }));
-vi.mock('../../background/rateLimitService.js', async () => (await import('../helpers/globalBridge.js'))
-    .globalBridge({ acquire: 'rlAcquire', throttle: 'rlThrottle', getStats: 'rlGetStats' }));
+const mocks = vi.hoisted(() => ({}));
+
+vi.mock('../../background/TokenStore.js', async () => (await import('../helpers/ModuleMock.js'))
+    .mockExports(mocks, { getToken: 'tsGetToken', setToken: 'tsSetToken', invalidate: 'tsInvalidate' }));
+vi.mock('../../background/RateLimitService.js', async () => (await import('../helpers/ModuleMock.js'))
+    .mockExports(mocks, { acquire: 'rlAcquire', throttle: 'rlThrottle', getStats: 'rlGetStats' }));
 
 const EXT_ID = 'test-ext-id';
 const PAGE = { id: EXT_ID, url: 'moz-extension://test-id/popup.html' };
@@ -22,12 +24,12 @@ let mockAddListenerOnConnect;
 let capturedConnectCb;
 
 function setupGlobals(mode) {
-    globalThis.tsGetToken = vi.fn().mockResolvedValue(null);
-    globalThis.tsSetToken = vi.fn().mockResolvedValue(true);
-    globalThis.tsInvalidate = vi.fn().mockResolvedValue();
-    globalThis.rlAcquire = vi.fn().mockResolvedValue();
-    globalThis.rlThrottle = vi.fn(async ms => ({ blockedUntil: 1000 + ms }));
-    globalThis.rlGetStats = vi.fn().mockResolvedValue({});
+    mocks.tsGetToken = vi.fn().mockResolvedValue(null);
+    mocks.tsSetToken = vi.fn().mockResolvedValue(true);
+    mocks.tsInvalidate = vi.fn().mockResolvedValue();
+    mocks.rlAcquire = vi.fn().mockResolvedValue();
+    mocks.rlThrottle = vi.fn(async ms => ({ blockedUntil: 1000 + ms }));
+    mocks.rlGetStats = vi.fn().mockResolvedValue({});
 
     capturedMessageCb = null;
     mockAddListenerOnMessage = vi.fn((cb) => { capturedMessageCb = cb; });
@@ -98,7 +100,7 @@ describe('MessageRouter', () => {
     afterEach(() => {
         vi.restoreAllMocks();
         for (const name of ['tsGetToken', 'tsSetToken', 'tsInvalidate', 'rlAcquire', 'rlThrottle', 'rlGetStats'])
-            delete globalThis[name];
+            delete mocks[name];
     });
 
     describe('Message handler', () => {
@@ -125,44 +127,55 @@ describe('MessageRouter', () => {
             });
 
         it('getAuthToken returns the token from the token store', async () => {
-            globalThis.tsGetToken.mockResolvedValue('jwt');
+            mocks.tsGetToken.mockResolvedValue('jwt');
             const { returned, response } = await send({ action: 'getAuthToken', serviceKey: 'hlib' });
             expect(returned).toBe(true);
             expect(response).toEqual({ token: 'jwt' });
-            expect(globalThis.tsGetToken).toHaveBeenCalledWith('hlib');
+            expect(mocks.tsGetToken).toHaveBeenCalledWith('hlib');
         });
 
         it('getAuthToken returns null without a serviceKey', async () => {
             expect((await send({ action: 'getAuthToken' })).response).toEqual({ token: null });
-            expect(globalThis.tsGetToken).not.toHaveBeenCalled();
+            expect(mocks.tsGetToken).not.toHaveBeenCalled();
         });
 
         it('cacheAuthToken stores the token of the service', async () => {
             const { response } = await send({ action: 'cacheAuthToken', serviceKey: 'mangalib', token: 'abc' });
             expect(response).toEqual({ ok: true });
-            expect(globalThis.tsSetToken).toHaveBeenCalledWith('mangalib', 'abc');
+            expect(mocks.tsSetToken).toHaveBeenCalledWith('mangalib', 'abc');
         });
 
         it('cacheAuthToken skips storage when serviceKey or token is missing', async () => {
             await send({ action: 'cacheAuthToken', serviceKey: 'mangalib' });
             await send({ action: 'cacheAuthToken', token: 'abc' });
-            expect(globalThis.tsSetToken).not.toHaveBeenCalled();
+            expect(mocks.tsSetToken).not.toHaveBeenCalled();
         });
 
         it('authInvalidate drops the token of the service', async () => {
             const { response } = await send({ action: 'authInvalidate', serviceKey: 'mangalib' });
             expect(response).toEqual({ ok: true });
-            expect(globalThis.tsInvalidate).toHaveBeenCalledWith('mangalib');
+            expect(mocks.tsInvalidate).toHaveBeenCalledWith('mangalib');
+        });
+
+        it('authInvalidate without a serviceKey answers ok and drops nothing', async () => {
+            expect((await send({ action: 'authInvalidate' })).response).toEqual({ ok: true });
+            expect(mocks.tsInvalidate).not.toHaveBeenCalled();
+        });
+
+        it('Answers with the text of an error that is not an Error object', async () => {
+            mocks.tsGetToken.mockRejectedValue('storage is gone');
+            expect((await send({ action: 'getAuthToken', serviceKey: 'mangalib' })).response)
+                .toEqual({ ok: false, error: 'storage is gone' });
         });
 
         it('rateAcquire answers once the background limiter grants the request', async () => {
             let grant;
-            globalThis.rlAcquire.mockReturnValue(new Promise(resolve => { grant = resolve; }));
+            mocks.rlAcquire.mockReturnValue(new Promise(resolve => { grant = resolve; }));
             const sendResponse = vi.fn();
             expect(capturedMessageCb({ action: 'rateAcquire', serviceKey: 'mangalib' }, PAGE, sendResponse)).toBe(true);
 
             await new Promise(resolve => setTimeout(resolve, 0));
-            expect(globalThis.rlAcquire).toHaveBeenCalledWith('mangalib');
+            expect(mocks.rlAcquire).toHaveBeenCalledWith('mangalib');
             expect(sendResponse).not.toHaveBeenCalled();
 
             grant();
@@ -171,12 +184,12 @@ describe('MessageRouter', () => {
 
         it('rateThrottle blocks the background limiter and returns the end of the block', async () => {
             const { response } = await send({ action: 'rateThrottle', ms: 5000 });
-            expect(globalThis.rlThrottle).toHaveBeenCalledWith(5000);
+            expect(mocks.rlThrottle).toHaveBeenCalledWith(5000);
             expect(response).toEqual({ ok: true, blockedUntil: 6000 });
         });
 
         it('Turns a handler error into an error response', async () => {
-            globalThis.rlAcquire.mockRejectedValue(new Error('Rate limiter reset'));
+            mocks.rlAcquire.mockRejectedValue(new Error('Rate limiter reset'));
             expect((await send({ action: 'rateAcquire' })).response).toEqual({ ok: false, error: 'Rate limiter reset' });
         });
 
@@ -250,7 +263,7 @@ describe('MessageRouter', () => {
             const lookalike = { id: EXT_ID, url: 'moz-extension://test-id.evil.example/popup.html' };
             expect((await send({ action: 'getAuthToken', serviceKey: 'x' }, lookalike)).response)
                 .toEqual({ ok: false, error: 'forbidden' });
-            expect(globalThis.tsGetToken).not.toHaveBeenCalled();
+            expect(mocks.tsGetToken).not.toHaveBeenCalled();
         });
 
         it('Accepts extension actions from extension pages', async () => {

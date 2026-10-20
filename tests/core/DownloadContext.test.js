@@ -1,20 +1,22 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 
+const mocks = vi.hoisted(() => ({}));
+
 vi.mock('../../core/RateLimitClient.js', async () =>
-    (await import('../helpers/globalBridge.js')).globalBridge('RateLimitClient'));
+    (await import('../helpers/ModuleMock.js')).mockExports(mocks, 'RateLimitClient'));
 
 let createController, DownloadContext, DEFERRED_SETTINGS;
 
 beforeEach(async () => {
     vi.resetModules();
-    globalThis.RateLimitClient = { isHeldBack: vi.fn(() => false) };
+    mocks.RateLimitClient = { isHeldBack: vi.fn(() => false) };
     ({ createController, DownloadContext } = await import('../../core/DownloadContext.js'));
     ({ DEFERRED_SETTINGS } = await import('../../core/DeferredQueue.js'));
 });
 
 afterEach(() => {
     vi.restoreAllMocks();
-    delete globalThis.RateLimitClient;
+    delete mocks.RateLimitClient;
 });
 
 const settle = () => new Promise(resolve => setTimeout(resolve, 0));
@@ -109,11 +111,13 @@ describe('DownloadContext', () => {
     it('Is held back while paused or while requests wait for the rate limiter', () => {
         const ctx = new DownloadContext();
         expect(ctx.isHeldBack()).toBe(false);
-        RateLimitClient.isHeldBack.mockReturnValue(true);
+        expect(ctx.deferred.isHeldBack()).toBe(false);
+        mocks.RateLimitClient.isHeldBack.mockReturnValue(true);
         expect(ctx.isHeldBack()).toBe(true);
-        RateLimitClient.isHeldBack.mockReturnValue(false);
+        mocks.RateLimitClient.isHeldBack.mockReturnValue(false);
         ctx.controller.pause();
         expect(ctx.isHeldBack()).toBe(true);
+        expect(ctx.deferred.isHeldBack()).toBe(true);
     });
 
     it('Defers a slow image only after the time the download was not held back', async () => {
@@ -129,7 +133,7 @@ describe('DownloadContext', () => {
             const [placeholder] = await deferred;
             expect(placeholder.pendingImage.label).toBe(2);
 
-            RateLimitClient.isHeldBack.mockReturnValueOnce(true);
+            mocks.RateLimitClient.isHeldBack.mockReturnValueOnce(true);
             const slow = () => new Promise(resolve => setTimeout(() => resolve(['late']), deferAfterMs * 1.5));
             const loading = ctx.loadImageOrDefer(3, slow);
             await vi.advanceTimersByTimeAsync(deferAfterMs * 2);

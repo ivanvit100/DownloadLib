@@ -120,6 +120,14 @@ describe('RateLimiter', () => {
         expect(limiter.throttle(1000)).toBe(until);
     });
 
+    it('throttle blocks for 30 seconds by default and ignores an invalid duration', () => {
+        expect(new RateLimiter().throttle()).toBe(Date.now() + 30000);
+        const limiter = new RateLimiter();
+        expect(limiter.throttle('soon')).toBe(Date.now());
+        expect(limiter.throttle(-5)).toBe(Date.now());
+        expect(limiter.getStats().throttled).toBe(false);
+    });
+
     it('recordRequest always counts, even when the limit is reached', async () => {
         const limiter = new RateLimiter({ maxRequestsPerMinute: 2 });
         limiter.recordRequest('page');
@@ -158,6 +166,13 @@ describe('RateLimiter', () => {
         expect(limiter.getStats().requestsInLastMinute).toBe(1);
     });
 
+    it('acquire and trackRequest work without a name', async () => {
+        const limiter = new RateLimiter({ maxRequestsPerMinute: 5 });
+        await limiter.acquire();
+        await limiter.trackRequest();
+        expect(limiter.getStats().requestsInLastMinute).toBe(2);
+    });
+
     it('snapshot and restore keep the window and the block across restarts', async () => {
         const limiter = new RateLimiter({ maxRequestsPerMinute: 2 });
         await limiter.acquire('svc');
@@ -181,6 +196,13 @@ describe('RateLimiter', () => {
         limiter.restore({ timestamps: [Date.now() - 120000, Date.now() - 1000, 'x'], blockedUntil: 0 });
         expect(limiter.getStats().requestsInLastMinute).toBe(1);
         expect(() => limiter.restore(null)).not.toThrow();
+    });
+
+    it('restore ignores a missing or invalid block end', () => {
+        const limiter = new RateLimiter();
+        limiter.restore({ timestamps: 'broken', blockedUntil: 'later' });
+        limiter.restore({});
+        expect(limiter.getStats()).toMatchObject({ requestsInLastMinute: 0, throttled: false });
     });
 
     it('Calls onChange when its state changes', async () => {

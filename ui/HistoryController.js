@@ -8,12 +8,12 @@
  */
 
 import { extensionApi } from '../core/BrowserApi.js';
+import { createLogger } from '../core/ConsoleLogger.js';
 import { DownloadHistory } from '../core/DownloadHistory.js';
-import { createLogger } from '../core/logger.js';
 import { ExporterRegistry } from '../exporters/ExporterRegistry.js';
-import { buildTitleUrl } from '../services/hosts.js';
+import { buildTitleUrl } from '../services/ServiceHosts.js';
 import { serviceRegistry } from '../services/ServiceRegistry.js';
-import { $el, createEl } from './dom.js';
+import { $el, createEl } from './DomUtils.js';
 
 const log = createLogger('HistoryController');
 

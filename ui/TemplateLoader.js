@@ -7,8 +7,8 @@
  * @version 1.1.0
  */
 
-import { createLogger } from '../core/logger.js';
-import { $el } from './dom.js';
+import { createLogger } from '../core/ConsoleLogger.js';
+import { $el } from './DomUtils.js';
 
 const log = createLogger('TemplateLoader');
 

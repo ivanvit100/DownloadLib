@@ -8,13 +8,13 @@
  */
 
 import { AuthManager } from '../core/AuthManager.js';
+import { blobToDataUrl } from '../core/Base64Codec.js';
 import { extensionApi } from '../core/BrowserApi.js';
-import { sortChapters } from '../core/chapters.js';
-import { blobToDataUrl } from '../core/encoding.js';
-import { createLogger } from '../core/logger.js';
+import { sortChapters } from '../core/ChapterList.js';
+import { createLogger } from '../core/ConsoleLogger.js';
 import { RateLimitClient } from '../core/RateLimitClient.js';
 import { fetchViaTab, NoServiceTabError, requestViaTab } from '../core/TabNetwork.js';
-import { matchesHosts } from './hosts.js';
+import { matchesHosts } from './ServiceHosts.js';
 
 /** Сколько всего попыток даётся запросу при сетевой ошибке или ответе 5xx. */
 const MAX_ATTEMPTS = 3;

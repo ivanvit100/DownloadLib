@@ -9,12 +9,12 @@
  */
 
 import { browserEnv, extensionApi, extensionOrigin } from '../core/BrowserApi.js';
-import { createLogger } from '../core/logger.js';
+import { createLogger } from '../core/ConsoleLogger.js';
 import {
     isApiUrl, isImageHost, serviceKeyForSiteId, serviceKeyForUrl, serviceOrigins, webRequestUrls
-} from '../services/hosts.js';
-import { getPluginHosts } from './pluginHosts.js';
-import { setToken } from './tokenStore.js';
+} from '../services/ServiceHosts.js';
+import { getPluginHosts } from './PluginHosts.js';
+import { setToken } from './TokenStore.js';
 
 const log = createLogger('RequestInterceptor');
 
@@ -106,8 +106,9 @@ function allowedOrigin(details, requestOrigin) {
         return null;
     }
     if (details.tabId === -1) return ownOrigin ? { origin: ownOrigin, credentials: false } : null;
-    const origin = serviceOrigins(serviceKeyForUrl(details.url))[0] ?? serviceOrigins()[0];
-    return origin ? { origin, credentials: true } : null;
+    // CDN, не принадлежащий встроенному сервису, — сайт первого встроенного сервиса (без ключа — все).
+    const [origin] = serviceOrigins(serviceKeyForUrl(details.url));
+    return { origin, credentials: true };
 }
 
 /**

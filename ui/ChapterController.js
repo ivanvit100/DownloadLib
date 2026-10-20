@@ -7,9 +7,9 @@
  * @version 1.1.0
  */
 
-import { chapterKey, filterByBranch } from '../core/chapters.js';
-import { createLogger } from '../core/logger.js';
-import { $el, createEl } from './dom.js';
+import { chapterKey, filterByBranch } from '../core/ChapterList.js';
+import { createLogger } from '../core/ConsoleLogger.js';
+import { $el, createEl } from './DomUtils.js';
 
 const log = createLogger('ChapterController');
 
@@ -323,7 +323,7 @@ export class ChapterController {
 
     /**
      * Фильтрует ранее загруженные главы, оставляя только те, что относятся
-     * к указанной ветке перевода (см. chapters.filterByBranch).
+     * к указанной ветке перевода (см. ChapterList.filterByBranch).
      * @param {number} branchId - id ветки перевода.
      * @returns {object[]} Отфильтрованный список глав.
      */
@@ -334,7 +334,7 @@ export class ChapterController {
     /**
      * Очищает и заново заполняет select-элементы "от"/"до" опциями глав или томов,
      * в зависимости от текущего режима диапазона. Значение опции — ключ главы
-     * (chapters.chapterKey), а не её позиция в списке.
+     * (ChapterList.chapterKey), а не её позиция в списке.
      * @param {object[]} filteredChapters - Главы (уже отфильтрованные по ветке перевода).
      * @param {HTMLSelectElement} fromSelect - Select начала диапазона.
      * @param {HTMLSelectElement} toSelect - Select конца диапазона.

@@ -8,7 +8,7 @@
  */
 
 import { BaseExporter } from './BaseExporter.js';
-import { createLogger } from '../core/logger.js';
+import { createLogger } from '../core/ConsoleLogger.js';
 
 const log = createLogger('EPUBExporter');
 

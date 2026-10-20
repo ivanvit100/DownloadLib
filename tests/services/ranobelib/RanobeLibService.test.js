@@ -1,29 +1,31 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 
+const mocks = vi.hoisted(() => ({}));
+
 vi.mock('../../../core/BrowserApi.js', async () =>
-    (await import('../../helpers/globalBridge.js')).globalBridge('extensionApi'));
+    (await import('../../helpers/ModuleMock.js')).mockExports(mocks, 'extensionApi'));
 vi.mock('../../../core/TabNetwork.js', async () =>
-    (await import('../../helpers/globalBridge.js')).globalBridge('requestViaTab', 'fetchViaTab', 'NoServiceTabError'));
+    (await import('../../helpers/ModuleMock.js')).mockExports(mocks, 'requestViaTab', 'fetchViaTab', 'NoServiceTabError'));
 vi.mock('../../../core/ImageCompressor.js', async () =>
-    (await import('../../helpers/globalBridge.js')).globalBridge('ImageCompressor'));
+    (await import('../../helpers/ModuleMock.js')).mockExports(mocks, 'ImageCompressor'));
 vi.mock('../../../services/ranobelib/config.js', async () =>
-    (await import('../../helpers/globalBridge.js')).globalBridge('ranobelibConfig'));
+    (await import('../../helpers/ModuleMock.js')).mockExports(mocks, 'ranobelibConfig'));
 
 let RanobeLibService;
 
 beforeEach(async () => {
     vi.resetModules();
-    global.extensionApi = {
+    mocks.extensionApi = {
         get runtime() {
             if (global.browser && global.browser.runtime) return global.browser.runtime;
             if (global.chrome && global.chrome.runtime) return global.chrome.runtime;
             return undefined;
         }
     };
-    global.NoServiceTabError = class NoServiceTabError extends Error {};
-    global.ImageCompressor = { compress: vi.fn(async (base64, contentType) => ({ base64, contentType })) };
+    mocks.NoServiceTabError = class NoServiceTabError extends Error {};
+    mocks.ImageCompressor = { compress: vi.fn(async (base64, contentType) => ({ base64, contentType })) };
 
-    global.ranobelibConfig = {
+    mocks.ranobelibConfig = {
         name: 'RanobeLib',
         baseUrl: 'https://ranobelib.me',
         siteUrl: 'https://ranobelib.me',
@@ -35,11 +37,11 @@ beforeEach(async () => {
 });
 
 afterEach(() => {
-    delete global.extensionApi;
+    delete mocks.extensionApi;
     delete global.browser;
     delete global.chrome;
     delete global.fetch;
-    delete global.requestViaTab;
+    delete mocks.requestViaTab;
 });
 
 describe('RanobeLibService', () => {
@@ -65,85 +67,85 @@ describe('RanobeLibService', () => {
     it('Fetch manga metadata returns parsed result', async () => {
         const svc = new RanobeLibService();
         const fakeJson = { data: { id: 123, title: 'Test' } };
-        global.requestViaTab = vi.fn().mockResolvedValue({ ok: true, text: JSON.stringify(fakeJson) });
+        mocks.requestViaTab = vi.fn().mockResolvedValue({ ok: true, text: JSON.stringify(fakeJson) });
         const result = await svc.fetchMangaMetadata('slug');
         expect(result).toEqual(fakeJson);
-        delete global.requestViaTab;
+        delete mocks.requestViaTab;
     });
 
     it('Fetch manga metadata throws on error response', async () => {
         const svc = new RanobeLibService();
-        global.requestViaTab = vi.fn().mockResolvedValue({ ok: false, status: 400, text: 'fail' });
+        mocks.requestViaTab = vi.fn().mockResolvedValue({ ok: false, status: 400, text: 'fail' });
         const errorSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
         await expect(svc.fetchMangaMetadata('slug')).rejects.toThrow('Ошибка API (метаданные тайтла): HTTP 400');
         expect(errorSpy).toHaveBeenCalledWith('[RanobeLib] Error response:', 'fail');
         errorSpy.mockRestore();
-        delete global.requestViaTab;
+        delete mocks.requestViaTab;
     });
 
     it('Fetch manga metadata retries fallback url on 403', async () => {
         const svc = new RanobeLibService();
         const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
 
-        global.requestViaTab = vi.fn()
+        mocks.requestViaTab = vi.fn()
             .mockResolvedValueOnce({ ok: false, status: 403, text: 'forbidden' })
             .mockResolvedValueOnce({ ok: true, text: JSON.stringify({ data: { id: 77 } }) });
 
         const result = await svc.fetchMangaMetadata('slug');
 
         expect(result).toEqual({ data: { id: 77 } });
-        expect(global.requestViaTab).toHaveBeenCalledTimes(2);
-        expect(global.requestViaTab.mock.calls[0][0]).toContain('fields[]=id');
-        expect(global.requestViaTab.mock.calls[1][0]).toBe('https://ranobelib.me/api/manga/slug');
+        expect(mocks.requestViaTab).toHaveBeenCalledTimes(2);
+        expect(mocks.requestViaTab.mock.calls[0][0]).toContain('fields[]=id');
+        expect(mocks.requestViaTab.mock.calls[1][0]).toBe('https://ranobelib.me/api/manga/slug');
         expect(warnSpy).toHaveBeenCalledWith('[RanobeLib] Metadata endpoint rejected (403), retrying with fallback URL');
 
         warnSpy.mockRestore();
-        delete global.requestViaTab;
+        delete mocks.requestViaTab;
     });
 
     it('Fetch manga metadata uses base url without fields when fields are empty', async () => {
-        global.ranobelibConfig.fields = [];
+        mocks.ranobelibConfig.fields = [];
         const svc = new RanobeLibService();
-        global.requestViaTab = vi.fn().mockResolvedValue({ ok: true, text: JSON.stringify({ id: 123 }) });
+        mocks.requestViaTab = vi.fn().mockResolvedValue({ ok: true, text: JSON.stringify({ id: 123 }) });
         const result = await svc.fetchMangaMetadata('slug');
 
         expect(result).toEqual({ id: 123 });
-        expect(global.requestViaTab).toHaveBeenCalledTimes(1);
-        expect(global.requestViaTab.mock.calls[0][0]).toBe('https://ranobelib.me/api/manga/slug');
+        expect(mocks.requestViaTab).toHaveBeenCalledTimes(1);
+        expect(mocks.requestViaTab.mock.calls[0][0]).toBe('https://ranobelib.me/api/manga/slug');
 
-        delete global.requestViaTab;
+        delete mocks.requestViaTab;
     });
 
     it('Fetch chapters list returns parsed result', async () => {
         const svc = new RanobeLibService();
         const fakeJson = [{ id: 1 }];
-        global.requestViaTab = vi.fn().mockResolvedValue({ ok: true, text: JSON.stringify(fakeJson) });
+        mocks.requestViaTab = vi.fn().mockResolvedValue({ ok: true, text: JSON.stringify(fakeJson) });
         const result = await svc.fetchChaptersList('slug');
         expect(result).toEqual(fakeJson);
-        delete global.requestViaTab;
+        delete mocks.requestViaTab;
     });
 
     it('Fetch chapters list throws on error response', async () => {
         const svc = new RanobeLibService();
-        global.requestViaTab = vi.fn().mockResolvedValue({ ok: false, status: 400, text: 'fail' });
+        mocks.requestViaTab = vi.fn().mockResolvedValue({ ok: false, status: 400, text: 'fail' });
         await expect(svc.fetchChaptersList('slug')).rejects.toThrow('Ошибка API (список глав): HTTP 400');
-        delete global.requestViaTab;
+        delete mocks.requestViaTab;
     });
 
     it('Fetch chapter returns parsed result', async () => {
         const svc = new RanobeLibService();
         const fakeJson = { id: 1, pages: [] };
-        global.requestViaTab = vi.fn().mockResolvedValue({ ok: true, text: JSON.stringify(fakeJson) });
+        mocks.requestViaTab = vi.fn().mockResolvedValue({ ok: true, text: JSON.stringify(fakeJson) });
         const result = await svc.fetchChapter('slug', 2, 3);
         expect(result).toEqual(fakeJson);
-        delete global.requestViaTab;
+        delete mocks.requestViaTab;
     });
 
     it('Fetch chapter throws on error response', async () => {
         const svc = new RanobeLibService();
-        global.requestViaTab = vi.fn().mockResolvedValue({ ok: false, status: 400, text: 'fail' });
+        mocks.requestViaTab = vi.fn().mockResolvedValue({ ok: false, status: 400, text: 'fail' });
         await expect(svc.fetchChapter('slug', 1, 1)).rejects.toThrow('Ошибка API (глава): HTTP 400');
-        delete global.requestViaTab;
+        delete mocks.requestViaTab;
     });
 
     it('Extract text parses text and image blocks', () => {
@@ -200,13 +202,13 @@ describe('RanobeLibService', () => {
 
         const chapterMeta = { id: 2, manga_id: 1 };
         global.browser = { runtime: { sendMessage: vi.fn() } };
-        global.fetchViaTab = vi.fn().mockResolvedValue({ ok: true, base64: 'data', contentType: 'image/png' });
+        mocks.fetchViaTab = vi.fn().mockResolvedValue({ ok: true, base64: 'data', contentType: 'image/png' });
         const result = await svc.processChapterContent(extracted, {}, { chapterMeta });
         expect(result).toEqual([
             { type: 'image', data: { base64: 'data', contentType: 'image/png' } }
         ]);
         delete global.browser;
-        delete global.fetchViaTab;
+        delete mocks.fetchViaTab;
     });
 
     it('Process chapter content loads images in parallel and keeps their order', async () => {
@@ -217,10 +219,10 @@ describe('RanobeLibService', () => {
         ];
         global.browser = { runtime: { sendMessage: vi.fn() } };
         const pending = {};
-        global.fetchViaTab = vi.fn(url => new Promise(resolve => { pending[url.split('/').pop()] = resolve; }));
+        mocks.fetchViaTab = vi.fn(url => new Promise(resolve => { pending[url.split('/').pop()] = resolve; }));
 
         const processing = svc.processChapterContent(extracted, {}, { chapterMeta: { id: 2, manga_id: 1 } });
-        await vi.waitFor(() => expect(global.fetchViaTab).toHaveBeenCalledTimes(3));
+        await vi.waitFor(() => expect(mocks.fetchViaTab).toHaveBeenCalledTimes(3));
         pending['c.jpg']({ ok: true, base64: 'C', contentType: 'image/png' });
         pending['b.jpg']({ ok: true, base64: 'B', contentType: 'image/png' });
         pending['a.jpg']({ ok: true, base64: 'A', contentType: 'image/png' });
@@ -228,14 +230,14 @@ describe('RanobeLibService', () => {
         const result = await processing;
         expect(result.map(b => b.text || b.data.base64)).toEqual(['A', 'mid', 'B', 'C']);
         delete global.browser;
-        delete global.fetchViaTab;
+        delete mocks.fetchViaTab;
     });
 
     it('Process chapter content loads images through loadImageOrDefer', async () => {
         const svc = new RanobeLibService();
         const extracted = [{ type: 'text', text: 'abc' }, { type: 'image', src: 'a.jpg' }, { type: 'image', src: 'b.jpg' }];
         global.browser = { runtime: { sendMessage: vi.fn() } };
-        global.fetchViaTab = vi.fn().mockResolvedValue({ ok: true, base64: 'data', contentType: 'image/png' });
+        mocks.fetchViaTab = vi.fn().mockResolvedValue({ ok: true, base64: 'data', contentType: 'image/png' });
         const placeholder = { type: 'text', text: 'pending 2' };
         let deferredLoad;
         svc.attach({
@@ -255,38 +257,38 @@ describe('RanobeLibService', () => {
         ]);
         expect(await deferredLoad()).toEqual([{ type: 'image', data: { base64: 'data', contentType: 'image/png' } }]);
 
-        global.fetchViaTab.mockResolvedValue({ ok: false });
+        mocks.fetchViaTab.mockResolvedValue({ ok: false });
         const errorSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
         const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
         expect(await deferredLoad()).toBeNull();
         errorSpy.mockRestore();
         warnSpy.mockRestore();
         delete global.browser;
-        delete global.fetchViaTab;
+        delete mocks.fetchViaTab;
     });
 
     it('Process chapter content rethrows NoServiceTabError from image loading', async () => {
         const svc = new RanobeLibService();
         class NoServiceTabError extends Error {}
-        global.NoServiceTabError = NoServiceTabError;
+        mocks.NoServiceTabError = NoServiceTabError;
         global.browser = { runtime: { sendMessage: vi.fn() } };
-        global.fetchViaTab = vi.fn().mockRejectedValue(new NoServiceTabError('no tab'));
+        mocks.fetchViaTab = vi.fn().mockRejectedValue(new NoServiceTabError('no tab'));
         await expect(svc.processChapterContent([{ type: 'image', src: 'img.jpg' }], {}, { chapterMeta: { id: 2, manga_id: 1 } }))
             .rejects.toBeInstanceOf(NoServiceTabError);
-        delete global.NoServiceTabError;
+        delete mocks.NoServiceTabError;
         delete global.browser;
-        delete global.fetchViaTab;
+        delete mocks.fetchViaTab;
     });
 
     it('Process chapter content stops when the download is stopped', async () => {
         const svc = new RanobeLibService();
         const aborted = Object.assign(new Error('Download aborted'), { aborted: true });
         svc.attach({ checkpoint: vi.fn().mockRejectedValue(aborted), loadImageOrDefer: (label, load) => load() });
-        global.fetchViaTab = vi.fn();
+        mocks.fetchViaTab = vi.fn();
         await expect(svc.processChapterContent([{ type: 'image', src: 'img.jpg' }], {}, { chapterMeta: { id: 2, manga_id: 1 } }))
             .rejects.toBe(aborted);
-        expect(global.fetchViaTab).not.toHaveBeenCalled();
-        delete global.fetchViaTab;
+        expect(mocks.fetchViaTab).not.toHaveBeenCalled();
+        delete mocks.fetchViaTab;
     });
 
     it('Process chapter content logs error if all image loads fail', async () => {
@@ -294,7 +296,7 @@ describe('RanobeLibService', () => {
         const extracted = [{ type: 'image', src: 'img123.jpg' }];
 
         global.browser = { runtime: { sendMessage: vi.fn() } };
-        global.fetchViaTab = vi.fn().mockRejectedValue(new Error('fail'));
+        mocks.fetchViaTab = vi.fn().mockRejectedValue(new Error('fail'));
         const errorSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
         const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
         const result = await svc.processChapterContent(extracted, {}, { chapterMeta: { id: 2, manga_id: 1 } });
@@ -303,30 +305,30 @@ describe('RanobeLibService', () => {
         errorSpy.mockRestore();
         warnSpy.mockRestore();
         delete global.browser;
-        delete global.fetchViaTab;
+        delete mocks.fetchViaTab;
     });
 
     it("Sets volume = '1' when volume is undefined", async () => {
         const svc = new RanobeLibService();
-        global.requestViaTab = vi.fn().mockResolvedValue({ ok: true, text: JSON.stringify({ id: 1, pages: [] }) });
+        mocks.requestViaTab = vi.fn().mockResolvedValue({ ok: true, text: JSON.stringify({ id: 1, pages: [] }) });
 
         await svc.fetchChapter('slug', 2);
-        const calledUrl = global.requestViaTab.mock.calls[0][0];
+        const calledUrl = mocks.requestViaTab.mock.calls[0][0];
         expect(calledUrl).toMatch(/volume=1/);
 
-        delete global.requestViaTab;
+        delete mocks.requestViaTab;
     });
 
     it("Sets number = '1' and volume = '1' when both are undefined", async () => {
         const svc = new RanobeLibService();
-        global.requestViaTab = vi.fn().mockResolvedValue({ ok: true, text: JSON.stringify({ id: 1, pages: [] }) });
+        mocks.requestViaTab = vi.fn().mockResolvedValue({ ok: true, text: JSON.stringify({ id: 1, pages: [] }) });
 
         await svc.fetchChapter('slug');
-        const calledUrl = global.requestViaTab.mock.calls[0][0];
+        const calledUrl = mocks.requestViaTab.mock.calls[0][0];
         expect(calledUrl).toMatch(/number=1/);
         expect(calledUrl).toMatch(/volume=1/);
 
-        delete global.requestViaTab;
+        delete mocks.requestViaTab;
     });
 
     it('Extract text returns [] for non-array', () => {
@@ -505,7 +507,7 @@ describe('RanobeLibService', () => {
     it("Process chapter content warn for no response", async () => {
         const svc = new RanobeLibService();
         global.browser = { runtime: { sendMessage: vi.fn() } };
-        global.fetchViaTab = vi.fn().mockResolvedValue({ ok: false, error: 'fail' });
+        mocks.fetchViaTab = vi.fn().mockResolvedValue({ ok: false, error: 'fail' });
         const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
         await svc.processChapterContent([{ type: 'image', src: 'img123' }], {}, { chapterMeta: { id: 1, manga_id: 2 } });
         expect(warnSpy).toHaveBeenCalledWith(
@@ -514,13 +516,13 @@ describe('RanobeLibService', () => {
         );
         warnSpy.mockRestore();
         delete global.browser;
-        delete global.fetchViaTab;
+        delete mocks.fetchViaTab;
     });
 
     it("Process chapter content uses default content type if not provided", async () => {
         const svc = new RanobeLibService();
         global.browser = { runtime: { sendMessage: vi.fn() } };
-        global.fetchViaTab = vi.fn().mockResolvedValue({ ok: true, base64: 'somebase64' });
+        mocks.fetchViaTab = vi.fn().mockResolvedValue({ ok: true, base64: 'somebase64' });
         const result = await svc.processChapterContent(
             [{ type: 'image', src: 'img123.jpg' }],
             {},
@@ -533,37 +535,37 @@ describe('RanobeLibService', () => {
             }
         ]);
         delete global.browser;
-        delete global.fetchViaTab;
+        delete mocks.fetchViaTab;
     });
 
     it('Fetch manga metadata reports an empty response as a parse error', async () => {
         const svc = new RanobeLibService();
-        global.requestViaTab = vi.fn().mockResolvedValue({ ok: true, status: 200, text: '' });
+        mocks.requestViaTab = vi.fn().mockResolvedValue({ ok: true, status: 200, text: '' });
         await expect(svc.fetchMangaMetadata('slug')).rejects.toThrow('Ошибка разбора ответа API (метаданные тайтла)');
-        delete global.requestViaTab;
+        delete mocks.requestViaTab;
     });
 
     it('Fetch chapters list reports an empty response as a parse error', async () => {
         const svc = new RanobeLibService();
-        global.requestViaTab = vi.fn().mockResolvedValue({ ok: true, status: 200, text: '' });
+        mocks.requestViaTab = vi.fn().mockResolvedValue({ ok: true, status: 200, text: '' });
         await expect(svc.fetchChaptersList('slug')).rejects.toThrow('Ошибка разбора ответа API (список глав)');
-        delete global.requestViaTab;
+        delete mocks.requestViaTab;
     });
 
     it('Fetch chapter reports an empty response as a parse error', async () => {
         const svc = new RanobeLibService();
-        global.requestViaTab = vi.fn().mockResolvedValue({ ok: true, status: 200, text: '' });
+        mocks.requestViaTab = vi.fn().mockResolvedValue({ ok: true, status: 200, text: '' });
         await expect(svc.fetchChapter('slug', 1, 1)).rejects.toThrow('Ошибка разбора ответа API (глава)');
-        delete global.requestViaTab;
+        delete mocks.requestViaTab;
     });
 
     it('Fetch chapter sets number to 1 when number is null', async () => {
         const svc = new RanobeLibService();
-        global.requestViaTab = vi.fn().mockResolvedValue({ ok: true, text: JSON.stringify({ id: 1 }) });
+        mocks.requestViaTab = vi.fn().mockResolvedValue({ ok: true, text: JSON.stringify({ id: 1 }) });
         await svc.fetchChapter('slug', null, '2');
-        const calledUrl = global.requestViaTab.mock.calls[0][0];
+        const calledUrl = mocks.requestViaTab.mock.calls[0][0];
         expect(calledUrl).toMatch(/number=1/);
-        delete global.requestViaTab;
+        delete mocks.requestViaTab;
     });
 
     it('Strip html returns empty string for falsy input', () => {
@@ -744,16 +746,16 @@ describe('RanobeLibService', () => {
     it('Process chapter content uses opts.mangaId over chapterMeta.manga_id', async () => {
         const svc = new RanobeLibService();
         global.browser = { runtime: { sendMessage: vi.fn() } };
-        global.fetchViaTab = vi.fn().mockResolvedValue({ ok: true, base64: 'b64', contentType: 'image/jpeg' });
+        mocks.fetchViaTab = vi.fn().mockResolvedValue({ ok: true, base64: 'b64', contentType: 'image/jpeg' });
         await svc.processChapterContent(
             [{ type: 'image', src: 'img.jpg' }],
             {},
             { chapterMeta: { id: 5, manga_id: 1 }, mangaId: 99 }
         );
-        const calledUrl = global.fetchViaTab.mock.calls[0][0];
+        const calledUrl = mocks.fetchViaTab.mock.calls[0][0];
         expect(calledUrl).toContain('/ranobe/99/');
         delete global.browser;
-        delete global.fetchViaTab;
+        delete mocks.fetchViaTab;
     });
 
     it('Process chapter content warns for image block with falsy src', async () => {
@@ -772,7 +774,7 @@ describe('RanobeLibService', () => {
 
         let callCount = 0;
         global.browser = { runtime: { sendMessage: vi.fn() } };
-        global.fetchViaTab = vi.fn().mockImplementation(async () => {
+        mocks.fetchViaTab = vi.fn().mockImplementation(async () => {
             callCount++;
             if (callCount === 1) return { ok: false, error: 'not found' };
             return { ok: true, base64: 'fb64', contentType: 'image/jpeg' };
@@ -786,23 +788,23 @@ describe('RanobeLibService', () => {
         expect(result).toEqual([{ type: 'image', data: { base64: 'fb64', contentType: 'image/jpeg' } }]);
         warnSpy.mockRestore();
         delete global.browser;
-        delete global.fetchViaTab;
+        delete mocks.fetchViaTab;
     });
 
     it('Process chapter content uses jpg as default extension when src has no recognized ext', async () => {
         const svc = new RanobeLibService();
 
         global.browser = { runtime: { sendMessage: vi.fn() } };
-        global.fetchViaTab = vi.fn().mockResolvedValue({ ok: true, base64: 'b', contentType: 'image/png' });
+        mocks.fetchViaTab = vi.fn().mockResolvedValue({ ok: true, base64: 'b', contentType: 'image/png' });
         await svc.processChapterContent(
             [{ type: 'image', src: 'someimage' }],
             {},
             { chapterMeta: { id: 3, manga_id: 1 } }
         );
-        const calledUrl = global.fetchViaTab.mock.calls[0][0];
+        const calledUrl = mocks.fetchViaTab.mock.calls[0][0];
         expect(calledUrl).toMatch(/\.jpg$/);
         delete global.browser;
-        delete global.fetchViaTab;
+        delete mocks.fetchViaTab;
     });
 
     it('Extract text pushes text when paragraph content is a non-empty string', () => {
@@ -816,7 +818,7 @@ describe('RanobeLibService', () => {
     it('Process chapter content skips attachments without name or extension', async () => {
         const svc = new RanobeLibService();
         global.browser = { runtime: { sendMessage: vi.fn() } };
-        global.fetchViaTab = vi.fn().mockResolvedValue({ ok: true, base64: 'data' });
+        mocks.fetchViaTab = vi.fn().mockResolvedValue({ ok: true, base64: 'data' });
         const result = await svc.processChapterContent(
             [{ type: 'text', text: 'hello' }],
             {},
@@ -833,14 +835,14 @@ describe('RanobeLibService', () => {
         );
         expect(result).toEqual([{ type: 'text', text: 'hello' }]);
         delete global.browser;
-        delete global.fetchViaTab;
+        delete mocks.fetchViaTab;
     });
 
     it('Process chapter content uses attachmentMap extension for plain UUID image src', async () => {
         const svc = new RanobeLibService();
         global.browser = { runtime: { sendMessage: vi.fn() } };
         const fetchViaTabMock = vi.fn().mockResolvedValue({ ok: true, base64: 'imgdata' });
-        global.fetchViaTab = fetchViaTabMock;
+        mocks.fetchViaTab = fetchViaTabMock;
         const uuid = 'some-plain-uuid';
         await svc.processChapterContent(
             [{ type: 'image', src: uuid }],
@@ -855,14 +857,14 @@ describe('RanobeLibService', () => {
         const calledUrl = fetchViaTabMock.mock.calls[0][0];
         expect(calledUrl).toMatch(/\.webp$/);
         delete global.browser;
-        delete global.fetchViaTab;
+        delete mocks.fetchViaTab;
     });
 
     it('Process chapter content builds absolute URL for absolute path image src', async () => {
         const svc = new RanobeLibService();
         global.browser = { runtime: { sendMessage: vi.fn() } };
         const fetchViaTabMock = vi.fn().mockResolvedValue({ ok: true, base64: 'imgdata' });
-        global.fetchViaTab = fetchViaTabMock;
+        mocks.fetchViaTab = fetchViaTabMock;
         await svc.processChapterContent(
             [{ type: 'image', src: '/uploads/image.jpg' }],
             {},
@@ -871,14 +873,14 @@ describe('RanobeLibService', () => {
         const calledUrl = fetchViaTabMock.mock.calls[0][0];
         expect(calledUrl).toMatch(/^https:\/\/ranobelib\.me\//);
         delete global.browser;
-        delete global.fetchViaTab;
+        delete mocks.fetchViaTab;
     });
 
     it('Process chapter content builds URL directly for full URL image src', async () => {
         const svc = new RanobeLibService();
         global.browser = { runtime: { sendMessage: vi.fn() } };
         const fetchViaTabMock = vi.fn().mockResolvedValue({ ok: true, base64: 'imgdata' });
-        global.fetchViaTab = fetchViaTabMock;
+        mocks.fetchViaTab = fetchViaTabMock;
         await svc.processChapterContent(
             [{ type: 'image', src: 'https://cdn.example.com/uploads/image.jpg' }],
             {},
@@ -887,14 +889,14 @@ describe('RanobeLibService', () => {
         const calledUrl = fetchViaTabMock.mock.calls[0][0];
         expect(calledUrl).toMatch(/^https:\/\/cdn\.example\.com\//);
         delete global.browser;
-        delete global.fetchViaTab;
+        delete mocks.fetchViaTab;
     });
 
     it('Process chapter content requests the original .gif URL for a gif image src', async () => {
         const svc = new RanobeLibService();
         global.browser = { runtime: { sendMessage: vi.fn() } };
         const fetchViaTabMock = vi.fn().mockResolvedValue({ ok: true, base64: 'imgdata' });
-        global.fetchViaTab = fetchViaTabMock;
+        mocks.fetchViaTab = fetchViaTabMock;
         await svc.processChapterContent(
             [{ type: 'image', src: 'giphy_GyWH.gif' }],
             {},
@@ -903,38 +905,38 @@ describe('RanobeLibService', () => {
         const calledUrl = fetchViaTabMock.mock.calls[0][0];
         expect(calledUrl).toBe('https://ranobelib.me/uploads/ranobe/2/chapters/1987037/giphy_GyWH.gif');
         delete global.browser;
-        delete global.fetchViaTab;
+        delete mocks.fetchViaTab;
     });
 
     it('_processImageBlock uses default compressOpts when called without 5th argument', async () => {
         const svc = new RanobeLibService();
         global.browser = { runtime: { sendMessage: vi.fn() } };
-        global.fetchViaTab = vi.fn().mockResolvedValue({ ok: true, base64: 'imgdata', contentType: 'image/jpeg' });
+        mocks.fetchViaTab = vi.fn().mockResolvedValue({ ok: true, base64: 'imgdata', contentType: 'image/jpeg' });
         const result = await svc._processImageBlock({ src: 'img.jpg' }, {}, 1, 2);
         expect(result).toEqual({ type: 'image', data: { base64: 'imgdata', contentType: 'image/jpeg' } });
         delete global.browser;
-        delete global.fetchViaTab;
+        delete mocks.fetchViaTab;
     });
 
     it('_processImageBlock re-throws NoServiceTabError instead of trying other extensions', async () => {
         const svc = new RanobeLibService();
         global.browser = { runtime: { sendMessage: vi.fn() } };
         class NoServiceTabError extends Error {}
-        global.NoServiceTabError = NoServiceTabError;
-        global.fetchViaTab = vi.fn().mockRejectedValue(new NoServiceTabError('no tab'));
+        mocks.NoServiceTabError = NoServiceTabError;
+        mocks.fetchViaTab = vi.fn().mockRejectedValue(new NoServiceTabError('no tab'));
         await expect(svc._processImageBlock({ src: 'img.jpg' }, {}, 1, 2)).rejects.toBeInstanceOf(NoServiceTabError);
-        expect(global.fetchViaTab).toHaveBeenCalledTimes(1);
+        expect(mocks.fetchViaTab).toHaveBeenCalledTimes(1);
         delete global.browser;
-        delete global.fetchViaTab;
-        delete global.NoServiceTabError;
+        delete mocks.fetchViaTab;
+        delete mocks.NoServiceTabError;
     });
 
     it('_processImageBlock compresses image through ImageCompressor', async () => {
         const svc = new RanobeLibService();
         global.browser = { runtime: { sendMessage: vi.fn() } };
-        global.fetchViaTab = vi.fn().mockResolvedValue({ ok: true, base64: 'raw', contentType: 'image/jpeg' });
+        mocks.fetchViaTab = vi.fn().mockResolvedValue({ ok: true, base64: 'raw', contentType: 'image/jpeg' });
         const compress = vi.fn().mockResolvedValue({ base64: 'compressed', contentType: 'image/jpeg' });
-        global.ImageCompressor = { compress };
+        mocks.ImageCompressor = { compress };
         const result = await svc.processChapterContent(
             [{ type: 'image', src: 'img.jpg' }],
             {},
@@ -943,8 +945,8 @@ describe('RanobeLibService', () => {
         expect(compress).toHaveBeenCalled();
         expect(result).toEqual([{ type: 'image', data: { base64: 'compressed', contentType: 'image/jpeg' } }]);
         delete global.browser;
-        delete global.fetchViaTab;
-        delete global.ImageCompressor;
+        delete mocks.fetchViaTab;
+        delete mocks.ImageCompressor;
     });
 
     describe('_nodeToHtml', () => {

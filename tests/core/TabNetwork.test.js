@@ -1,7 +1,9 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 
+const mocks = vi.hoisted(() => ({}));
+
 vi.mock('../../core/RateLimitClient.js', async () =>
-    (await import('../helpers/globalBridge.js')).globalBridge('RateLimitClient'));
+    (await import('../helpers/ModuleMock.js')).mockExports(mocks, 'RateLimitClient'));
 
 const NO_TAB = { ok: false, status: 0, noTab: true, error: 'No service tab' };
 const IMAGE = { ok: true, status: 200, retryAfter: null, base64: 'xyz', contentType: 'image/png' };
@@ -36,14 +38,14 @@ function api({ tabs = [{ id: 3 }], execute = async () => [{ result: IMAGE }], st
 
 beforeEach(() => {
     calls = [];
-    globalThis.RateLimitClient = { acquire: vi.fn(async key => { calls.push(`acquire:${key}`); }) };
+    mocks.RateLimitClient = { acquire: vi.fn(async key => { calls.push(`acquire:${key}`); }) };
 });
 
 afterEach(() => {
     vi.restoreAllMocks();
     vi.unstubAllGlobals();
     delete globalThis.browser;
-    delete globalThis.RateLimitClient;
+    delete mocks.RateLimitClient;
 });
 
 describe('TabNetwork: finding the service tab', () => {
@@ -51,7 +53,7 @@ describe('TabNetwork: finding the service tab', () => {
         const net = await load({ runtime: {}, tabs: { query: async () => [{ id: 1 }] } });
         await expect(net.fetchViaTab('https://img.example/a.jpg', 'mangalib')).resolves.toEqual(NO_TAB);
         await expect(net.hasServiceTab('mangalib')).resolves.toBe(false);
-        expect(globalThis.RateLimitClient.acquire).not.toHaveBeenCalled();
+        expect(mocks.RateLimitClient.acquire).not.toHaveBeenCalled();
     });
 
     it('Reports noTab when no service tab is open', async () => {
@@ -60,7 +62,7 @@ describe('TabNetwork: finding the service tab', () => {
         await expect(net.fetchViaTab('https://img.example/a.jpg', 'mangalib')).resolves.toEqual(NO_TAB);
         await expect(net.hasServiceTab('mangalib')).resolves.toBe(false);
         expect(browser.scripting.executeScript).not.toHaveBeenCalled();
-        expect(globalThis.RateLimitClient.acquire).not.toHaveBeenCalled();
+        expect(mocks.RateLimitClient.acquire).not.toHaveBeenCalled();
     });
 
     it('Looks for tabs of the service by the hosts of its config', async () => {
@@ -220,6 +222,24 @@ describe('TabNetwork: results', () => {
         expect(calls.at(-1)).toBe('execute:7');
     });
 
+    it('Two requests through a tab that closed both switch to another tab without forgetting it', async () => {
+        const execute = async ({ target }) => {
+            if (target.tabId === 7) throw new Error('No tab with id: 7');
+            return [{ result: { ok: true, status: 200, text: '{}', retryAfter: null } }];
+        };
+        const browser = api({ tabs: [{ id: 8 }], execute });
+        const net = await load(browser);
+        net.setServiceTab(7);
+        const results = await Promise.all([
+            net.requestViaTab('https://api.example/a', {}, 'mangalib'),
+            net.requestViaTab('https://api.example/b', {}, 'mangalib')
+        ]);
+        expect(results.map(r => r.ok)).toEqual([true, true]);
+        calls.length = 0;
+        await net.requestViaTab('https://api.example/c', {}, 'mangalib');
+        expect(calls).toEqual(['acquire:mangalib', 'execute:8']);
+    });
+
     it('Reports noTab when the closed tab was the last service tab', async () => {
         const net = await load(api({ tabs: [], execute: async () => { throw new Error('No tab with id: 42'); } }));
         net.setServiceTab(42);
@@ -235,7 +255,15 @@ describe('TabNetwork: results', () => {
         net.setServiceTab(7);
         await expect(net.requestViaTab('https://api.example/a', {}, 'mangalib'))
             .resolves.toEqual({ ok: false, status: 0, noTab: false, error: 'script boom', text: '', retryAfter: null });
-        expect(warn).toHaveBeenCalledWith('[TabNetwork] executeScript failed:', 'script boom');
+        expect(warn).toHaveBeenCalledWith('[TabNetwork] executeScript failed:', expect.objectContaining({ message: 'script boom' }));
+    });
+
+    it('Returns the text of an executeScript failure that is not an Error object', async () => {
+        vi.spyOn(console, 'warn').mockImplementation(() => {});
+        const net = await load(api({ tabs: [{ id: 7 }], execute: async () => { throw 'tab crashed'; } })); // eslint-disable-line no-throw-literal
+        net.setServiceTab(7);
+        await expect(net.requestViaTab('https://api.example/a', {}, 'mangalib'))
+            .resolves.toMatchObject({ ok: false, noTab: false, error: 'tab crashed' });
     });
 });
 
@@ -297,6 +325,22 @@ describe('tabFetch (runs inside the service tab)', () => {
         stubReader('onerror', { error: new Error('read failed') });
         await expect(tabFetch('https://img.example/a.png', {}, 'base64'))
             .resolves.toEqual({ ok: false, status: 200, retryAfter: null, error: 'FileReader: read failed' });
+    });
+
+    it('Describes a FileReader failure without an Error object', async () => {
+        vi.stubGlobal('fetch', vi.fn(async () => response()));
+        stubReader('onerror', { error: 'NotReadableError' });
+        await expect(tabFetch('https://img.example/a.png', {}, 'base64'))
+            .resolves.toMatchObject({ ok: false, error: 'FileReader: NotReadableError' });
+        stubReader('onerror', { error: null });
+        await expect(tabFetch('https://img.example/a.png', {}, 'base64'))
+            .resolves.toMatchObject({ ok: false, error: 'FileReader: read failed' });
+    });
+
+    it('Returns an empty body for a data-URL without data', async () => {
+        vi.stubGlobal('fetch', vi.fn(async () => response()));
+        stubReader('onload', { result: 'data:image/png;base64' });
+        await expect(tabFetch('https://img.example/a.png', {}, 'base64')).resolves.toMatchObject({ ok: true, base64: '' });
     });
 
     it('Returns an error when FileReader is aborted', async () => {

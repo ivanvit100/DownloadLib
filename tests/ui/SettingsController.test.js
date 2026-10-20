@@ -1,7 +1,9 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 
-vi.mock('../../core/PluginManager.js', async () => (await import('../helpers/globalBridge.js')).globalBridge('PluginManager'));
-vi.mock('../../core/RateLimitClient.js', async () => (await import('../helpers/globalBridge.js')).globalBridge('RateLimitClient'));
+const mocks = vi.hoisted(() => ({}));
+
+vi.mock('../../core/PluginManager.js', async () => (await import('../helpers/ModuleMock.js')).mockExports(mocks, 'PluginManager'));
+vi.mock('../../core/RateLimitClient.js', async () => (await import('../helpers/ModuleMock.js')).mockExports(mocks, 'RateLimitClient'));
 
 let SettingsController;
 
@@ -24,14 +26,14 @@ function setupDOM() {
 
 async function loadModule() {
     vi.resetModules();
-    globalThis.PluginManager = {
+    mocks.PluginManager = {
         list: vi.fn().mockResolvedValue([]),
         toggle: vi.fn().mockResolvedValue(),
         remove: vi.fn().mockResolvedValue(),
         save: vi.fn().mockResolvedValue(),
         generateId: vi.fn(() => 'plugin_id')
     };
-    globalThis.RateLimitClient = {
+    mocks.RateLimitClient = {
         getLimit: vi.fn(async () => 85),
         setLimit: vi.fn(async value => Number(value))
     };
@@ -62,11 +64,11 @@ describe('_renderRateLimit()', () => {
     it('returns early when element absent', async () => {
         document.getElementById('settingsRateLimit').remove();
         await expect(SettingsController._renderRateLimit()).resolves.toBeUndefined();
-        expect(globalThis.RateLimitClient.getLimit).not.toHaveBeenCalled();
+        expect(mocks.RateLimitClient.getLimit).not.toHaveBeenCalled();
     });
 
     it('shows the limit from the settings', async () => {
-        globalThis.RateLimitClient.getLimit = vi.fn(async () => 50);
+        mocks.RateLimitClient.getLimit = vi.fn(async () => 50);
         await SettingsController._renderRateLimit();
         expect(document.getElementById('settingsRateLimit').value).toBe('50');
     });
@@ -141,19 +143,19 @@ describe('_renderPlugins()', () => {
     });
 
     it('shows empty block when plugins list is empty (with empty el)', async () => {
-        globalThis.PluginManager = { list: vi.fn().mockResolvedValue([]) };
+        mocks.PluginManager = { list: vi.fn().mockResolvedValue([]) };
         await SettingsController._renderPlugins();
         expect(document.getElementById('pluginEmpty').style.display).toBe('block');
     });
 
     it('no error when plugins empty and empty el absent', async () => {
-        globalThis.PluginManager = { list: vi.fn().mockResolvedValue([]) };
+        mocks.PluginManager = { list: vi.fn().mockResolvedValue([]) };
         document.getElementById('pluginEmpty').remove();
         await expect(SettingsController._renderPlugins()).resolves.toBeUndefined();
     });
 
     it('hides empty and renders plugin cards', async () => {
-        globalThis.PluginManager = {
+        mocks.PluginManager = {
             list: vi.fn().mockResolvedValue([
                 { id: '1', name: 'PlugA', enabled: true },
                 { id: '2', name: 'PlugB', enabled: false }
@@ -167,7 +169,7 @@ describe('_renderPlugins()', () => {
 
     it('no error when plugins exist but empty el absent', async () => {
         document.getElementById('pluginEmpty').remove();
-        globalThis.PluginManager = {
+        mocks.PluginManager = {
             list: vi.fn().mockResolvedValue([{ id: '1', name: 'P', enabled: true }])
         };
         await expect(SettingsController._renderPlugins()).resolves.toBeUndefined();
@@ -191,17 +193,17 @@ describe('_createPluginCard()', () => {
     });
 
     it('toggle change calls PluginManager.toggle', async () => {
-        globalThis.PluginManager = { toggle: vi.fn().mockResolvedValue() };
+        mocks.PluginManager = { toggle: vi.fn().mockResolvedValue() };
         const card = SettingsController._createPluginCard({ id: 'x', name: 'P', enabled: true });
         const toggle = card.querySelector('.plugin-toggle');
         toggle.checked = false;
         toggle.dispatchEvent(new Event('change'));
         await Promise.resolve();
-        expect(globalThis.PluginManager.toggle).toHaveBeenCalledWith('x', false);
+        expect(mocks.PluginManager.toggle).toHaveBeenCalledWith('x', false);
     });
 
     it('remove button calls remove and re-renders', async () => {
-        globalThis.PluginManager = {
+        mocks.PluginManager = {
             remove: vi.fn().mockResolvedValue(),
             list: vi.fn().mockResolvedValue([])
         };
@@ -209,7 +211,7 @@ describe('_createPluginCard()', () => {
         const card = SettingsController._createPluginCard({ id: 'x', name: 'P', enabled: true });
         card.querySelector('.plugin-remove-btn').click();
         await Promise.resolve(); await Promise.resolve();
-        expect(globalThis.PluginManager.remove).toHaveBeenCalledWith('x');
+        expect(mocks.PluginManager.remove).toHaveBeenCalledWith('x');
         expect(SettingsController._renderPlugins).toHaveBeenCalled();
     });
 });
@@ -288,7 +290,7 @@ describe('_bindEvents() saveRateLimitBtn', () => {
         input.value = 'abc';
         document.getElementById('saveRateLimitBtn').click();
         expect(input.value).toBe('2');
-        expect(globalThis.RateLimitClient.setLimit).toHaveBeenCalledWith(2);
+        expect(mocks.RateLimitClient.setLimit).toHaveBeenCalledWith(2);
     });
 
     it('clamps val to 2 when below 2', () => {
@@ -309,7 +311,7 @@ describe('_bindEvents() saveRateLimitBtn', () => {
         SettingsController._bindEvents();
         document.getElementById('settingsRateLimit').value = '50';
         document.getElementById('saveRateLimitBtn').click();
-        expect(globalThis.RateLimitClient.setLimit).toHaveBeenCalledWith(50);
+        expect(mocks.RateLimitClient.setLimit).toHaveBeenCalledWith(50);
         expect(localStorage.getItem('downloadlib_default_rate_limit')).toBeNull();
     });
 
@@ -418,16 +420,16 @@ describe('_bindEvents() fileInput', () => {
     });
 
     it('returns early when no file selected', async () => {
-        globalThis.PluginManager = { save: vi.fn(), generateId: vi.fn(), list: vi.fn().mockResolvedValue([]) };
+        mocks.PluginManager = { save: vi.fn(), generateId: vi.fn(), list: vi.fn().mockResolvedValue([]) };
         SettingsController._bindEvents();
         const fileInput = document.getElementById('pluginFileInput');
         fileInput.dispatchEvent(new Event('change'));
         await Promise.resolve();
-        expect(globalThis.PluginManager.save).not.toHaveBeenCalled();
+        expect(mocks.PluginManager.save).not.toHaveBeenCalled();
     });
 
     it('saves plugin from file and re-renders', async () => {
-        globalThis.PluginManager = {
+        mocks.PluginManager = {
             save: vi.fn().mockResolvedValue(),
             generateId: vi.fn().mockReturnValue('gen-id'),
             list: vi.fn().mockResolvedValue([])
@@ -439,7 +441,7 @@ describe('_bindEvents() fileInput', () => {
         Object.defineProperty(fileInput, 'files', { value: [file], configurable: true });
         fileInput.dispatchEvent(new Event('change'));
         await new Promise(r => setTimeout(r, 0));
-        expect(globalThis.PluginManager.save).toHaveBeenCalledWith({
+        expect(mocks.PluginManager.save).toHaveBeenCalledWith({
             id: 'gen-id',
             name: 'myplugin',
             code: 'const x=1;',

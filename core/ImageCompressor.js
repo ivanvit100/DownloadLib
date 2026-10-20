@@ -7,8 +7,8 @@
  * @version 1.1.0
  */
 
-import { base64ToBytes, blobToBase64 } from './encoding.js';
-import { createLogger } from './logger.js';
+import { base64ToBytes, blobToBase64 } from './Base64Codec.js';
+import { createLogger } from './ConsoleLogger.js';
 
 const log = createLogger('ImageCompressor');
 
@@ -67,7 +67,7 @@ export class ImageCompressor {
         try {
             bitmap = await createImageBitmap(new Blob([base64ToBytes(base64)], { type: contentType }));
         } catch (e) {
-            log.warn('Failed to decode image, keeping original:', e?.message || e);
+            log.warn('Failed to decode image, keeping original:', e);
             return [{ base64, contentType }];
         }
 

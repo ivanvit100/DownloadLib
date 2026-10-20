@@ -8,18 +8,18 @@
  */
 
 import { extensionApi } from './BrowserApi.js';
-import { chapterKey, filterByBranch, selectRange } from './chapters.js';
+import { chapterKey, filterByBranch, selectRange } from './ChapterList.js';
+import { createLogger } from './ConsoleLogger.js';
 import { DEFERRED_SETTINGS, estimateContentSize, waitWithDeadline } from './DeferredQueue.js';
 import { createController, DownloadContext } from './DownloadContext.js';
 import { EventBus } from './EventBus.js';
 import { ImageCompressor } from './ImageCompressor.js';
-import { createLogger } from './logger.js';
 import { MangaPatcher } from './MangaPatcher.js';
-import { PORT_KEEP_ALIVE } from './messages.js';
+import { PORT_KEEP_ALIVE } from './MessageTypes.js';
 import { PluginManager } from './PluginManager.js';
-import { sanitizeFilename } from './text.js';
+import { sanitizeFilename } from './TextUtils.js';
 import { ExporterRegistry } from '../exporters/ExporterRegistry.js';
-import { extractSlug } from '../services/hosts.js';
+import { extractSlug } from '../services/ServiceHosts.js';
 import { serviceRegistry } from '../services/ServiceRegistry.js';
 
 const log = createLogger('DownloadManager');
