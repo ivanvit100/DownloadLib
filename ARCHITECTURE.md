@@ -282,7 +282,7 @@ ExporterRegistry.register('fb2', FB2Exporter, { label: 'FB2' });
 
 Маршрутизатор сообщений. Слушает `runtime.onMessage` и передаёт сообщение обработчику из таблицы `handlers` (действие → `{allow, handle}`), если отправителю он разрешён (см. [«Сообщения между контекстами»](#сообщения-между-контекстами)). Обработчики асинхронные. Единая обёртка отправляет их результат через `sendResponse`, а ошибку — как `{ok: false, error}`.
 
-`openDownloadWindow` определяет slug и сервис по URL вкладки-отправителя. В URL окна загрузки передаются только `slug`, `service`, `format` и `tabId`. Остальные параметры загрузки, в том числе лимит запросов и максимальный размер части, окно берёт из настроек.
+`openDownloadWindow` определяет slug и сервис по URL вкладки-отправителя. В URL окна загрузки передаются только `slug`, `service`, `format` и `tabId`. Остальные параметры загрузки, в том числе лимит запросов и лимит части файла (по размеру или по числу глав), окно берёт из настроек.
 
 `plugin:cache` сохраняет код плагина: внутри service worker'а — в Cache Storage, в остальных случаях — в IndexedDB `dl-plugins`. `plugin:exec` выполняет код во вкладке через `scripting.executeScript`.
 
@@ -440,13 +440,13 @@ Origin запроса запоминается в `onBeforeSendHeaders` и за�
 
 Оркестрирует полный жизненный цикл загрузки.
 
-**`startDownload(options)`** — принимает `{ url?, serviceKey?, slug, format, controller, chapters, chapterRange: {fromKey, toKey}, branchId, maxSizeMB, splitPages, fitFb2Images, authToken }` и запускает загрузку:
+**`startDownload(options)`** — принимает `{ url?, serviceKey?, slug, format, controller, chapters, chapterRange: {fromKey, toKey}, branchId, maxSizeMB, maxChapters, splitPages, fitFb2Images, authToken }` и запускает загрузку:
 
 1. Создаёт свой экземпляр сервиса с токеном (`authToken`, его находит `AuthManager` попапа).
 2. Загружает метаданные → `MangaPatcher.patch()`.
 3. Загружает обложку в фоне.
 4. Берёт список глав, уже загруженный `ChapterController` (`chapters`), а без него — `service.fetchChapters(slug)`. Оставляет главы ветки `branchId` и диапазон по ключам (`core/ChapterList.js`). `branchId`, равный `NaN`, считается отсутствующим (с предупреждением). Если глава диапазона не найдена, начало позже конца или глав нет — ошибка с понятным текстом.
-5. `downloadWithSizeLimit()` — итерирует главы, разбивая на части при смене тома и превышении `maxSizeMB` (по умолчанию 200).
+5. `downloadWithSizeLimit()` — итерирует главы, разбивая на части при смене тома и превышении лимита части (`_exceedsPartLimit`): если `maxChapters` больше 0 — по числу глав, иначе по оценочному размеру `maxSizeMB` (по умолчанию 200).
 
 **Одна глава.** `_loadChapter()` вызывает `service.fetchChapterBlocks(chapter, opts)` и добавляет к результату `title`, `volume`, `number` и `key` (ключ главы). Разворачивание ответа и вызовы `extractText`/`processChapterContent` живут только в `BaseService`. Метаданные `DownloadManager` и `PopupController` получают через `getManga` сервиса — уже без обёртки `{data: …}` ответа API.
 
@@ -676,7 +676,7 @@ Origin запроса запоминается в `onBeforeSendHeaders` и за�
 
 **`loadMetadata()`** — определяет активную вкладку, парсит slug из URL, создаёт свой экземпляр сервиса через `serviceRegistry` (`findServiceKey` + `createService`), применяет auth-токен, загружает метаданные тайтла, заполняет UI обложкой/описанием, передаёт управление главами в `ChapterController`. Читает URL-параметр `download=true` для автозапуска. Название и описание тайтла выводятся текстом (`_renderMeta` строит `<strong>`/`<small>` через `createEl`), панель параметров загрузки — тоже из DOM-узлов.
 
-**Окно загрузки.** Кнопка «Скачать» в выпадающем попапе открывает `popup.html` в отдельном окне (`_downloadWindowParams`) с параметрами: `download=true`, `slug`, `service`, `format`, `splitPages`, `tabId` (вкладка сервиса), `chapterFrom`/`chapterTo` (ключи глав) и `branchId`. Эти параметры действуют только на эту загрузку: `_applyUrlParams` выставляет формат и галочку разбиения в форме, но ничего не пишет в localStorage. Остальное (например, «Макс. размер части») окно загрузки берёт из сохранённых настроек, поэтому ни кнопка на сайте, ни окно загрузки их не меняют.
+**Окно загрузки.** Кнопка «Скачать» в выпадающем попапе открывает `popup.html` в отдельном окне (`_downloadWindowParams`) с параметрами: `download=true`, `slug`, `service`, `format`, `splitPages`, `tabId` (вкладка сервиса), `chapterFrom`/`chapterTo` (ключи глав) и `branchId`. Эти параметры действуют только на эту загрузку: `_applyUrlParams` выставляет формат и галочку разбиения в форме, но ничего не пишет в localStorage. Остальное (например, лимит части файла) окно загрузки берёт из сохранённых настроек, поэтому ни кнопка на сайте, ни окно загрузки их не меняют.
 
 **Загрузка.** `startDownload` создаёт контроллер (`createController()`), кнопка паузы вызывает его `pause()`/`resume()`, `stopDownload` — `stop()`. Прогресс страниц главы приходит событием `download:pages` и показывается в статусе.
 
@@ -705,7 +705,9 @@ Origin запроса запоминается в `onBeforeSendHeaders` и за�
 
 Управляет экраном настроек (шаблон `settings.html`, окно `popup.html?settings=true`). `init(onBack)` устроен так же, как у `HistoryController`. Разделы экрана:
 - лимит запросов в минуту — через `RateLimitClient.getLimit`/`setLimit` (`storage.local`, его отслеживает фон);
+- режим ограничения части файла: по размеру или по числу глав (`localStorage['manga_parser_part_limit_mode']`, `size`/`chapters`, по умолчанию `size`). Видно только поле выбранного режима, кнопка «Применить» сохраняет оба значения;
 - максимальный размер части файла, МБ (`localStorage['manga_parser_max_size_mb']`, по умолчанию 200);
+- максимальное число глав в части файла (`localStorage['manga_parser_max_chapters']`, по умолчанию 50);
 - вписывание изображений FB2 (`localStorage['manga_parser_fit_fb2_images']`);
 - режим выбора диапазона: главы или тома (`localStorage['manga_parser_range_mode']`);
 - список плагинов с переключателем и удалением (`PluginManager.list`, `toggle`, `remove`).

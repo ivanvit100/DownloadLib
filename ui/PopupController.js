@@ -33,7 +33,24 @@ const log = createLogger('PopupController');
 const FORMAT_STORAGE_KEY = 'manga_parser_selected_format';
 const SPLIT_PAGES_KEY = 'manga_parser_split_pages';
 const MAX_SIZE_KEY = 'manga_parser_max_size_mb';
+const PART_LIMIT_MODE_KEY = 'manga_parser_part_limit_mode';
+const MAX_CHAPTERS_KEY = 'manga_parser_max_chapters';
+const DEFAULT_MAX_SIZE_MB = 200;
+const DEFAULT_MAX_CHAPTERS = 50;
 const REPO_URL = 'https://github.com/ivanvit100/DownloadLib';
+
+/**
+ * Читает из настроек лимит части файла: по размеру или по числу глав.
+ * @returns {{maxSizeMB: number, maxChapters: number}} Лимит размера в мегабайтах и
+ * лимит числа глав; maxChapters равен 0, если части ограничиваются по размеру.
+ */
+function readPartLimit() {
+    const maxSizeMB = parseInt(localStorage.getItem(MAX_SIZE_KEY)) || DEFAULT_MAX_SIZE_MB;
+    const maxChapters = localStorage.getItem(PART_LIMIT_MODE_KEY) === 'chapters'
+        ? parseInt(localStorage.getItem(MAX_CHAPTERS_KEY)) || DEFAULT_MAX_CHAPTERS
+        : 0;
+    return { maxSizeMB, maxChapters };
+}
 
 /**
  * Заполняет select формата экспорта зарегистрированными форматами.
@@ -773,11 +790,13 @@ export class PopupController {
             const formatLabel = formatSelector
                 ? (formatSelector.options[formatSelector.selectedIndex]?.text || formatSelector.value)
                 : '';
-            const maxSizeMBDisplay = localStorage.getItem(MAX_SIZE_KEY) || '200';
+            const { maxSizeMB, maxChapters } = readPartLimit();
             downloadInfoPanel.replaceChildren(
                 infoRow('Формат', formatLabel),
                 infoRow('Запросов в минуту', rateLimit),
-                infoRow('Макс. размер части', `${maxSizeMBDisplay} МБ`));
+                maxChapters > 0
+                    ? infoRow('Макс. глав в части', maxChapters)
+                    : infoRow('Макс. размер части', `${maxSizeMB} МБ`));
             downloadInfoPanel.style.display = 'block';
         }
 
@@ -815,7 +834,7 @@ export class PopupController {
             });
 
             const format = formatSelector?.value || 'fb2';
-            const maxSizeMB = parseInt(localStorage.getItem(MAX_SIZE_KEY)) || 200;
+            const { maxSizeMB, maxChapters } = readPartLimit();
 
             const splitPagesEl = $el('splitPagesCheckbox');
             const splitPages = splitPagesEl ? splitPagesEl.checked : false;
@@ -829,6 +848,7 @@ export class PopupController {
                 chapterRange,
                 branchId,
                 maxSizeMB,
+                maxChapters,
                 splitPages,
                 fitFb2Images,
                 authToken: this.authToken,

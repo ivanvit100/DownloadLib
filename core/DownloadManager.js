@@ -57,7 +57,8 @@ export function safeFilename(name) {
 /**
  * Оркестрирует полный жизненный цикл загрузки тайтла с сервиса: получение
  * метаданных и глав, скачивание содержимого с учётом паузы/остановки,
- * разбиение результата на файлы по лимиту размера и сохранение готовых файлов.
+ * разбиение результата на файлы по лимиту размера или числа глав и сохранение
+ * готовых файлов.
  */
 export class DownloadManager {
     /**
@@ -110,7 +111,7 @@ export class DownloadManager {
      */
     _createDownloadState(options, service) {
         const { url, format = 'fb2', slug, serviceKey, controller = this.createController(),
-            maxSizeMB = 200, splitPages = true, fitFb2Images = false } = options;
+            maxSizeMB = 200, maxChapters = 0, splitPages = true, fitFb2Images = false } = options;
         const downloadId = this.generateId();
         const imageFit = fitFb2Images && format === 'fb2' ? FB2_IMAGE_FIT : null;
         const state = {
@@ -120,6 +121,7 @@ export class DownloadManager {
             slug: slug || extractSlug(url),
             format,
             maxSizeMB,
+            maxChapters,
             splitPages,
             imageFit,
             status: 'initializing',
@@ -292,14 +294,15 @@ export class DownloadManager {
      * Запускает полный цикл новой загрузки тайтла: разрешает сервис, создаёт
      * состояние загрузки и keep-alive порт, затем последовательно загружает
      * метаданные, обложку, список глав (если он не передан) и содержимое глав
-     * с разбиением на файлы по лимиту размера.
+     * с разбиением на файлы по лимиту размера или числа глав.
      * @param {{url?: string, format?: string, chapters?: object[],
      * chapterRange?: {fromKey: string, toKey: string}, branchId?: number,
-     * maxSizeMB?: number, authToken?: string, serviceKey?: string, slug?: string,
+     * maxSizeMB?: number, maxChapters?: number, authToken?: string, serviceKey?: string, slug?: string,
      * controller?: object, splitPages?: boolean, fitFb2Images?: boolean}} options
      * Параметры загрузки. chapters — уже загруженный список глав тайтла
      * (service.fetchChapters); без него (или если он пуст) список запрашивается заново.
-     * chapterRange — ключи первой и последней главы (chapterKey).
+     * chapterRange — ключи первой и последней главы (chapterKey). maxChapters — наибольшее
+     * число глав в одном файле; если оно больше 0, maxSizeMB не учитывается.
      * @returns {Promise<{success: boolean, downloadId: string}>} Результат загрузки.
      * @throws {Error} При ошибке на любом из этапов загрузки (после эмиссии download:failed).
      */
@@ -307,7 +310,7 @@ export class DownloadManager {
         log.info('Starting download with options:',
             { ...options, chapters: options.chapters?.length });
         const { url, format = 'fb2', chapters: knownChapters = null, chapterRange = null,
-            maxSizeMB = 200, authToken = null, serviceKey } = options;
+            maxSizeMB = 200, maxChapters = 0, authToken = null, serviceKey } = options;
         const branchId = this._normalizeBranchId(options.branchId);
 
         const service = this._resolveService(serviceKey, url, authToken);
@@ -348,7 +351,7 @@ export class DownloadManager {
             downloadState.chapters = chapters;
 
             await this.downloadWithSizeLimit(downloadState,
-                service, chapters, patched, coverPromise, format, maxSizeMB);
+                service, chapters, patched, coverPromise, format, maxSizeMB, maxChapters);
 
             this.updateStatus(downloadId, 'Готово!', 100);
             this.eventBus.emit('download:completed', downloadState);
@@ -406,6 +409,21 @@ export class DownloadManager {
     }
 
     /**
+     * Проверяет, превысит ли пакет глав лимит части, если добавить в него главу:
+     * при заданном maxChapters — по числу глав, иначе по оценочному размеру.
+     * @param {object[]} batch - Накопленный пакет глав.
+     * @param {object} chapterResult - Обработанное содержимое добавляемой главы.
+     * @param {number} maxSizeBytes - Максимальный размер одного файла в байтах.
+     * @param {number} maxChapters - Максимальное число глав в одном файле (0 — без лимита по главам).
+     * @returns {boolean} true, если главу нужно начать с нового файла.
+     */
+    _exceedsPartLimit(batch, chapterResult, maxSizeBytes, maxChapters) {
+        if (maxChapters > 0) return batch.length >= maxChapters;
+        const batchSize = batch.reduce((sum, ch) => sum + this.estimateChapterSize(ch), 0);
+        return batchSize + this.estimateChapterSize(chapterResult) > maxSizeBytes;
+    }
+
+    /**
      * Возвращает номер тома главы (или '1', если том не указан).
      * @param {{volume?: *}} chapter - Глава.
      * @returns {*} Номер тома.
@@ -416,7 +434,7 @@ export class DownloadManager {
 
     /**
      * Строит суффикс названия файла тома, добавляя номер части при разбиении
-     * тома на несколько файлов из-за превышения лимита размера.
+     * тома на несколько файлов из-за превышения лимита размера или числа глав.
      * @param {*} volume - Номер тома.
      * @param {number} partIndex - Порядковый номер части (1 — единственная/первая часть).
      * @returns {string} Суффикс вида " Том N" или " Том N (Часть M)".
@@ -487,7 +505,8 @@ export class DownloadManager {
     /**
      * Загружает содержимое всех глав по порядку и сохраняет результат несколькими
      * файлами — новый файл начинается при смене тома или при превышении лимита
-     * размера текущего накопленного файла. Главы и изображения, не загрузившиеся
+     * размера (либо числа глав, если задан maxChapters) текущего накопленного
+     * файла. Главы и изображения, не загрузившиеся
      * за deferAfterMs, догружаются в фоне, не задерживая остальные главы; файл
      * сохраняется, когда фоновые загрузки его глав завершатся.
      * @param {object} downloadState - Текущее состояние загрузки.
@@ -497,9 +516,12 @@ export class DownloadManager {
      * @param {string|Promise<string>} coverBase64 - Обложка тайтла в base64 (или промис её загрузки).
      * @param {string} format - Формат экспорта.
      * @param {number} maxSizeMB - Максимальный размер одного файла в мегабайтах.
+     * @param {number} [maxChapters] - Максимальное число глав в одном файле; если
+     * больше 0, лимит размера не учитывается.
      * @returns {Promise<void>}
      */
-    async downloadWithSizeLimit(downloadState, service, chapters, manga, coverBase64, format, maxSizeMB) {
+    async downloadWithSizeLimit(downloadState, service, chapters, manga, coverBase64, format,
+        maxSizeMB, maxChapters = 0) {
         const { id: downloadId } = downloadState;
         const maxSizeBytes = maxSizeMB * 1024 * 1024;
         const exporter = await this._createExporter(format);
@@ -534,13 +556,12 @@ export class DownloadManager {
             const chapterResult = await this._downloadChapterOrDefer(service, downloadState, chapter);
             if (downloadState.ctx?.interrupted) break;
             this._trackDeferred(downloadState, chapterResult);
-            const chapterSize = this.estimateChapterSize(chapterResult);
             const chapterVolume = this._chapterVolume(chapter);
-            const currentSize = currentBatch.reduce((sum, ch) => sum + this.estimateChapterSize(ch), 0);
             const volumeChanged = currentBatch.length > 0 && chapterVolume !== currentVolume;
-            const sizeExceeded = currentBatch.length > 0 && currentSize + chapterSize > maxSizeBytes;
+            const limitExceeded = currentBatch.length > 0 &&
+                this._exceedsPartLimit(currentBatch, chapterResult, maxSizeBytes, maxChapters);
 
-            if (volumeChanged || sizeExceeded) {
+            if (volumeChanged || limitExceeded) {
                 flushBatch(progress);
                 if (volumeChanged) volumePartIndex = 0;
             }

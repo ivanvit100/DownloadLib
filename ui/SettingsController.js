@@ -9,11 +9,14 @@
 import { createLogger } from '../core/ConsoleLogger.js';
 import { PluginManager } from '../core/PluginManager.js';
 import { RateLimitClient } from '../core/RateLimitClient.js';
-import { $el, createEl } from './DomUtils.js';
+import { $el, createEl, setDisplay } from './DomUtils.js';
 
 const log = createLogger('SettingsController');
 
 const MAX_SIZE_KEY = 'manga_parser_max_size_mb';
+const PART_LIMIT_MODE_KEY = 'manga_parser_part_limit_mode';
+const MAX_CHAPTERS_KEY = 'manga_parser_max_chapters';
+const DEFAULT_MAX_CHAPTERS = '50';
 const RANGE_MODE_KEY = 'manga_parser_range_mode';
 const FIT_FB2_IMAGES_KEY = 'manga_parser_fit_fb2_images';
 
@@ -30,6 +33,8 @@ export const SettingsController = {
     init(onBack) {
         this._renderRateLimit();
         this._renderMaxSize();
+        this._renderMaxChapters();
+        this._renderPartLimitMode();
         this._renderFitFb2Images();
         this._renderRangeMode();
         this._renderPlugins();
@@ -54,6 +59,37 @@ export const SettingsController = {
         const input = $el('settingsMaxSize');
         if (!input) return;
         input.value = localStorage.getItem(MAX_SIZE_KEY) || '200';
+    },
+
+    /**
+     * Заполняет поле максимального числа глав в части файла сохранённым значением.
+     * @returns {void}
+     */
+    _renderMaxChapters() {
+        const input = $el('settingsMaxChapters');
+        if (!input) return;
+        input.value = localStorage.getItem(MAX_CHAPTERS_KEY) || DEFAULT_MAX_CHAPTERS;
+    },
+
+    /**
+     * Показывает сохранённый режим ограничения части файла (по размеру/по числу глав).
+     * @returns {void}
+     */
+    _renderPartLimitMode() {
+        this._applyPartLimitMode(localStorage.getItem(PART_LIMIT_MODE_KEY) === 'chapters' ? 'chapters' : 'size');
+    },
+
+    /**
+     * Подсвечивает кнопку режима ограничения части файла и показывает поле
+     * лимита только для этого режима.
+     * @param {'size'|'chapters'} mode - Режим ограничения части файла.
+     * @returns {void}
+     */
+    _applyPartLimitMode(mode) {
+        $el('partLimitSize')?.classList.toggle('active', mode === 'size');
+        $el('partLimitChapters')?.classList.toggle('active', mode === 'chapters');
+        setDisplay('maxSizeRow', mode === 'size' ? '' : 'none');
+        setDisplay('maxChaptersRow', mode === 'chapters' ? '' : 'none');
     },
 
     /**
@@ -146,8 +182,9 @@ export const SettingsController = {
 
     /**
      * Навешивает обработчики на все элементы управления экрана настроек: кнопку
-     * "назад", сохранение лимита запросов и максимального размера части, переключение
-     * режима диапазона глав/томов и загрузку файла нового плагина.
+     * "назад", сохранение лимита запросов и лимитов части файла (размер и число глав),
+     * переключение режима ограничения части, режима диапазона глав/томов и загрузку
+     * файла нового плагина.
      * @param {function(): void} onBack - Возврат к главному экрану.
      * @returns {void}
      */
@@ -193,6 +230,14 @@ export const SettingsController = {
                 maxSizeInput.value = val;
                 localStorage.setItem(MAX_SIZE_KEY, String(val));
 
+                const maxChaptersInput = $el('settingsMaxChapters');
+                if (maxChaptersInput) {
+                    let chapters = parseInt(maxChaptersInput.value);
+                    if (isNaN(chapters) || chapters < 1) chapters = 1;
+                    maxChaptersInput.value = chapters;
+                    localStorage.setItem(MAX_CHAPTERS_KEY, String(chapters));
+                }
+
                 const original = saveMaxSizeBtn.textContent;
                 saveMaxSizeBtn.textContent = '✓ Сохранено';
                 saveMaxSizeBtn.disabled = true;
@@ -207,6 +252,17 @@ export const SettingsController = {
         if (fitFb2ImagesCheckbox) {
             fitFb2ImagesCheckbox.addEventListener('change', () =>
                 localStorage.setItem(FIT_FB2_IMAGES_KEY, String(fitFb2ImagesCheckbox.checked)));
+        }
+
+        const partLimitSize = $el('partLimitSize');
+        const partLimitChapters = $el('partLimitChapters');
+        if (partLimitSize && partLimitChapters) {
+            const setPartLimitMode = (mode) => {
+                localStorage.setItem(PART_LIMIT_MODE_KEY, mode);
+                this._applyPartLimitMode(mode);
+            };
+            partLimitSize.addEventListener('click', () => setPartLimitMode('size'));
+            partLimitChapters.addEventListener('click', () => setPartLimitMode('chapters'));
         }
 
         const rangeModeChapters = $el('rangeModeChapters');
