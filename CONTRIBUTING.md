@@ -112,6 +112,7 @@ DownloadLib/
 │   ├── RateLimiter.js       # Ограничитель частоты запросов (скользящее окно)
 │   ├── RateLimitClient.js   # Клиент ограничителя фона для окон расширения
 │   ├── Storage.js           # SafeStorage: обёртка над localStorage
+│   ├── UserSettings.js      # Ключи, значения по умолчанию и хранилище настроек страниц расширения
 │   ├── PluginApi.js         # Публикует в globalThis классы и реестры для плагинов
 │   ├── DownloadHistory.js   # Хранение истории загрузок (до 10 записей)
 │   ├── AuthManager.js       # Извлечение и кэширование JWT-токенов авторизации

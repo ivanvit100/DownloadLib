@@ -449,6 +449,7 @@ input[type="number"] {
     margin-bottom: 8px;
 }
 .service-link-btn {
+    flex: 1;
     font-weight: bold;
     background: #252527 !important;
     color: #fff !important;

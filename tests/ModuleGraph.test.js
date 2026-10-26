@@ -34,6 +34,9 @@ function importGraph(entry) {
     return [...seen];
 }
 
+/** Первый импорт всех модулей попапа под инструментированием покрытия занимает больше 5 с. */
+const FIRST_IMPORT_TIMEOUT_MS = 30000;
+
 const INTERNAL_GLOBALS = [
     'DownloadManager', 'PopupController', 'popupController', 'PluginManager', 'AuthManager',
     'DownloadHistory', 'TemplateLoader', 'ChapterController', 'HistoryController', 'SettingsController',
@@ -72,7 +75,7 @@ describe('ES module graph', () => {
         expect(globalThis.serviceRegistry).toBe(serviceRegistry);
         expect(globalThis.ExporterRegistry).toBe(ExporterRegistry);
         INTERNAL_GLOBALS.forEach(name => expect(globalThis[name], name).toBeUndefined());
-    }, 30000); // первый импорт всех модулей попапа под инструментированием покрытия занимает больше 5 с
+    }, FIRST_IMPORT_TIMEOUT_MS);
 
     it('Evaluates the background entry point and installs its listeners and rules', async () => {
         const { legacyPluginGlobals } = await vi.importActual('../core/PluginApi.js');

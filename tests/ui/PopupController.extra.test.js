@@ -664,6 +664,24 @@ describe('PopupController extra coverage', () => {
             await controller.checkApiHealth();
             expect(warnSpy).toHaveBeenCalled();
         });
+
+        it('requests the status again when the cached value is not valid JSON', async () => {
+            global.localStorage.getItem = vi.fn(() => 'not json');
+            global.fetch = vi.fn(async () => ({ json: async () => ({ workflow_runs: [{ conclusion: 'success' }] }) }));
+            const controller = new PopupController();
+            await controller.checkApiHealth();
+            expect(global.fetch).toHaveBeenCalled();
+        });
+
+        it('warns when the status cannot be requested', async () => {
+            global.fetch = vi.fn(async () => { throw new Error('offline'); });
+            const consoleWarn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+            const controller = new PopupController();
+            const warnSpy = vi.spyOn(controller, '_showApiWarning');
+            await controller.checkApiHealth();
+            expect(warnSpy).not.toHaveBeenCalled();
+            expect(consoleWarn).toHaveBeenCalledWith('[PopupController] Health check status unavailable:', 'offline');
+        });
     });
 
     describe('_showApiWarning', () => {

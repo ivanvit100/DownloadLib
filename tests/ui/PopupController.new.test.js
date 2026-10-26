@@ -168,9 +168,13 @@ afterEach(() => {
     vi.clearAllTimers();
 });
 
-// Окно загрузки (?download=true) запускает скачивание через 500 мс: даём таймерам
-// последних тестов сработать, пока окружение jsdom ещё не разобрано.
-afterAll(() => new Promise(resolve => setTimeout(resolve, 600)));
+/**
+ * Окно загрузки (?download=true) запускает скачивание через 500 мс: столько ждём после
+ * последних тестов, чтобы их таймеры сработали, пока окружение jsdom ещё не разобрано.
+ */
+const AUTO_DOWNLOAD_SETTLE_MS = 600;
+
+afterAll(() => new Promise(resolve => setTimeout(resolve, AUTO_DOWNLOAD_SETTLE_MS)));
 
 describe('PopupController second test file', () => {
     it('Handles progress, completed and failed events from eventBus', async () => {
@@ -604,6 +608,17 @@ describe('PopupController second test file', () => {
         controller._setDownloadingUIState({ btn: document.getElementById('downloadBtn') });
         const values = Array.from(document.querySelectorAll('#downloadInfoPanel .info-value'), el => el.textContent);
         expect(values[1]).toBe('85');
+    });
+
+    it('Shows the chapter limit instead of the size limit in the download panel in the chapters mode', () => {
+        const controller = new PopupController();
+        const stored = { manga_parser_part_limit_mode: 'chapters', manga_parser_max_chapters: '10' };
+        global.localStorage.getItem = vi.fn(key => stored[key] ?? null);
+        controller._setDownloadingUIState({ btn: document.getElementById('downloadBtn') });
+        const rows = Array.from(document.querySelectorAll('#downloadInfoPanel .info-row'), row => [
+            row.querySelector('.info-label').textContent, row.querySelector('.info-value').textContent
+        ]);
+        expect(rows[2]).toEqual(['Макс. глав в части', '10']);
     });
 
     it('Clamps toSelect value when fromSelect changes to a higher index', async () => {

@@ -19,6 +19,9 @@ import { PluginManager } from '../core/PluginManager.js';
 import { DEFAULT_RATE_LIMIT } from '../core/RateLimiter.js';
 import { RateLimitClient } from '../core/RateLimitClient.js';
 import { fetchViaTab, setServiceTab } from '../core/TabNetwork.js';
+import {
+    FIT_FB2_IMAGES_KEY, FORMAT_STORAGE_KEY, readPartLimit, settingsStorage, SPLIT_PAGES_KEY
+} from '../core/UserSettings.js';
 import { ExporterRegistry } from '../exporters/ExporterRegistry.js';
 import { extractSlug } from '../services/ServiceHosts.js';
 import { serviceRegistry } from '../services/ServiceRegistry.js';
@@ -30,27 +33,7 @@ import { TemplateLoader } from './TemplateLoader.js';
 
 const log = createLogger('PopupController');
 
-const FORMAT_STORAGE_KEY = 'manga_parser_selected_format';
-const SPLIT_PAGES_KEY = 'manga_parser_split_pages';
-const MAX_SIZE_KEY = 'manga_parser_max_size_mb';
-const PART_LIMIT_MODE_KEY = 'manga_parser_part_limit_mode';
-const MAX_CHAPTERS_KEY = 'manga_parser_max_chapters';
-const DEFAULT_MAX_SIZE_MB = 200;
-const DEFAULT_MAX_CHAPTERS = 50;
 const REPO_URL = 'https://github.com/ivanvit100/DownloadLib';
-
-/**
- * Читает из настроек лимит части файла: по размеру или по числу глав.
- * @returns {{maxSizeMB: number, maxChapters: number}} Лимит размера в мегабайтах и
- * лимит числа глав; maxChapters равен 0, если части ограничиваются по размеру.
- */
-function readPartLimit() {
-    const maxSizeMB = parseInt(localStorage.getItem(MAX_SIZE_KEY)) || DEFAULT_MAX_SIZE_MB;
-    const maxChapters = localStorage.getItem(PART_LIMIT_MODE_KEY) === 'chapters'
-        ? parseInt(localStorage.getItem(MAX_CHAPTERS_KEY)) || DEFAULT_MAX_CHAPTERS
-        : 0;
-    return { maxSizeMB, maxChapters };
-}
 
 /**
  * Заполняет select формата экспорта зарегистрированными форматами.
@@ -222,15 +205,15 @@ export class PopupController {
         if (formatSelector) {
             fillFormatOptions(formatSelector);
 
-            if (localStorage.getItem(FORMAT_STORAGE_KEY))
-                formatSelector.value = localStorage.getItem(FORMAT_STORAGE_KEY);
+            const savedFormat = settingsStorage.get(FORMAT_STORAGE_KEY);
+            if (savedFormat) formatSelector.value = savedFormat;
             else log.debug('No saved format in localStorage');
 
             if (extensionApi?.storage?.local)
                 extensionApi.storage.local.set({ [FORMAT_STORAGE_KEY]: formatSelector.value });
 
             formatSelector.addEventListener('change', () => {
-                localStorage.setItem(FORMAT_STORAGE_KEY, formatSelector.value);
+                settingsStorage.set(FORMAT_STORAGE_KEY, formatSelector.value);
                 if (extensionApi?.storage?.local)
                     extensionApi.storage.local.set({ [FORMAT_STORAGE_KEY]: formatSelector.value });
             });
@@ -238,10 +221,10 @@ export class PopupController {
 
         const splitPagesCheckbox = $el('splitPagesCheckbox');
         if (splitPagesCheckbox) {
-            const saved = localStorage.getItem(SPLIT_PAGES_KEY);
+            const saved = settingsStorage.get(SPLIT_PAGES_KEY);
             splitPagesCheckbox.checked = saved !== null ? saved === 'true' : true;
             splitPagesCheckbox.addEventListener('change', () => {
-                localStorage.setItem(SPLIT_PAGES_KEY, splitPagesCheckbox.checked);
+                settingsStorage.set(SPLIT_PAGES_KEY, splitPagesCheckbox.checked);
             });
         }
 
@@ -264,15 +247,13 @@ export class PopupController {
     /**
      * Собирает ссылки на все DOM-элементы формы загрузки в один объект для удобной передачи.
      * @returns {object} Объект со ссылками на элементы: btn, formatSelector, status,
-     * progress, controls, chapterRangeContainer, fromSelect, toSelect.
+     * chapterRangeContainer, fromSelect, toSelect.
      */
     _getDownloadElements() {
         return {
             btn: $el('downloadBtn'),
             formatSelector: $el('formatSelector'),
             status: $el('status'),
-            progress: $el('progress'),
-            controls: $el('downloadControls'),
             chapterRangeContainer: $el('chapterRangeContainer'),
             fromSelect: $el('chapterFromSelect'),
             toSelect: $el('chapterToSelect')
@@ -455,7 +436,6 @@ export class PopupController {
                     className: `service-link-btn ${name}-link-btn`,
                     text: service.config.label || name
                 });
-                btn.style.flex = '1';
                 if (service.config.primaryColor)
                     btn.style.border = `2px solid ${service.config.primaryColor}`;
                 btn.addEventListener('click', async () => {
@@ -527,6 +507,8 @@ export class PopupController {
      * сервис и slug, применяет токен авторизации и тему сервиса, загружает
      * метаданные тайтла и список глав, отрисовывает их и переводит форму
      * в состояние готовности к скачиванию (либо запускает автоскачивание).
+     * Если диапазон из URL не найден в списке глав, автоскачивание не запускается,
+     * чтобы молча не скачать весь тайтл вместо выбранных глав.
      * @returns {Promise<void>}
      */
     async loadMetadata() {
@@ -571,11 +553,8 @@ export class PopupController {
 
             this._applyServiceTheme(serviceKey, siteLogo);
 
-            const splitPagesContainer = $el('splitPagesContainer');
-            if (splitPagesContainer) {
-                const showSplit = serviceKey === 'mangalib' || !!service?.config?.splitLongImages;
-                splitPagesContainer.style.display = showSplit ? 'block' : 'none';
-            }
+            const showSplit = serviceKey === 'mangalib' || !!service?.config?.splitLongImages;
+            setDisplay('splitPagesContainer', showSplit ? 'block' : 'none');
 
             if (!slug) {
                 await this._showNoTitleState();
@@ -600,7 +579,6 @@ export class PopupController {
             this._setReadyState({ btn, status });
 
             if (this.chapterController.rangeNotFound) {
-                // Не скачиваем молча весь тайтл вместо выбранного диапазона.
                 if (status)
                     status.textContent = 'Выбранные главы не найдены в списке глав тайтла: выберите диапазон заново';
                 return;
@@ -769,20 +747,19 @@ export class PopupController {
      * Переводит интерфейс в состояние "идёт загрузка": скрывает элементы выбора
      * (формат, переводчик, разбиение страниц, диапазон), показывает прогресс-бар
      * и панель с параметрами текущей загрузки, обновляет статус.
-     * @param {{btn: HTMLButtonElement, progress: ?HTMLElement, controls: ?HTMLElement,
-     * chapterRangeContainer: ?HTMLElement, status: ?HTMLElement, rateLimit?: number}} elements -
-     * Элементы формы загрузки и лимит запросов в минуту из настроек.
+     * @param {{btn: HTMLButtonElement, status: ?HTMLElement, rateLimit?: number}} elements -
+     * Кнопка скачивания, элемент статуса и лимит запросов в минуту из настроек.
      * @returns {void}
      */
-    _setDownloadingUIState({ btn, progress, controls, chapterRangeContainer, status, rateLimit = DEFAULT_RATE_LIMIT }) {
+    _setDownloadingUIState({ btn, status, rateLimit = DEFAULT_RATE_LIMIT }) {
         btn.disabled = true;
-        btn.style.display = 'none';
+        setDisplay('downloadBtn', 'none');
         setDisplay('formatContainer', 'none');
         setDisplay('translatorContainer', 'none');
         setDisplay('splitPagesContainer', 'none');
-        if (progress) progress.style.display = 'block';
-        if (controls) controls.style.display = 'block';
-        if (chapterRangeContainer) chapterRangeContainer.style.display = 'none';
+        setDisplay('progress', 'block');
+        setDisplay('downloadControls', 'block');
+        setDisplay('chapterRangeContainer', 'none');
 
         const downloadInfoPanel = $el('downloadInfoPanel');
         if (downloadInfoPanel) {
@@ -797,7 +774,7 @@ export class PopupController {
                 maxChapters > 0
                     ? infoRow('Макс. глав в части', maxChapters)
                     : infoRow('Макс. размер части', `${maxSizeMB} МБ`));
-            downloadInfoPanel.style.display = 'block';
+            setDisplay('downloadInfoPanel', 'block');
         }
 
         if (status) status.textContent = 'Запуск скачивания...';
@@ -816,8 +793,8 @@ export class PopupController {
             return;
         }
 
-        const { btn, formatSelector, status, progress,
-            controls, chapterRangeContainer, fromSelect, toSelect } = this._getDownloadElements();
+        const { btn, formatSelector, status, chapterRangeContainer,
+            fromSelect, toSelect } = this._getDownloadElements();
 
         try {
             const { rateLimit, chapterRange, branchId, historyParams } = await this._prepareDownload({
@@ -829,16 +806,14 @@ export class PopupController {
             this.shouldStop = false;
             this.controller = createController();
 
-            this._setDownloadingUIState({
-                btn, progress, controls, chapterRangeContainer, status, rateLimit
-            });
+            this._setDownloadingUIState({ btn, status, rateLimit });
 
             const format = formatSelector?.value || 'fb2';
             const { maxSizeMB, maxChapters } = readPartLimit();
 
             const splitPagesEl = $el('splitPagesCheckbox');
             const splitPages = splitPagesEl ? splitPagesEl.checked : false;
-            const fitFb2Images = localStorage.getItem('manga_parser_fit_fb2_images') === 'true';
+            const fitFb2Images = settingsStorage.get(FIT_FB2_IMAGES_KEY) === 'true';
 
             await this.downloadManager.startDownload({
                 slug: this.currentSlug,
@@ -972,10 +947,8 @@ export class PopupController {
 
         this.currentDownloadId = null;
 
-        const { btn, progress, controls } = this._getDownloadElements();
-
+        const btn = setDisplay('downloadBtn', 'block');
         if (btn) {
-            btn.style.display = 'block';
             btn.disabled = false;
             btn.textContent = 'Скачать';
         } else log.warn('Download button not found when resetting UI');
@@ -984,24 +957,16 @@ export class PopupController {
         const showSplitOnReset =
             this.currentServiceKey === 'mangalib' || !!this.currentService?.config?.splitLongImages;
         setDisplay('splitPagesContainer', showSplitOnReset ? 'block' : 'none');
-        if (progress) progress.style.display = 'none';
-        else log.warn('Progress element not found when resetting UI');
-        if (controls) controls.style.display = 'none';
-        else log.warn('Controls container not found when resetting UI');
+        if (!setDisplay('progress', 'none')) log.warn('Progress element not found when resetting UI');
+        if (!setDisplay('downloadControls', 'none')) log.warn('Controls container not found when resetting UI');
 
-        const chapterRangeContainer = $el('chapterRangeContainer');
-        const fromSelectReset = $el('chapterFromSelect');
-        if (chapterRangeContainer) {
-            chapterRangeContainer.style.display =
-                (fromSelectReset && fromSelectReset.options.length > 0) ? 'block' : 'none';
-        } else log.warn('Chapter range container not found when resetting UI');
+        const hasChapters = $el('chapterFromSelect')?.options.length > 0;
+        if (!setDisplay('chapterRangeContainer', hasChapters ? 'block' : 'none'))
+            log.warn('Chapter range container not found when resetting UI');
 
-        const translatorContainerReset = $el('translatorContainer');
-        const translatorSelectReset = $el('translatorSelect');
-        if (translatorContainerReset) {
-            translatorContainerReset.style.display =
-                (translatorSelectReset && translatorSelectReset.options.length > 1) ? 'block' : 'none';
-        } else log.warn('Translator container not found when resetting UI');
+        const hasTranslators = $el('translatorSelect')?.options.length > 1;
+        if (!setDisplay('translatorContainer', hasTranslators ? 'block' : 'none'))
+            log.warn('Translator container not found when resetting UI');
     }
 
     /**
@@ -1045,7 +1010,7 @@ export class PopupController {
         const ISSUES_URL = `${REPO_URL}/issues`;
 
         try {
-            const cached = JSON.parse(localStorage.getItem(CACHE_KEY) || 'null');
+            const cached = settingsStorage.getJSON(CACHE_KEY);
             const useCache = cached && (Date.now() - cached.timestamp < CACHE_TTL);
 
             if (!useCache) {
@@ -1053,7 +1018,7 @@ export class PopupController {
                 const data = await res.json();
                 const conclusion = data.workflow_runs?.[0]?.conclusion;
                 const isFailing = conclusion === 'failure';
-                localStorage.setItem(CACHE_KEY, JSON.stringify({ isFailing, timestamp: Date.now() }));
+                settingsStorage.setJSON(CACHE_KEY, { isFailing, timestamp: Date.now() });
                 if (isFailing) this._showApiWarning(ISSUES_URL);
                 return;
             }

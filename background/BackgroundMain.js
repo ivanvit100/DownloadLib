@@ -1,7 +1,9 @@
 /**
  * DownloadLib background module
  * Entry point of the background context: the Chrome service worker
- * and the Firefox background page both load this module
+ * and the Firefox background page both load this module. Session ad block rules
+ * are dropped when the browser closes, so the onStartup listener makes the browser
+ * start the background on launch and reinstalls them
  * @module background/BackgroundMain
  * @license MIT
  * @author ivanvit
@@ -17,8 +19,6 @@ import './MessageRouter.js';
 watchLogLevel(extensionApi);
 installAdBlockRules();
 
-// Сессионные правила пропадают при закрытии браузера: слушатель onStartup
-// заставляет браузер запустить фон при старте, и правила ставятся заново.
 extensionApi?.runtime?.onStartup?.addListener(installAdBlockRules);
 
 createLogger('Background').info('Started');

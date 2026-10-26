@@ -94,6 +94,9 @@ function onBeforeSendHeaders(details) {
  * Выбирает значение Access-Control-Allow-Origin для ответа на запрос изображения.
  * Произвольный Origin никогда не отражается: разрешены только сайты встроенных
  * сервисов (с credentials) и страницы самого расширения (без credentials).
+ * Запросу без Origin не из вкладки разрешается origin расширения, а из вкладки —
+ * сайт сервиса, которому принадлежит CDN; для CDN, не принадлежащего встроенному
+ * сервису, — сайт первого встроенного сервиса.
  * @param {object} details - Данные ответа из webRequest.
  * @param {?string} requestOrigin - Origin запроса, если он был.
  * @returns {?{origin: string, credentials: boolean}} Разрешение, либо null.
@@ -106,7 +109,6 @@ function allowedOrigin(details, requestOrigin) {
         return null;
     }
     if (details.tabId === -1) return ownOrigin ? { origin: ownOrigin, credentials: false } : null;
-    // CDN, не принадлежащий встроенному сервису, — сайт первого встроенного сервиса (без ключа — все).
     const [origin] = serviceOrigins(serviceKeyForUrl(details.url));
     return { origin, credentials: true };
 }

@@ -18,6 +18,7 @@ import { MangaPatcher } from './MangaPatcher.js';
 import { PORT_KEEP_ALIVE } from './MessageTypes.js';
 import { PluginManager } from './PluginManager.js';
 import { sanitizeFilename } from './TextUtils.js';
+import { DEFAULT_MAX_SIZE_MB } from './UserSettings.js';
 import { ExporterRegistry } from '../exporters/ExporterRegistry.js';
 import { extractSlug } from '../services/ServiceHosts.js';
 import { serviceRegistry } from '../services/ServiceRegistry.js';
@@ -111,7 +112,7 @@ export class DownloadManager {
      */
     _createDownloadState(options, service) {
         const { url, format = 'fb2', slug, serviceKey, controller = this.createController(),
-            maxSizeMB = 200, maxChapters = 0, splitPages = true, fitFb2Images = false } = options;
+            maxSizeMB = DEFAULT_MAX_SIZE_MB, maxChapters = 0, splitPages = true, fitFb2Images = false } = options;
         const downloadId = this.generateId();
         const imageFit = fitFb2Images && format === 'fb2' ? FB2_IMAGE_FIT : null;
         const state = {
@@ -310,7 +311,7 @@ export class DownloadManager {
         log.info('Starting download with options:',
             { ...options, chapters: options.chapters?.length });
         const { url, format = 'fb2', chapters: knownChapters = null, chapterRange = null,
-            maxSizeMB = 200, maxChapters = 0, authToken = null, serviceKey } = options;
+            maxSizeMB = DEFAULT_MAX_SIZE_MB, maxChapters = 0, authToken = null, serviceKey } = options;
         const branchId = this._normalizeBranchId(options.branchId);
 
         const service = this._resolveService(serviceKey, url, authToken);
@@ -458,17 +459,21 @@ export class DownloadManager {
      * Создаёт последовательную очередь сохранения пакетов глав. Сохранение пакета
      * ждёт фоновые загрузки его глав (и обложку), но не задерживает загрузку
      * следующих глав; файлы сохраняются строго в порядке постановки в очередь.
-     * После сохранения содержимое глав пакета освобождается.
+     * После сохранения содержимое глав пакета освобождается. Если файл сохранить
+     * не удалось, загрузка останавливается, следующие пакеты не экспортируются,
+     * а done() бросает ошибку сохранения.
      * @param {object} downloadState - Текущее состояние загрузки.
      * @param {object} exporter - Экспортёр формата.
      * @param {object} manga - Нормализованные метаданные тайтла.
      * @param {string|Promise<string>} coverBase64 - Обложка (или промис её фоновой загрузки).
      * @returns {{enqueue: function(object[], *, number, number): void, done: function(): Promise<void>}}
-     * Очередь сохранения: enqueue(пакет, том, номер части, прогресс) и done() — ожидание всех сохранений.
+     * Очередь сохранения: enqueue(пакет, том, номер части, прогресс) и done() — ожидание всех
+     * сохранений, отклоняется первой ошибкой сохранения.
      */
     _createBatchSaver(downloadState, exporter, manga, coverBase64) {
         let chain = Promise.resolve();
         let cover = null;
+        let failure = null;
 
         /**
          * Дожидается фоновой загрузки обложки (не дольше backgroundAttemptTimeoutMs).
@@ -487,6 +492,7 @@ export class DownloadManager {
             enqueue: (batch, volume, partIndex, progress) => {
                 const suffix = this._buildVolumeSuffix(volume, partIndex);
                 chain = chain.then(async () => {
+                    if (failure) return;
                     await this._waitForDeferred(downloadState, batch);
                     this.updateStatus(downloadState.id,
                         `Сохранение тома ${volume}${partIndex > 1 ? `, часть ${partIndex}` : ''}...`, progress);
@@ -494,11 +500,16 @@ export class DownloadManager {
                     const file = await exporter.export({ ...manga, name: manga.name + suffix }, batch, batchCover);
                     await this.saveFile(file.blob, file.filename);
                     this._releaseBatch(batch);
+                }).catch(error => {
+                    failure = error;
+                    log.warn(`Failed to save "${manga.name}${suffix}", stopping the download:`, error);
+                    downloadState.controller.stop();
                 });
-                // Ошибку сохранения получает done(); здесь она только не должна стать необработанной.
-                chain.catch(() => {});
             },
-            done: () => chain
+            done: async () => {
+                await chain;
+                if (failure) throw failure;
+            }
         };
     }
 
@@ -507,8 +518,10 @@ export class DownloadManager {
      * файлами — новый файл начинается при смене тома или при превышении лимита
      * размера (либо числа глав, если задан maxChapters) текущего накопленного
      * файла. Главы и изображения, не загрузившиеся
-     * за deferAfterMs, догружаются в фоне, не задерживая остальные главы; файл
-     * сохраняется, когда фоновые загрузки его глав завершатся.
+     * за deferAfterMs, догружаются в фоне, не задерживая остальные главы своего
+     * тома; файл сохраняется, когда фоновые загрузки его глав завершатся. Загрузка
+     * следующего тома начинается только после того, как завершились все фоновые
+     * загрузки предыдущего; его сохранение при этом идёт параллельно.
      * @param {object} downloadState - Текущее состояние загрузки.
      * @param {object} service - Экземпляр сервиса.
      * @param {object[]} chapters - Список глав для загрузки.
@@ -544,27 +557,30 @@ export class DownloadManager {
         };
 
         for (let i = 0; i < chapters.length; i++) {
+            const chapter = chapters[i];
+            const chapterVolume = this._chapterVolume(chapter);
+            const progress = Math.floor((i / chapters.length) * 80) + 10;
+
+            if (currentBatch.length > 0 && chapterVolume !== currentVolume) {
+                flushBatch(progress);
+                volumePartIndex = 0;
+                await this._waitForDeferred(downloadState, null, { report: true, progress });
+            }
+
             await downloadState.controller.waitIfPaused();
             if (downloadState.controller.shouldStop()) break;
 
             downloadState.currentChapterIndex = i;
-            const chapter = chapters[i];
-            const progress = Math.floor((i / chapters.length) * 80) + 10;
             this.updateStatus(downloadId, this._withPendingInfo(downloadState,
                 `Глава ${i + 1}/${chapters.length}: ${chapter.name || chapter.number}`), progress);
 
             const chapterResult = await this._downloadChapterOrDefer(service, downloadState, chapter);
             if (downloadState.ctx?.interrupted) break;
             this._trackDeferred(downloadState, chapterResult);
-            const chapterVolume = this._chapterVolume(chapter);
-            const volumeChanged = currentBatch.length > 0 && chapterVolume !== currentVolume;
-            const limitExceeded = currentBatch.length > 0 &&
-                this._exceedsPartLimit(currentBatch, chapterResult, maxSizeBytes, maxChapters);
 
-            if (volumeChanged || limitExceeded) {
+            if (currentBatch.length > 0 &&
+                this._exceedsPartLimit(currentBatch, chapterResult, maxSizeBytes, maxChapters))
                 flushBatch(progress);
-                if (volumeChanged) volumePartIndex = 0;
-            }
 
             if (currentBatch.length === 0) currentVolume = chapterVolume;
             currentBatch.push(chapterResult);

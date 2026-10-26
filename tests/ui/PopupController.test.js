@@ -178,9 +178,13 @@ afterEach(() => {
     vi.clearAllTimers();
 });
 
-// Окно загрузки (?download=true) запускает скачивание через 500 мс: даём таймерам
-// последних тестов сработать, пока окружение jsdom ещё не разобрано.
-afterAll(() => new Promise(resolve => setTimeout(resolve, 600)));
+/**
+ * Окно загрузки (?download=true) запускает скачивание через 500 мс: столько ждём после
+ * последних тестов, чтобы их таймеры сработали, пока окружение jsdom ещё не разобрано.
+ */
+const AUTO_DOWNLOAD_SETTLE_MS = 600;
+
+afterAll(() => new Promise(resolve => setTimeout(resolve, AUTO_DOWNLOAD_SETTLE_MS)));
 
 describe('PopupController', () => {
     it('Initializes and sets up UI', () => {
@@ -253,6 +257,28 @@ describe('PopupController', () => {
         await controller.startDownload();
         expect(controller.downloadManager.startDownload).toHaveBeenCalledWith(
             expect.objectContaining({ maxSizeMB: 150 })
+        );
+    });
+
+    it('startDownload limits parts by size by default', async () => {
+        const controller = new PopupController();
+        controller.currentSlug = 'slug';
+        controller.currentServiceKey = 'ranobelib';
+        await controller.startDownload();
+        expect(controller.downloadManager.startDownload).toHaveBeenCalledWith(
+            expect.objectContaining({ maxSizeMB: 200, maxChapters: 0 })
+        );
+    });
+
+    it('startDownload limits parts by the number of chapters when that mode is saved', async () => {
+        const controller = new PopupController();
+        const stored = { manga_parser_part_limit_mode: 'chapters', manga_parser_max_chapters: '10' };
+        global.localStorage.getItem = vi.fn(key => stored[key] ?? null);
+        controller.currentSlug = 'slug';
+        controller.currentServiceKey = 'ranobelib';
+        await controller.startDownload();
+        expect(controller.downloadManager.startDownload).toHaveBeenCalledWith(
+            expect.objectContaining({ maxSizeMB: 200, maxChapters: 10 })
         );
     });
 
@@ -1371,7 +1397,7 @@ it('Sets formatSelector value from localStorage', async () => {
         const setItemSpy = vi.spyOn(global.localStorage, 'setItem');
         checkbox.checked = false;
         checkbox.dispatchEvent(new Event('change'));
-        expect(setItemSpy).toHaveBeenCalledWith('manga_parser_split_pages', false);
+        expect(setItemSpy).toHaveBeenCalledWith('manga_parser_split_pages', 'false');
         setItemSpy.mockRestore();
     });
 

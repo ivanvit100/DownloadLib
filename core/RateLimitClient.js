@@ -11,26 +11,13 @@ import { extensionApi } from './BrowserApi.js';
 import { createLogger } from './ConsoleLogger.js';
 import { MSG } from './MessageTypes.js';
 import { DEFAULT_RATE_LIMIT, normalizeRateLimit, RATE_LIMIT_STORAGE_KEY } from './RateLimiter.js';
+import { settingsStorage } from './UserSettings.js';
 
 const log = createLogger('RateLimitClient');
 
 let pending = 0;
 let blockedUntil = 0;
 let knownLimit = DEFAULT_RATE_LIMIT;
-
-/**
- * Читает значение из localStorage, не падая там, где он недоступен.
- * @param {string} key - Ключ.
- * @returns {?string} Значение, либо null.
- */
-function readLocalStorage(key) {
-    try {
-        return localStorage.getItem(key);
-    } catch (e) {
-        log.debug('localStorage is not available:', e);
-        return null;
-    }
-}
 
 /**
  * Клиент единственного ограничителя запросов, который живёт в фоне. Каждое окно
@@ -121,7 +108,7 @@ export const RateLimitClient = {
         }
 
         if (stored == null) {
-            const legacy = readLocalStorage(RATE_LIMIT_STORAGE_KEY);
+            const legacy = settingsStorage.get(RATE_LIMIT_STORAGE_KEY);
             if (legacy != null) stored = await this.setLimit(legacy);
         }
 
@@ -142,7 +129,7 @@ export const RateLimitClient = {
         if (!storage) return limit;
         try {
             await storage.set({ [RATE_LIMIT_STORAGE_KEY]: limit });
-            localStorage.removeItem(RATE_LIMIT_STORAGE_KEY);
+            settingsStorage.remove(RATE_LIMIT_STORAGE_KEY);
         } catch (e) {
             log.warn('Failed to save rate limit:', e);
         }

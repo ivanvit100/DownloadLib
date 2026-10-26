@@ -168,12 +168,12 @@ describe('RateLimitClient.getLimit / setLimit', () => {
     });
 
     it('Uses the default limit where localStorage is not available', async () => {
-        const debug = vi.spyOn(console, 'debug').mockImplementation(() => {});
+        const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
         const denied = new Error('SecurityError');
         await load({ storage: null });
         vi.spyOn(Storage.prototype, 'getItem').mockImplementation(() => { throw denied; });
         expect(await RateLimitClient.getLimit()).toBe(85);
-        expect(debug).toHaveBeenCalledWith('[RateLimitClient] localStorage is not available:', denied);
+        expect(warn).toHaveBeenCalledWith('[Storage] get failed for key:', RATE_LIMIT_STORAGE_KEY, denied);
     });
 
     it('Keeps the legacy value where storage.local does not exist', async () => {

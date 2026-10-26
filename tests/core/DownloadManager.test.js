@@ -872,6 +872,42 @@ describe('DownloadManager', () => {
         expect(exporterMock.export).toHaveBeenNthCalledWith(2, { name: 'M Том 1 (Часть 2)' }, expect.any(Array), '');
     });
 
+    it('downloadWithSizeLimit splits a volume by the number of chapters, ignoring the size', async () => {
+        const dm = new DownloadManager();
+        vi.spyOn(dm, 'saveFile').mockResolvedValue();
+        vi.spyOn(dm, 'estimateChapterSize').mockReturnValue(60 * 1024 * 1024);
+        const ctrl = dm.createController();
+        const ds = { id: 'dl7', slug: 'slug', controller: ctrl, chapterContents: [], format: 'fb2', splitPages: true, mangaId: null };
+        dm.activeDownloads.set('dl7', ds);
+        const chapters = [createChapter('1', '1'), createChapter('1', '2'), createChapter('1', '3'),
+            createChapter('1', '4'), createChapter('1', '5'), createChapter('2', '1')];
+
+        await dm.downloadWithSizeLimit(ds, serviceMock, chapters, { name: 'M' }, '', 'fb2', 50, 2);
+
+        expect(exported.map(file => [file.manga.name, file.chapters.map(ch => `${ch.volume}.${ch.number}`)])).toEqual([
+            ['M Том 1', ['1.1', '1.2']],
+            ['M Том 1 (Часть 2)', ['1.3', '1.4']],
+            ['M Том 1 (Часть 3)', ['1.5']],
+            ['M Том 2', ['2.1']]
+        ]);
+    });
+
+    it('_exceedsPartLimit counts chapters when maxChapters is set and the estimated size otherwise', () => {
+        const dm = new DownloadManager();
+        const chapter = { content: [{ type: 'text', text: 'x'.repeat(512) }] };
+        expect(dm._exceedsPartLimit([chapter], chapter, 1, 2)).toBe(false);
+        expect(dm._exceedsPartLimit([chapter, chapter], chapter, Infinity, 2)).toBe(true);
+        expect(dm._exceedsPartLimit([chapter], chapter, 2048, 0)).toBe(false);
+        expect(dm._exceedsPartLimit([chapter], chapter, 2047, 0)).toBe(true);
+    });
+
+    it('A download is limited by size by default', () => {
+        const dm = new DownloadManager();
+        const ds = dm._createDownloadState({ slug: 'slug' }, serviceMock);
+        expect([ds.maxSizeMB, ds.maxChapters]).toEqual([200, 0]);
+        ds.ctx.dispose();
+    });
+
     it('The 429 callback of the download context updates the status with the progress of the state', () => {
         const dm = new DownloadManager();
         const ds = dm._createDownloadState({ slug: 'slug' }, serviceMock);
@@ -1226,33 +1262,56 @@ describe('DownloadManager', () => {
                 expect(warnSpy).not.toHaveBeenCalledWith(expect.stringContaining('not loaded within'));
             });
 
-            it('saves a finished volume only after its background loads, without holding up the next volume', async () => {
+            it('starts the next volume only after the background loads of the previous one', async () => {
                 const dm = new DownloadManager();
                 const events = [];
-                const nextVolumeFetched = deferred();
+                const statuses = collectStatuses();
                 exporterMock.export = vi.fn(async (manga, chapters) => {
                     events.push(`save ${manga.name}`);
                     recordExport(manga, chapters);
                     return { blob: {}, filename: 'f' };
                 });
                 useService({
-                    fetchChaptersList: vi.fn(async () => ({ data: [createChapter('1', '1'), createChapter('2', '1')] })),
+                    fetchChaptersList: vi.fn(async () => ({
+                        data: [createChapter('1', '1'), createChapter('1', '2'), createChapter('2', '1')]
+                    })),
                     fetchChapter: vi.fn(async (slug, number, volume) => {
-                        events.push(`fetch vol ${volume}`);
-                        if (volume === '2') setTimeout(nextVolumeFetched.resolve, 10);
+                        events.push(`fetch vol ${volume} ch ${number}`);
                         return { data: { content: [] } };
                     }),
                     processChapterContent: vi.fn(async function (c, s, opts) {
-                        if (opts.chapterObj.volume !== '1') return [image('V2')];
+                        const { volume, number } = opts.chapterObj;
+                        if (volume !== '1' || number !== '1') return [image(`V${volume}.${number}`)];
                         return this.loadImageOrDefer(1, async () => {
-                            await nextVolumeFetched.promise;
-                            return [image('V1')];
+                            await tick(40);
+                            events.push('background image of vol 1 loaded');
+                            return [image('V1.1')];
                         });
                     })
                 });
                 await dm.startDownload({ slug: 'slug', serviceKey: 'mangalib', format: 'fb2' });
-                expect(events).toEqual(['fetch vol 1', 'fetch vol 2', 'save undefined Том 1', 'save undefined Том 2']);
-                expect(exportedChapters(0).map(contentOf)).toEqual([['V1']]);
+                expect(events.filter(e => !e.startsWith('save'))).toEqual([
+                    'fetch vol 1 ch 1', 'fetch vol 1 ch 2', 'background image of vol 1 loaded', 'fetch vol 2 ch 1'
+                ]);
+                expect(events.filter(e => e.startsWith('save'))).toEqual(['save undefined Том 1', 'save undefined Том 2']);
+                expect(exportedChapters(0).map(contentOf)).toEqual([['V1.1'], ['V1.2']]);
+                expect(statuses).toContain('Дозагрузка в фоне: осталось 1...');
+            });
+
+            it('stop while waiting for the previous volume does not start the next one', async () => {
+                const dm = new DownloadManager();
+                const controller = dm.createController();
+                eventBusMock.emit = vi.fn((event, data) => {
+                    if (event === 'download:progress' && data.status.startsWith('Дозагрузка в фоне')) controller.stop();
+                });
+                const service = useService({
+                    fetchChaptersList: vi.fn(async () => ({ data: [createChapter('1', '1'), createChapter('2', '1')] })),
+                    processChapterContent: vi.fn(async (c, s, opts) =>
+                        opts.chapterObj.volume === '1' ? [image('OK'), placeholder(2, never())] : [image('V2')])
+                });
+                await dm.startDownload({ slug: 'slug', serviceKey: 'mangalib', format: 'fb2', controller });
+                expect(service.fetchChapter.mock.calls.map(call => call[2])).toEqual(['1']);
+                expect(exportedChapters().map(contentOf)).toEqual([['OK', '[Ошибка загрузки изображения 2]']]);
             });
 
             it('reserves the estimated size of a deferred chapter when splitting files', async () => {
@@ -1341,6 +1400,45 @@ describe('DownloadManager', () => {
                 exporterMock.export = vi.fn().mockRejectedValue(new Error('disk full'));
                 useService({});
                 await expect(dm.startDownload({ slug: 'slug', serviceKey: 'mangalib', format: 'fb2' })).rejects.toThrow('disk full');
+            });
+
+            it('stops the download when a file cannot be saved and exports nothing after it', async () => {
+                const dm = new DownloadManager();
+                vi.spyOn(console, 'error').mockImplementation(() => {});
+                const controller = dm.createController();
+                const saveFailed = deferred();
+                exporterMock.export = vi.fn(async () => {
+                    saveFailed.resolve();
+                    throw new Error('disk full');
+                });
+                const service = useService({
+                    fetchChaptersList: vi.fn(async () => ({
+                        data: [createChapter('1', '1'), createChapter('2', '1'), createChapter('3', '1'), createChapter('4', '1')]
+                    })),
+                    fetchChapter: vi.fn(async (slug, number, volume) => {
+                        if (volume === '2') {
+                            await saveFailed.promise;
+                            await tick();
+                        }
+                        return { data: { content: [{ type: 'text', text: 'ok' }] } };
+                    })
+                });
+                await expect(dm.startDownload({ slug: 'slug', serviceKey: 'mangalib', format: 'fb2', controller }))
+                    .rejects.toThrow('disk full');
+                expect(exporterMock.export).toHaveBeenCalledTimes(1);
+                expect(service.fetchChapter.mock.calls.map(call => call[2])).toEqual(['1', '2']);
+                expect(controller.shouldStop()).toBe(true);
+                expect(warnSpy).toHaveBeenCalledWith(expect.stringContaining('stopping the download'),
+                    expect.objectContaining({ message: 'disk full' }));
+            });
+
+            it('splits files by maxChapters passed to startDownload', async () => {
+                const dm = new DownloadManager();
+                useService({});
+                const res = await dm.startDownload({ slug: 'slug', serviceKey: 'mangalib', format: 'fb2', maxChapters: 1 });
+                expect(exported.map(file => file.chapters.length)).toEqual([1, 1]);
+                expect(exported[1].manga.name).toMatch(/ Том 1 \(Часть 2\)$/);
+                expect(dm.activeDownloads.get(res.downloadId).maxChapters).toBe(1);
             });
 
             it('waits for the background loads of the given chapters only, reporting each remaining count once', async () => {

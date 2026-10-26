@@ -1,7 +1,5 @@
 import { describe, it, expect, vi } from 'vitest';
 
-// Конфиги сервисов с минимальным набором полей: без CDN изображений и с API на хосте
-// сайта, а у второго — с некорректным baseUrl.
 vi.mock('../../services/mangalib/config.js', () => ({
     mangalibConfig: { name: 'mangalib', baseUrl: 'not a url', hosts: ['manga.example'] }
 }));

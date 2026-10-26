@@ -2,9 +2,13 @@ import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 
 const NAMES = ['BaseExporter', 'ExporterRegistry', 'BaseService', 'serviceRegistry'];
 
-// Первый импорт PluginApi тянет весь граф модулей попапа: под инструментированием
-// покрытия и при параллельных тестах он может занимать больше 5 с.
-describe('core/PluginApi', { timeout: 30000 }, () => {
+/**
+ * Первый импорт PluginApi тянет весь граф модулей попапа: под инструментированием
+ * покрытия и при параллельных тестах он может занимать больше 5 с.
+ */
+const FIRST_IMPORT_TIMEOUT_MS = 30000;
+
+describe('core/PluginApi', { timeout: FIRST_IMPORT_TIMEOUT_MS }, () => {
     beforeEach(() => {
         vi.resetModules();
         NAMES.forEach(name => delete globalThis[name]);

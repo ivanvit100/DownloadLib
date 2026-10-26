@@ -24,8 +24,6 @@ async function loadModule() {
     ({ PluginManager } = await import('../../core/PluginManager.js'));
 }
 
-// Vite фиксирует базовый класс `extends` при загрузке модуля,
-// поэтому заглушки BaseService/BaseExporter задаются до импорта.
 beforeEach(async () => {
     delete mocks.extensionApi;
     mocks.BaseService = MockBaseService;

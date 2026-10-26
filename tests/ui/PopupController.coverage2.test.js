@@ -102,9 +102,13 @@ afterEach(() => {
     vi.useRealTimers();
 });
 
-// Окно загрузки (?download=true) запускает скачивание через 500 мс: даём таймерам
-// последних тестов сработать, пока окружение jsdom ещё не разобрано.
-afterAll(() => new Promise(resolve => setTimeout(resolve, 600)));
+/**
+ * Окно загрузки (?download=true) запускает скачивание через 500 мс: столько ждём после
+ * последних тестов, чтобы их таймеры сработали, пока окружение jsdom ещё не разобрано.
+ */
+const AUTO_DOWNLOAD_SETTLE_MS = 600;
+
+afterAll(() => new Promise(resolve => setTimeout(resolve, AUTO_DOWNLOAD_SETTLE_MS)));
 
 describe('_init settings callback', () => {
     it('calls SettingsController.init via TemplateLoader.show callback', async () => {
