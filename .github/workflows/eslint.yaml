@@ -25,4 +25,4 @@ jobs:
         run: npm install
 
       - name: Run ESLint
-        run: npx eslint app.js background/ core/ exporters/ services/ ui/
+        run: npm run lint

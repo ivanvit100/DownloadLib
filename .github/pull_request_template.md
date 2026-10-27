@@ -23,7 +23,7 @@
 
 - [ ] Тесты проходят локально — `npm test` (Tests pass locally)
 - [ ] Покрытие кода не снизилось — `npm run test:coverage` (Code coverage has not decreased)
-- [ ] Код следует стилю проекта (Code follows the project style)
+- [ ] Код следует стилю проекта — `npm run lint` (Code follows the project style)
 - [ ] Добавлены / обновлены тесты для изменённой логики (Tests added / updated for changed logic)
 - [ ] Документация обновлена, если требуется (Documentation updated if needed)
 

@@ -160,6 +160,9 @@ npm test
 
 # Запустить с отчётом покрытия
 npm run test:coverage
+
+# Проверить код линтером
+npm run lint
 ```
 
 <table>

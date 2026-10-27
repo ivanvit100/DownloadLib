@@ -4,7 +4,12 @@ import regexp from 'eslint-plugin-regexp';
 import stylisticJS from '@stylistic/eslint-plugin';
 
 export default [
-    { ignores: ['**/*cache', '**/*.min.{js,mjs}', '**/*.test.js', '**/package-lock.json', 'lib/**', '/.github/**/**.js'] },
+    {
+        ignores: [
+            '**/*cache', '**/*.min.{js,mjs}', '**/*.test.js', '**/package-lock.json', 'lib/**', '.github/**',
+            'coverage/**'
+        ]
+    },
     {
         files: ['**/*.{js,mjs}'],
         languageOptions: {
@@ -137,9 +142,5 @@ export default [
     {
         files: ['content/**/*.js', 'sandbox.js', 'sw.js'],
         languageOptions: { sourceType: 'script' }
-    },
-    {
-        files: ['.github/**/*.js'],
-        languageOptions: { sourceType: 'script', globals: { module: 'readonly' } }
     }
 ];

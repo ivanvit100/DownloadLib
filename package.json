@@ -19,6 +19,7 @@
     "test": "tests"
   },
   "scripts": {
+    "lint": "eslint .",
     "test": "vitest run --isolate",
     "test:coverage": "vitest run --coverage"
   },
