@@ -16,7 +16,7 @@ body:
     attributes:
       label: Информация о системе (System Information)
       description: Укажите любую потенциально полезную информацию о системе(ах), на которой возникла проблема, например, операционная система, браузер и его версия и т. д.
-      placeholder: Например, Windows 10 Pro, Firefox 108.0.2 64-bit
+      placeholder: Например, Windows 10 Pro, Firefox 140.0 64-bit
     validations:
         required: true
   - type: textarea

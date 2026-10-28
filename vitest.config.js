@@ -13,7 +13,7 @@ export default defineConfig({
             reporter: ['text', 'html', 'json'],
             exclude:
                 ['**/node_modules/**', '**/lib/**', '**/background/service-worker.js', '**/**/**/config.js',
-                    '/assembly/**', '**/tests/**'],
+                    '**/tests/**'],
             all: true,
             include:
                 ['*.js', 'core/**/*.js', 'background/**/*.js', 'content/**/*.js', 'exporters/**/*.js',
