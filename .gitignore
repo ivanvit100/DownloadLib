@@ -1,3 +1,5 @@
 coverage/
 manifest.json
 node_modules/
+*.zip
+.env
