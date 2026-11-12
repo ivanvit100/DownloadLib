@@ -4,6 +4,7 @@ const mocks = vi.hoisted(() => ({}));
 
 vi.mock('../../core/PluginManager.js', async () => (await import('../helpers/ModuleMock.js')).mockExports(mocks, 'PluginManager'));
 vi.mock('../../core/RateLimitClient.js', async () => (await import('../helpers/ModuleMock.js')).mockExports(mocks, 'RateLimitClient'));
+vi.mock('../../core/Diagnostics.js', async () => (await import('../helpers/ModuleMock.js')).mockExports(mocks, 'collectDiagnostics', 'formatDiagnostics'));
 
 let SettingsController;
 
@@ -535,5 +536,97 @@ describe('_bindEvents() fileInput', () => {
             enabled: true
         });
         expect(SettingsController._renderPlugins).toHaveBeenCalled();
+    });
+});
+
+describe('debug info', () => {
+    const items = [
+        { label: 'Версия расширения', value: '1.1.0' },
+        { label: 'Браузер', value: 'Firefox 146.0' }
+    ];
+
+    beforeEach(() => {
+        mocks.collectDiagnostics = vi.fn(async () => items);
+        mocks.formatDiagnostics = vi.fn(() => 'Версия расширения: 1.1.0\nБраузер: Firefox 146.0');
+        document.body.insertAdjacentHTML('beforeend', `
+            <div id="debugInfoList"><span>stale</span></div>
+            <button id="copyDebugInfoBtn">Скопировать</button>
+        `);
+    });
+
+    afterEach(() => {
+        vi.unstubAllGlobals();
+    });
+
+    it('init renders the debug info', () => {
+        const spy = vi.spyOn(SettingsController, '_renderDebugInfo').mockResolvedValue();
+        SettingsController.init();
+        expect(spy).toHaveBeenCalledOnce();
+    });
+
+    it('_renderDebugInfo returns early when the list is absent', async () => {
+        document.getElementById('debugInfoList').remove();
+        await expect(SettingsController._renderDebugInfo()).resolves.toBeUndefined();
+        expect(mocks.collectDiagnostics).not.toHaveBeenCalled();
+    });
+
+    it('_renderDebugInfo replaces the list with a row per item', async () => {
+        await SettingsController._renderDebugInfo();
+        const rows = [...document.querySelectorAll('#debugInfoList > .debug-info-row')].map(row => [
+            row.querySelector('.debug-info-label').textContent,
+            row.querySelector('.debug-info-value').textContent
+        ]);
+        expect(rows).toEqual([['Версия расширения', '1.1.0'], ['Браузер', 'Firefox 146.0']]);
+        expect(document.getElementById('debugInfoList').textContent).not.toContain('stale');
+    });
+
+    it('clicking the copy button copies the debug info', () => {
+        const spy = vi.spyOn(SettingsController, '_copyDebugInfo').mockResolvedValue();
+        SettingsController._bindEvents();
+        const button = document.getElementById('copyDebugInfoBtn');
+        button.click();
+        expect(spy).toHaveBeenCalledWith(button);
+    });
+
+    it('no error when the copy button is absent', () => {
+        document.getElementById('copyDebugInfoBtn').remove();
+        expect(() => SettingsController._bindEvents()).not.toThrow();
+    });
+
+    it('_copyDebugInfo writes the formatted info to the clipboard and confirms it', async () => {
+        vi.useFakeTimers();
+        const writeText = vi.fn(async () => {});
+        vi.stubGlobal('navigator', { clipboard: { writeText } });
+        const button = document.getElementById('copyDebugInfoBtn');
+        await SettingsController._copyDebugInfo(button);
+        expect(mocks.formatDiagnostics).toHaveBeenCalledWith(items);
+        expect(writeText).toHaveBeenCalledWith('Версия расширения: 1.1.0\nБраузер: Firefox 146.0');
+        expect(button.textContent).toBe('Скопировано');
+        expect(button.disabled).toBe(true);
+        vi.advanceTimersByTime(1500);
+        expect(button.textContent).toBe('Скопировать');
+        expect(button.disabled).toBe(false);
+    });
+
+    it('_copyDebugInfo reports a failure when the clipboard rejects the text', async () => {
+        vi.useFakeTimers();
+        const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
+        vi.stubGlobal('navigator', { clipboard: { writeText: vi.fn(async () => { throw new Error('denied'); }) } });
+        const button = document.getElementById('copyDebugInfoBtn');
+        await SettingsController._copyDebugInfo(button);
+        expect(button.textContent).toBe('Не удалось скопировать');
+        expect(warnSpy).toHaveBeenCalledWith('[SettingsController] Failed to copy debug info:', expect.any(Error));
+        vi.advanceTimersByTime(1500);
+        expect(button.textContent).toBe('Скопировать');
+        expect(button.disabled).toBe(false);
+    });
+
+    it('_copyDebugInfo reports a failure when the clipboard is unavailable', async () => {
+        vi.useFakeTimers();
+        vi.spyOn(console, 'warn').mockImplementation(() => {});
+        vi.stubGlobal('navigator', {});
+        const button = document.getElementById('copyDebugInfoBtn');
+        await SettingsController._copyDebugInfo(button);
+        expect(button.textContent).toBe('Не удалось скопировать');
     });
 });

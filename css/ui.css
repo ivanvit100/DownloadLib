@@ -639,7 +639,7 @@ input[type="number"] {
     border-color: var(--primary-color) !important;
     box-shadow: 0 0 5px var(--primary-color);
 }
-.plugin-list {
+.plugin-list, .debug-info-list {
     display: flex;
     flex-direction: column;
     gap: 6px;
@@ -733,6 +733,21 @@ input[type="number"] {
     background: transparent !important;
     border-color: #e53935 !important;
     color: #e53935 !important;
+}
+.debug-info-row {
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+}
+.debug-info-label {
+    color: #888;
+    font-size: 11px;
+}
+.debug-info-value {
+    color: #ddd;
+    font-size: 12px;
+    overflow-wrap: anywhere;
+    user-select: text;
 }
 #historyHeader {
     display: flex;

@@ -7,6 +7,7 @@
  */
 
 import { createLogger } from '../core/ConsoleLogger.js';
+import { collectDiagnostics, formatDiagnostics } from '../core/Diagnostics.js';
 import { PluginManager } from '../core/PluginManager.js';
 import { RateLimitClient } from '../core/RateLimitClient.js';
 import {
@@ -42,6 +43,7 @@ export const SettingsController = {
         this._renderFitFb2Images();
         this._renderRangeMode();
         this._renderPlugins();
+        this._renderDebugInfo();
         this._bindEvents(onBack);
     },
 
@@ -206,10 +208,52 @@ export const SettingsController = {
     },
 
     /**
+     * Собирает отладочную информацию (версия расширения, браузер, ОС, User-Agent)
+     * и выводит её строками "название - значение".
+     * @returns {Promise<void>}
+     */
+    async _renderDebugInfo() {
+        const list = $el('debugInfoList');
+        if (!list) return;
+
+        const items = await collectDiagnostics();
+        list.replaceChildren(...items.map(({ label, value }) => {
+            const row = createEl('div', { className: 'debug-info-row' });
+            row.appendChild(createEl('span', { className: 'debug-info-label', text: label }));
+            row.appendChild(createEl('span', { className: 'debug-info-value', text: value }));
+            return row;
+        }));
+    },
+
+    /**
+     * Копирует отладочную информацию в буфер обмена текстом для отчёта об ошибке
+     * и на время показывает на кнопке результат копирования.
+     * @param {HTMLButtonElement} button - Кнопка копирования.
+     * @returns {Promise<void>}
+     */
+    async _copyDebugInfo(button) {
+        let result = 'Скопировано';
+        try {
+            await navigator.clipboard.writeText(formatDiagnostics(await collectDiagnostics()));
+        } catch (e) {
+            log.warn('Failed to copy debug info:', e);
+            result = 'Не удалось скопировать';
+        }
+
+        const original = button.textContent;
+        button.textContent = result;
+        button.disabled = true;
+        setTimeout(() => {
+            button.textContent = original;
+            button.disabled = false;
+        }, 1500);
+    },
+
+    /**
      * Навешивает обработчики на все элементы управления экрана настроек: кнопку
      * "назад", сохранение лимита запросов и лимитов части файла (размер и число глав),
-     * переключение режима ограничения части, режима диапазона глав/томов и загрузку
-     * файла нового плагина.
+     * переключение режима ограничения части, режима диапазона глав/томов, загрузку
+     * файла нового плагина и копирование отладочной информации.
      * @param {function(): void} onBack - Возврат к главному экрану.
      * @returns {void}
      */
@@ -295,5 +339,9 @@ export const SettingsController = {
                 await this._renderPlugins();
             });
         }
+
+        const copyDebugInfoBtn = $el('copyDebugInfoBtn');
+        if (copyDebugInfoBtn)
+            copyDebugInfoBtn.addEventListener('click', () => this._copyDebugInfo(copyDebugInfoBtn));
     }
 };

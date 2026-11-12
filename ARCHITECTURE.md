@@ -391,6 +391,17 @@ Origin запроса запоминается в `onBeforeSendHeaders` и за�
 - `readPartLimit()` → `{maxSizeMB, maxChapters}`: в режиме по числу глав `maxChapters` — сохранённое число (по умолчанию 50), иначе 0, и часть ограничивается только размером.
 - `readPartLimitMode()`, `readRangeMode()` — сохранённый режим; неизвестное значение считается режимом по умолчанию (по размеру, по главам).
 
+#### `core/Diagnostics.js`
+
+Отладочная информация для отчёта об ошибке. Новых разрешений в манифестах не требует.
+- `collectDiagnostics()` → `[{label, value}]`: версия расширения (`runtime.getManifest`), браузер, ОС и User-Agent.
+  - Браузер: в Firefox — `runtime.getBrowserInfo()` (название, версия, buildID). В Chromium — бренды `navigator.userAgentData` (`fullVersionList`) без служебного «Not A Brand» и с версией движка Chromium в скобках, поэтому Chrome, Edge, Opera и Яндекс различаются.
+  - ОС: `runtime.getPlatformInfo()`. В Chromium она дополняется `platformVersion` из `userAgentData`, а у Windows по нему различаются 10 и 11.
+  - Источник, которого нет или который упал, не прерывает сбор: причина пишется в лог (`debug`), а значение — «неизвестно».
+- `formatDiagnostics(items)` — текст «Название: значение» по пункту в строке.
+
+Токены, адреса вкладок и история загрузок в отладочную информацию не входят.
+
 #### `core/EventBus.js`
 
 Реализует паттерн Pub/Sub. Класс `EventBus` — не синглтон, каждый потребитель создаёт свой экземпляр.
@@ -718,7 +729,8 @@ Origin запроса запоминается в `onBeforeSendHeaders` и за�
 - максимальное число глав в части файла (`localStorage['manga_parser_max_chapters']`, по умолчанию 50);
 - вписывание изображений FB2 (`localStorage['manga_parser_fit_fb2_images']`);
 - режим выбора диапазона: главы или тома (`localStorage['manga_parser_range_mode']`);
-- список плагинов с переключателем и удалением (`PluginManager.list`, `toggle`, `remove`).
+- список плагинов с переключателем и удалением (`PluginManager.list`, `toggle`, `remove`);
+- отладочная информация внизу экрана (`core/Diagnostics.js`): версия расширения, браузер, ОС и User-Agent. Кнопка «Скопировать» кладёт её в буфер обмена текстом для отчёта об ошибке (`navigator.clipboard.writeText`). Если копирование не удалось, на кнопке видно «Не удалось скопировать».
 
 Ключи, значения по умолчанию и чтение режимов берутся из `core/UserSettings.js`. Оба переключателя режимов (диапазон, ограничение части) обслуживают общие `_highlightMode` и `_bindModeToggle`: режим сохраняется сразу по клику.
 
