@@ -220,7 +220,7 @@ describe('BaseService._request', () => {
         await expect(svc._request('https://test.com/api/x', { what: 'тест' })).resolves.toEqual({ data: { id: 1 } });
         expect(mocks.requestViaTab).toHaveBeenCalledWith(
             'https://test.com/api/x',
-            { method: 'GET', headers: { 'Site-Id': '1' }, mode: 'cors', credentials: 'include', cache: 'no-store' },
+            { method: 'GET', headers: { 'Site-Id': '1' }, mode: 'cors', credentials: 'same-origin', cache: 'no-store' },
             'TestService',
             { beforeSend: expect.any(Function) }
         );
