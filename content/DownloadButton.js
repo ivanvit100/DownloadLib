@@ -1,27 +1,39 @@
 /**
  * DownloadLib content script
- * Injects the download button next to the read button on MangaLib/RanobeLib pages
+ * Injects the download button next to the read button on MangaLib/RanobeLib title pages
  * @module content/DownloadButton
  * @license MIT
  * @author ivanvit
- * @version 1.1.0
+ * @version 1.1.1
  */
 
 'use strict';
 
 (function downloadButton() {
     const DOWNLOAD_BTN_CLASS = 'dl-ext-download-btn';
-    const READ_BTN_SELECTOR = 'a.btn';
+    const READ_BTN_SELECTOR = '.page > .container > * > a.btn.is-filled.variant-primary';
+    const TITLE_PATH_PATTERN = /^\/[^/]+\/(?:manga|book)\/[^/]+\/?$/;
     const FORMAT_STORAGE_KEY = 'manga_parser_selected_format';
     const _dlApi = globalThis.browser ?? globalThis.chrome ?? null;
 
     /**
-     * Находит на странице все кнопки чтения и добавляет рядом с каждой ещё не
+     * Проверяет, открыта ли страница тайтла: путь вида /{язык}/manga/{slug}
+     * или /{язык}/book/{slug}.
+     * @returns {boolean} true, если текущий адрес - страница тайтла.
+     */
+    function isTitlePage() {
+        return TITLE_PATH_PATTERN.test(location.pathname);
+    }
+
+    /**
+     * На странице тайтла находит кнопки чтения в блоке кнопок под обложкой
+     * (прямой потомок контейнера страницы) и добавляет рядом с каждой ещё не
      * добавленную кнопку загрузки DownloadLib, подхватывая выбранный формат
      * из storage и открывая окно загрузки по клику.
      * @returns {void}
      */
     function injectDownloadButton() {
+        if (!isTitlePage()) return;
         document.querySelectorAll(READ_BTN_SELECTOR).forEach(readLink => {
             const container = readLink.parentElement;
             /* istanbul ignore next */
@@ -62,6 +74,21 @@
             container.insertBefore(btn, insertBefore);
         });
     }
+
+    const style = document.createElement('style');
+    style.textContent = `
+        @media screen and (max-width: 1024px) {
+            ${READ_BTN_SELECTOR}:has(+ .${DOWNLOAD_BTN_CLASS}),
+            ${READ_BTN_SELECTOR} + .${DOWNLOAD_BTN_CLASS} {
+                order: 1;
+            }
+            ${READ_BTN_SELECTOR} + .${DOWNLOAD_BTN_CLASS} ~ * {
+                grid-column: 1 / -1;
+                order: 2;
+            }
+        }
+    `;
+    document.documentElement.appendChild(style);
 
     if (_dlApi && _dlApi.storage && _dlApi.storage.onChanged) {
         /**
