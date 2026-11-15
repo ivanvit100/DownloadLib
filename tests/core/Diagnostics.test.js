@@ -41,21 +41,23 @@ afterEach(() => {
 });
 
 describe('collectDiagnostics()', () => {
-    it('returns the extension version, browser, OS and User-Agent in this order', async () => {
+    it('returns the extension version, browser, OS, User-Agent and error log in this order', async () => {
         mocks.extensionApi.runtime.getBrowserInfo = vi.fn(async () => ({ name: 'Firefox', version: '146.0' }));
         mocks.extensionApi.runtime.getPlatformInfo = vi.fn(async () => ({ os: 'linux', arch: 'x86-64' }));
         expect(await collectDiagnostics()).toEqual([
             { label: 'Версия расширения', value: '1.1.0' },
             { label: 'Браузер', value: 'Firefox 146.0' },
             { label: 'ОС', value: 'Linux' },
-            { label: 'User-Agent', value: 'TestAgent/1.0' }
+            { label: 'User-Agent', value: 'TestAgent/1.0' },
+            { label: 'Журнал ошибок', value: 'пусто', details: [] }
         ]);
     });
 
-    it('reports unknown values when the browser gives nothing', async () => {
+    it('reports unknown values and an empty log when the browser gives nothing', async () => {
         mocks.extensionApi = null;
         stubNavigator(null, '');
-        expect((await collectDiagnostics()).map(item => item.value)).toEqual(Array(4).fill('неизвестно'));
+        expect((await collectDiagnostics()).map(item => item.value))
+            .toEqual([...Array(4).fill('неизвестно'), 'пусто']);
     });
 
     it('reports an unknown extension version when the manifest has none', async () => {
@@ -163,12 +165,48 @@ describe('collectDiagnostics() OS', () => {
     });
 });
 
+describe('collectDiagnostics() error log', () => {
+    it('counts the log entries and lists them as lines for the report', async () => {
+        mocks.extensionApi.storage = {
+            local: {
+                get: vi.fn(async () => ({
+                    downloadlib_log_history: [
+                        { time: Date.UTC(2026, 10, 14, 17, 3, 11), level: 'warn', text: '[Auth] Could not get auth token' },
+                        { time: Date.UTC(2026, 10, 14, 17, 4, 0), level: 'error', text: '[App] Failed' }
+                    ]
+                }))
+            }
+        };
+        expect(await valueOf('Журнал ошибок')).toBe('2 из 20');
+        const item = (await collectDiagnostics()).at(-1);
+        expect(item.details).toEqual([
+            '2026-11-14T17:03:11.000Z WARN [Auth] Could not get auth token',
+            '2026-11-14T17:04:00.000Z ERROR [App] Failed'
+        ]);
+        expect(mocks.extensionApi.storage.local.get).toHaveBeenCalledWith('downloadlib_log_history');
+    });
+
+    it('reports an unknown log and logs the reason when reading it fails', async () => {
+        const debugSpy = vi.spyOn(console, 'debug').mockImplementation(() => {});
+        mocks.extensionApi.storage = { local: { get: vi.fn(async () => { throw new Error('denied'); }) } };
+        expect((await collectDiagnostics()).at(-1)).toEqual({ label: 'Журнал ошибок', value: 'неизвестно', details: [] });
+        expect(debugSpy).toHaveBeenCalledWith('[Diagnostics] Failed to read log history:', expect.any(Error));
+    });
+});
+
 describe('formatDiagnostics()', () => {
     it('puts every item on its own line as "label: value"', () => {
         expect(formatDiagnostics([
             { label: 'Версия расширения', value: '1.1.0' },
             { label: 'ОС', value: 'Linux' }
         ])).toBe('Версия расширения: 1.1.0\nОС: Linux');
+    });
+
+    it('puts the details of an item on the lines right after it', () => {
+        expect(formatDiagnostics([
+            { label: 'Журнал ошибок', value: '2 из 20', details: ['line 1', 'line 2'] },
+            { label: 'ОС', value: 'Linux' }
+        ])).toBe('Журнал ошибок: 2 из 20\nline 1\nline 2\nОС: Linux');
     });
 
     it('returns an empty string for no items', () => {

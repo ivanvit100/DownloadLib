@@ -9,6 +9,7 @@
 
 import { createLogger } from './ConsoleLogger.js';
 import { extensionApi } from './BrowserApi.js';
+import { formatLogEntry, LOG_HISTORY_LIMIT, readLogHistory } from './LogHistory.js';
 
 const log = createLogger('Diagnostics');
 
@@ -108,27 +109,43 @@ async function readOs(uaData) {
 }
 
 /**
+ * Пункт журнала ошибок: число записей и сами записи строками для отчёта.
+ * @returns {Promise<{label: string, value: string, details: string[]}>} Пункт журнала.
+ */
+async function readLogItem() {
+    const entries = await safeRead('log history', readLogHistory);
+    const label = 'Журнал ошибок';
+    if (!entries) return { label, value: UNKNOWN_VALUE, details: [] };
+    const value = entries.length ? `${entries.length} из ${LOG_HISTORY_LIMIT}` : 'пусто';
+    return { label, value, details: entries.map(formatLogEntry) };
+}
+
+/**
  * Собирает отладочную информацию для диагностики проблем пользователя: версию
- * расширения, браузер, ОС и User-Agent. Токены, адреса вкладок и история
- * загрузок в неё не входят.
- * @returns {Promise<Array<{label: string, value: string}>>} Пункты в порядке вывода.
+ * расширения, браузер, ОС, User-Agent и журнал последних предупреждений и ошибок
+ * страниц расширения. Токены авторизации в журнале маскируются, адреса вкладок
+ * и история загрузок в отладочную информацию не входят.
+ * @returns {Promise<Array<{label: string, value: string, details?: string[]}>>} Пункты
+ * в порядке вывода; details - строки, которые попадают только в текст для отчёта.
  */
 export async function collectDiagnostics() {
     const uaData = await readUaData();
-    const [browser, os] = await Promise.all([readBrowser(uaData), readOs(uaData)]);
+    const [browser, os, logItem] = await Promise.all([readBrowser(uaData), readOs(uaData), readLogItem()]);
     return [
         { label: 'Версия расширения', value: extensionApi?.runtime?.getManifest?.()?.version || UNKNOWN_VALUE },
         { label: 'Браузер', value: browser },
         { label: 'ОС', value: os },
-        { label: 'User-Agent', value: globalThis.navigator?.userAgent || UNKNOWN_VALUE }
+        { label: 'User-Agent', value: globalThis.navigator?.userAgent || UNKNOWN_VALUE },
+        logItem
     ];
 }
 
 /**
- * Форматирует отладочную информацию в текст для отчёта об ошибке: по пункту в строке.
- * @param {Array<{label: string, value: string}>} items - Пункты из collectDiagnostics.
+ * Форматирует отладочную информацию в текст для отчёта об ошибке: по пункту
+ * в строке, строки details пункта - следом за ним.
+ * @param {Array<{label: string, value: string, details?: string[]}>} items - Пункты из collectDiagnostics.
  * @returns {string} Текст вида "Название: значение".
  */
 export function formatDiagnostics(items) {
-    return items.map(({ label, value }) => `${label}: ${value}`).join('\n');
+    return items.flatMap(({ label, value, details = [] }) => [`${label}: ${value}`, ...details]).join('\n');
 }

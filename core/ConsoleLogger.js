@@ -4,7 +4,7 @@
  * @module core/ConsoleLogger
  * @license MIT
  * @author ivanvit
- * @version 1.1.0
+ * @version 1.1.1
  */
 
 /** Ключ storage.local с уровнем логирования. */
@@ -33,6 +33,8 @@ const initialLevel = normalizeLevel(import.meta.env?.DOWNLOADLIB_LOG_LEVEL) || D
 
 let currentLevel = initialLevel;
 
+let logSink = null;
+
 /**
  * Текущий уровень логирования.
  * @returns {'debug'|'info'|'warn'|'error'}
@@ -52,9 +54,22 @@ export function setLogLevel(level) {
 }
 
 /**
+ * Задаёт получателя всех записей логгеров. Он вызывается до проверки уровня,
+ * поэтому получает записи любого уровня независимо от вывода в консоль, и не
+ * должен бросать исключения.
+ * @param {?function(string, string, Array<*>): void} sink - Получатель (уровень,
+ * модуль, аргументы вызова), либо null, чтобы отключить.
+ * @returns {void}
+ */
+export function setLogSink(sink) {
+    logSink = sink;
+}
+
+/**
  * Создаёт логгер модуля. Сообщения выводятся в консоль методом своего уровня
  * (console.debug/info/warn/error) с префиксом «[scope]»: если первый аргумент —
  * строка, префикс становится её частью, как в прежних console.*-вызовах.
+ * Каждая запись также передаётся получателю из setLogSink.
  * @param {string} scope - Имя модуля для префикса.
  * @returns {{debug: function(...*): void, info: function(...*): void,
  * warn: function(...*): void, error: function(...*): void}} Логгер.
@@ -62,6 +77,7 @@ export function setLogLevel(level) {
 export function createLogger(scope) {
     const prefix = `[${scope}]`;
     const method = level => (...args) => {
+        logSink?.(level, scope, args);
         if (LEVELS[level] < LEVELS[currentLevel]) return;
         if (typeof args[0] === 'string') console[level](`${prefix} ${args[0]}`, ...args.slice(1));
         else console[level](prefix, ...args);

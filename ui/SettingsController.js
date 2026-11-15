@@ -3,7 +3,7 @@
  * Controls the settings view
  * @module ui/SettingsController
  * @author ivanvit
- * @version 1.1.0
+ * @version 1.1.1
  */
 
 import { createLogger } from '../core/ConsoleLogger.js';
@@ -208,8 +208,9 @@ export const SettingsController = {
     },
 
     /**
-     * Собирает отладочную информацию (версия расширения, браузер, ОС, User-Agent)
-     * и выводит её строками "название - значение".
+     * Собирает отладочную информацию (версия расширения, браузер, ОС, User-Agent,
+     * число записей журнала ошибок) и выводит её строками "название - значение".
+     * Сами записи журнала попадают только в текст, копируемый для отчёта.
      * @returns {Promise<void>}
      */
     async _renderDebugInfo() {

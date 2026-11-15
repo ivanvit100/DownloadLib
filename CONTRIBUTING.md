@@ -27,7 +27,7 @@
 <table>
   <tr>
     <td>⚠️ <b>Нашли баг</b></td>
-    <td>Откройте <a href="https://github.com/ivanvit100/DownloadLib/issues/new?template=bug-report.yaml">Bug Report</a> с версией расширения, браузером, шагами воспроизведения и ожидаемым поведением</td>
+    <td>Откройте <a href="https://github.com/ivanvit100/DownloadLib/issues/new?template=bug-report.yaml">Bug Report</a> с шагами воспроизведения, ожидаемым поведением и отладочной информацией. Версию расширения, браузер, ОС и журнал последних ошибок можно скопировать в настройках расширения: раздел «Отладочная информация», кнопка «Скопировать» (подробнее — в <a href="README.md#сообщить-об-ошибке">README</a>)</td>
   </tr>
   <tr>
     <td>⚙️ <b>Есть идея</b></td>
@@ -108,6 +108,8 @@ DownloadLib/
 │   ├── ChapterList.js       # Ключи глав, сортировка, ветки перевода, диапазон по ключам
 │   ├── MessageTypes.js      # Имена runtime-сообщений (MSG) и порта keep-alive
 │   ├── ConsoleLogger.js     # createLogger(scope): уровни debug/info/warn/error, уровень из storage.local
+│   ├── LogHistory.js        # Журнал последних 20 warn/error страниц расширения (storage.local)
+│   ├── Diagnostics.js       # Отладочная информация для issue: версия, браузер, ОС, журнал ошибок
 │   ├── EventBus.js          # Pub/Sub шина событий
 │   ├── RateLimiter.js       # Ограничитель частоты запросов (скользящее окно)
 │   ├── RateLimitClient.js   # Клиент ограничителя фона для окон расширения
@@ -147,6 +149,7 @@ DownloadLib/
 - Файлы модулей называются в PascalCase, обычно двумя словами, по главному классу или назначению: `DownloadManager.js`, `TabNetwork.js`, `TextUtils.js`. Файлы тестов повторяют имя модуля: `tests/core/TextUtils.test.js`.
 - Не добавляйте новые runtime-зависимости без предварительного обсуждения.
 - В ES-модулях пишите в лог через `createLogger('Модуль')` из `core/ConsoleLogger.js`, а не через `console.*`. Не оставляйте пустых `catch {}`: хотя бы `log.debug(…, e)`. Подробные логи в расширении включаются так: `chrome.storage.local.set({downloadlib_log_level: 'debug'})` в DevTools страницы расширения.
+- Сообщения `log.warn` и `log.error` страниц расширения сохраняются в журнал, который пользователи копируют в issue. Пишите их так, чтобы по ним была понятна причина, и не передавайте в них токены и другие данные, которым не место в публичном отчёте.
 
 ---
 
