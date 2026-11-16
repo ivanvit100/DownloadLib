@@ -499,7 +499,8 @@ input[type="number"] {
 #apiWarningLink:hover {
     text-decoration: underline;
 }
-#historyBtn {
+#historyBtn,
+#minimizeBtn {
     position: absolute;
     top: 0;
     right: 0;
@@ -509,7 +510,12 @@ input[type="number"] {
     align-items: center;
     line-height: 1;
 }
-#historyBtn:hover {
+#minimizeBtn {
+    right: 24px;
+    display: none;
+}
+#historyBtn:hover,
+#minimizeBtn:hover {
     color: var(--primary-color);
 }
 #settingsBtn {

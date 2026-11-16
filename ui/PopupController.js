@@ -4,7 +4,7 @@
  * @module ui/PopupController
  * @license MIT
  * @author ivanvit
- * @version 1.1.0
+ * @version 1.1.2
  */
 
 import { AuthManager } from '../core/AuthManager.js';
@@ -180,6 +180,29 @@ export class PopupController {
                 await this.openInNewContext(url);
             });
         } else log.warn('settingsBtn not found in shell');
+
+        const minimizeBtn = $el('minimizeBtn');
+        if (minimizeBtn) {
+            minimizeBtn.addEventListener('click', () => this.minimizeWindow());
+            this.isInSeparateWindow().then(separate => {
+                if (separate) minimizeBtn.style.display = 'flex';
+            });
+        } else log.warn('minimizeBtn not found in shell');
+    }
+
+    /**
+     * Сворачивает текущее окно расширения. Нужна потому, что окно типа popup
+     * в части оконных менеджеров (например, Firefox в Linux) открывается без
+     * штатных кнопок сворачивания и разворачивания.
+     * @returns {Promise<void>}
+     */
+    async minimizeWindow() {
+        try {
+            const win = await extensionApi.windows.getCurrent();
+            await extensionApi.windows.update(win.id, { state: 'minimized' });
+        } catch (e) {
+            log.warn('Failed to minimize window:', e);
+        }
     }
 
     /**

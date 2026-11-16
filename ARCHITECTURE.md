@@ -702,7 +702,7 @@ Origin запроса запоминается в `onBeforeSendHeaders` и за�
 
 **Инициализация (`_init`):**
 1. Инициализирует `TemplateLoader` на элементе `#view`.
-2. Привязывает события оболочки (`_bindShellEvents`): кнопка истории `#historyBtn` показывает шаблон `history`, кнопка настроек `#settingsBtn` открывает `popup.html?settings=true` в отдельном окне.
+2. Привязывает события оболочки (`_bindShellEvents`): кнопка истории `#historyBtn` показывает шаблон `history`, кнопка настроек `#settingsBtn` открывает `popup.html?settings=true` в отдельном окне, кнопка `#minimizeBtn` показывается только в отдельном окне (`isInSeparateWindow`) и сворачивает его (`minimizeWindow`: `windows.update(id, {state: 'minimized'})`) — окна типа popup в части оконных менеджеров открываются без штатной кнопки сворачивания.
 3. Если в URL есть `settings`, показывает шаблон `settings` и на этом заканчивает.
 4. Иначе загружает шаблон `title`, привязывает события формы (`_bindTitleEvents`), настраивает слушатели, вызывает `loadMetadata()` и `checkApiHealth()`. При изменении `custom_plugins` перезагружает плагины и список форматов.
 
