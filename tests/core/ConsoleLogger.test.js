@@ -63,36 +63,6 @@ describe('logger', () => {
         expect(console.warn).toHaveBeenCalledTimes(1);
     });
 
-    it('Passes every record to the log sink regardless of the current level', () => {
-        const sink = vi.fn();
-        const log = logger.createLogger('Scope');
-        const error = new Error('boom');
-        logger.setLogLevel('error');
-        logger.setLogSink(sink);
-        log.debug('d');
-        log.info('Value:', 5);
-        log.warn('Failed', error);
-        log.error({ code: 1 });
-        expect(sink.mock.calls).toEqual([
-            ['debug', 'Scope', ['d']],
-            ['info', 'Scope', ['Value:', 5]],
-            ['warn', 'Scope', ['Failed', error]],
-            ['error', 'Scope', [{ code: 1 }]]
-        ]);
-        expect(console.warn).not.toHaveBeenCalled();
-        expect(console.error).toHaveBeenCalledWith('[Scope]', { code: 1 });
-    });
-
-    it('Stops passing records to the log sink after it is reset', () => {
-        const sink = vi.fn();
-        const log = logger.createLogger('Scope');
-        logger.setLogSink(sink);
-        logger.setLogSink(null);
-        log.error('e');
-        expect(sink).not.toHaveBeenCalled();
-        expect(console.error).toHaveBeenCalledWith('[Scope] e');
-    });
-
     it('Falls back to the initial level for an empty or unknown level', () => {
         logger.setLogLevel('error');
         logger.setLogLevel('verbose');

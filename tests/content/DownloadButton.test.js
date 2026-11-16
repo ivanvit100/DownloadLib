@@ -1,55 +1,16 @@
 import { describe, it, beforeEach, afterEach, expect, vi } from 'vitest';
 import { MSG } from '../../core/MessageTypes.js';
 
-const TITLE_PATH = '/ru/manga/test-slug';
-
-/**
- * Разметка страницы тайтла: блок кнопок под обложкой (прямой потомок контейнера
- * страницы) с кнопкой чтения.
- * @param {string} [after] - Разметка после кнопки чтения внутри блока кнопок.
- * @returns {string}
- */
-function titlePage(after = '<span>Другое</span>') {
-    return `
-        <div class="page">
-            <div class="container">
-                <div id="container">
-                    <a class="btn is-filled variant-primary">Читать</a>
-                    ${after}
-                </div>
-            </div>
-        </div>
-    `;
-}
-
-/**
- * Пустой контейнер страницы тайтла, куда тест сам добавляет блок кнопок.
- * @returns {HTMLElement} Элемент .page > .container.
- */
-function emptyTitlePage() {
-    document.body.innerHTML = '<div class="page"><div class="container"></div></div>';
-    return document.querySelector('.page > .container');
-}
-
-/**
- * Создаёт блок кнопок с кнопкой чтения и соседним элементом.
- * @returns {{block: HTMLElement, readBtn: HTMLElement}}
- */
-function createReadBlock() {
-    const block = document.createElement('div');
-    const readBtn = document.createElement('a');
-    readBtn.className = 'btn is-filled variant-primary';
-    const sibling = document.createElement('span');
-    sibling.textContent = 'Другое';
-    block.appendChild(readBtn);
-    block.appendChild(sibling);
-    return { block, readBtn };
-}
-
 describe('DownloadButton', () => {
     beforeEach(async () => {
-        window.history.pushState({}, '', TITLE_PATH);
-        if (document.body) document.body.innerHTML = titlePage();
+        if (document.body) {
+            document.body.innerHTML = `
+                <div id="container">
+                    <a class="btn">Читать</a>
+                    <span>Другое</span>
+                </div>
+            `;
+        }
         global.MutationObserver = class {
             constructor(cb) { this.cb = cb; }
             observe() {}
@@ -60,8 +21,6 @@ describe('DownloadButton', () => {
 
     afterEach(() => {
         if (document.body) document.body.innerHTML = '';
-        document.querySelectorAll('style').forEach(style => style.remove());
-        window.history.pushState({}, '', '/');
         vi.restoreAllMocks();
         delete global.browser;
         delete global.chrome;
@@ -74,7 +33,13 @@ describe('DownloadButton', () => {
     it('Does not inject duplicate download button if container already has one', async () => {
         vi.resetModules();
 
-        document.body.innerHTML = titlePage('<button class="dl-ext-download-btn">Уже есть</button><span>Другое</span>');
+        document.body.innerHTML = `
+            <div id="container">
+                <a class="btn">Читать</a>
+                <button class="dl-ext-download-btn">Уже есть</button>
+                <span>Другое</span>
+            </div>
+        `;
 
         global.MutationObserver = class {
             constructor() {}
@@ -90,7 +55,11 @@ describe('DownloadButton', () => {
     it('Does not inject button when no element sibling follows read button', async () => {
         vi.resetModules();
 
-        document.body.innerHTML = titlePage('');
+        document.body.innerHTML = `
+            <div id="container">
+                <a class="btn">Читать</a>
+            </div>
+        `;
 
         global.MutationObserver = class {
             constructor() {}
@@ -106,7 +75,12 @@ describe('DownloadButton', () => {
     it('Loads format label from storage when browser API is available', async () => {
         vi.resetModules();
 
-        document.body.innerHTML = titlePage();
+        document.body.innerHTML = `
+            <div id="container">
+                <a class="btn">Читать</a>
+                <span>Другое</span>
+            </div>
+        `;
 
         const mockGet = vi.fn().mockResolvedValue({ manga_parser_selected_format: 'epub' });
         global.browser = {
@@ -134,7 +108,12 @@ describe('DownloadButton', () => {
     it('Uses FB2 as fallback when storage returns empty format', async () => {
         vi.resetModules();
 
-        document.body.innerHTML = titlePage();
+        document.body.innerHTML = `
+            <div id="container">
+                <a class="btn">Читать</a>
+                <span>Другое</span>
+            </div>
+        `;
 
         global.browser = {
             storage: {
@@ -160,7 +139,12 @@ describe('DownloadButton', () => {
     it('Silently catches storage.local.get rejection', async () => {
         vi.resetModules();
 
-        document.body.innerHTML = titlePage();
+        document.body.innerHTML = `
+            <div id="container">
+                <a class="btn">Читать</a>
+                <span>Другое</span>
+            </div>
+        `;
 
         global.browser = {
             storage: {
@@ -183,7 +167,12 @@ describe('DownloadButton', () => {
     it('Click handler sends the openDownloadWindow message the background router handles', async () => {
         vi.resetModules();
 
-        document.body.innerHTML = titlePage();
+        document.body.innerHTML = `
+            <div id="container">
+                <a class="btn">Читать</a>
+                <span>Другое</span>
+            </div>
+        `;
 
         const sendMessageMock = vi.fn();
         global.browser = {
@@ -213,7 +202,12 @@ describe('DownloadButton', () => {
     it('Click handler uses fb2 fallback when format label text is empty', async () => {
         vi.resetModules();
 
-        document.body.innerHTML = titlePage();
+        document.body.innerHTML = `
+            <div id="container">
+                <a class="btn">Читать</a>
+                <span>Другое</span>
+            </div>
+        `;
 
         const sendMessageMock = vi.fn();
         global.browser = {
@@ -240,7 +234,12 @@ describe('DownloadButton', () => {
     it('Click handler returns early when no browser API is available', async () => {
         vi.resetModules();
 
-        document.body.innerHTML = titlePage();
+        document.body.innerHTML = `
+            <div id="container">
+                <a class="btn">Читать</a>
+                <span>Другое</span>
+            </div>
+        `;
 
         global.MutationObserver = class {
             constructor() {}
@@ -258,7 +257,12 @@ describe('DownloadButton', () => {
     it('storage.onChanged updates format labels when area is local', async () => {
         vi.resetModules();
 
-        document.body.innerHTML = titlePage();
+        document.body.innerHTML = `
+            <div id="container">
+                <a class="btn">Читать</a>
+                <span>Другое</span>
+            </div>
+        `;
 
         let onChangedCallback;
         global.browser = {
@@ -288,7 +292,12 @@ describe('DownloadButton', () => {
     it('storage.onChanged ignores changes in sync area', async () => {
         vi.resetModules();
 
-        document.body.innerHTML = titlePage();
+        document.body.innerHTML = `
+            <div id="container">
+                <a class="btn">Читать</a>
+                <span>Другое</span>
+            </div>
+        `;
 
         let onChangedCallback;
         global.browser = {
@@ -318,7 +327,12 @@ describe('DownloadButton', () => {
     it('storage.onChanged ignores changes without FORMAT_STORAGE_KEY', async () => {
         vi.resetModules();
 
-        document.body.innerHTML = titlePage();
+        document.body.innerHTML = `
+            <div id="container">
+                <a class="btn">Читать</a>
+                <span>Другое</span>
+            </div>
+        `;
 
         let onChangedCallback;
         global.browser = {
@@ -348,7 +362,12 @@ describe('DownloadButton', () => {
     it('storage.onChanged uses FB2 fallback when newValue is absent', async () => {
         vi.resetModules();
 
-        document.body.innerHTML = titlePage();
+        document.body.innerHTML = `
+            <div id="container">
+                <a class="btn">Читать</a>
+                <span>Другое</span>
+            </div>
+        `;
 
         let onChangedCallback;
         global.browser = {
@@ -378,7 +397,12 @@ describe('DownloadButton', () => {
     it('Uses chrome API when browser is not defined', async () => {
         vi.resetModules();
 
-        document.body.innerHTML = titlePage();
+        document.body.innerHTML = `
+            <div id="container">
+                <a class="btn">Читать</a>
+                <span>Другое</span>
+            </div>
+        `;
 
         const mockGet = vi.fn().mockResolvedValue({ manga_parser_selected_format: 'mobi' });
         global.chrome = {
@@ -415,8 +439,14 @@ describe('DownloadButton', () => {
 
         await import('../../content/DownloadButton.js');
 
-        const { block, readBtn } = createReadBlock();
-        emptyTitlePage().appendChild(block);
+        const container = document.createElement('div');
+        const readBtn = document.createElement('a');
+        readBtn.className = 'btn';
+        const sibling = document.createElement('span');
+        sibling.textContent = 'Другое';
+        container.appendChild(readBtn);
+        container.appendChild(sibling);
+        document.body.appendChild(container);
 
         observerCallback([{ addedNodes: [readBtn] }]);
 
@@ -436,9 +466,14 @@ describe('DownloadButton', () => {
         await import('../../content/DownloadButton.js');
 
         const wrapper = document.createElement('div');
-        wrapper.innerHTML = '<div class="page"><div class="container"></div></div>';
-        wrapper.querySelector('.container').appendChild(createReadBlock().block);
-        document.body.innerHTML = '';
+        const container = document.createElement('div');
+        const readBtn = document.createElement('a');
+        readBtn.className = 'btn';
+        const sibling = document.createElement('span');
+        sibling.textContent = 'Другое';
+        container.appendChild(readBtn);
+        container.appendChild(sibling);
+        wrapper.appendChild(container);
         document.body.appendChild(wrapper);
 
         observerCallback([{ addedNodes: [wrapper] }]);
@@ -507,73 +542,15 @@ describe('DownloadButton', () => {
         }
     });
 
-    it.each(['/', '/ru/manga/test-slug/read', '/ru/catalog', '/manga/test-slug'])(
-        'Does not inject the button outside a title page (%s)', async path => {
-            vi.resetModules();
-            window.history.pushState({}, '', path);
-            document.body.innerHTML = titlePage();
-
-            let observerCallback;
-            global.MutationObserver = class {
-                constructor(cb) { observerCallback = cb; }
-                observe() {}
-                disconnect() {}
-            };
-
-            await import('../../content/DownloadButton.js');
-            observerCallback([{ addedNodes: [document.querySelector('a.btn')] }]);
-
-            expect(document.querySelector('.dl-ext-download-btn')).toBeNull();
-        }
-    );
-
-    it.each(['/ru/manga/test-slug', '/ru/book/test-slug/', '/en/manga/test-slug'])(
-        'Injects the button on the title page %s', async path => {
-            vi.resetModules();
-            window.history.pushState({}, '', path);
-            document.body.innerHTML = titlePage();
-
-            await import('../../content/DownloadButton.js');
-
-            expect(document.querySelector('.dl-ext-download-btn')).not.toBeNull();
-        }
-    );
-
-    it('Ignores read buttons outside the button block under the cover', async () => {
-        vi.resetModules();
-        document.body.innerHTML = `
-            <div class="page">
-                <div class="container">
-                    <div><div><a class="btn is-filled variant-primary">Читать</a><span>Глава</span></div></div>
-                </div>
-            </div>
-            <div><a class="btn is-filled variant-primary">Читать</a><span>Другое</span></div>
-            <div class="page"><div class="container"><div><a class="btn">Читать</a><span>Другое</span></div></div></div>
-        `;
-
-        await import('../../content/DownloadButton.js');
-
-        expect(document.querySelector('.dl-ext-download-btn')).toBeNull();
-    });
-
-    it('Adds styles that keep the read and download buttons in one row on narrow screens', async () => {
-        vi.resetModules();
-        await import('../../content/DownloadButton.js');
-
-        const style = [...document.documentElement.querySelectorAll(':scope > style')]
-            .find(el => el.textContent.includes('.dl-ext-download-btn'));
-
-        expect(style).toBeDefined();
-        expect(style.textContent).toContain('@media screen and (max-width: 1024px)');
-        expect(style.textContent).toContain(
-            '.page > .container > * > a.btn.is-filled.variant-primary + .dl-ext-download-btn ~ *'
-        );
-    });
-
     it('Registers DOMContentLoaded listener when readyState is loading', async () => {
         vi.resetModules();
 
-        document.body.innerHTML = titlePage();
+        document.body.innerHTML = `
+            <div id="container">
+                <a class="btn">Читать</a>
+                <span>Другое</span>
+            </div>
+        `;
 
         Object.defineProperty(document, 'readyState', {
             get: () => 'loading',

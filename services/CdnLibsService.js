@@ -10,7 +10,6 @@
 import { ImageCompressor, PAGE_ASPECT } from '../core/ImageCompressor.js';
 import { createLogger } from '../core/ConsoleLogger.js';
 import { NoServiceTabError } from '../core/TabNetwork.js';
-import { settingsStorage } from '../core/UserSettings.js';
 import { BaseService } from './BaseService.js';
 
 /** Сколько страниц главы загружается одновременно. */
@@ -67,7 +66,13 @@ export class CdnLibsService extends BaseService {
         const { imageServers, imagesDomain, defaultImageServer } = this.config;
         const fallback = { domain: imagesDomain || '', compress: true };
         if (!imageServers) return fallback;
-        const selected = settingsStorage.get(`${this.name}_image_server`);
+        let selected = null;
+        try {
+            selected = localStorage.getItem(`${this.name}_image_server`);
+        } catch (e) {
+            createLogger(this.name).debug('localStorage is not available, using the default image server:', e);
+            selected = null;
+        }
         return imageServers[selected || defaultImageServer || 'compression'] || imageServers.compression || fallback;
     }
 

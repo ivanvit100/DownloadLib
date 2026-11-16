@@ -3,27 +3,19 @@
  * Controls the settings view
  * @module ui/SettingsController
  * @author ivanvit
- * @version 1.1.1
+ * @version 1.1.0
  */
 
 import { createLogger } from '../core/ConsoleLogger.js';
-import { collectDiagnostics, formatDiagnostics } from '../core/Diagnostics.js';
 import { PluginManager } from '../core/PluginManager.js';
 import { RateLimitClient } from '../core/RateLimitClient.js';
-import {
-    DEFAULT_MAX_CHAPTERS, DEFAULT_MAX_SIZE_MB, FIT_FB2_IMAGES_KEY, MAX_CHAPTERS_KEY, MAX_SIZE_KEY,
-    PART_LIMIT_CHAPTERS, PART_LIMIT_MODE_KEY, PART_LIMIT_SIZE, RANGE_MODE_CHAPTERS, RANGE_MODE_KEY,
-    RANGE_MODE_VOLUMES, readPartLimitMode, readRangeMode, settingsStorage
-} from '../core/UserSettings.js';
-import { $el, createEl, setDisplay } from './DomUtils.js';
+import { $el, createEl } from './DomUtils.js';
 
 const log = createLogger('SettingsController');
 
-/** Кнопки переключателя режима выбора диапазона: id кнопки по режиму. */
-const RANGE_MODE_BUTTONS = { [RANGE_MODE_CHAPTERS]: 'rangeModeChapters', [RANGE_MODE_VOLUMES]: 'rangeModeVolumes' };
-
-/** Кнопки переключателя ограничения части файла: id кнопки по режиму. */
-const PART_LIMIT_BUTTONS = { [PART_LIMIT_SIZE]: 'partLimitSize', [PART_LIMIT_CHAPTERS]: 'partLimitChapters' };
+const MAX_SIZE_KEY = 'manga_parser_max_size_mb';
+const RANGE_MODE_KEY = 'manga_parser_range_mode';
+const FIT_FB2_IMAGES_KEY = 'manga_parser_fit_fb2_images';
 
 /**
  * Синглтон-контроллер экрана настроек расширения.
@@ -38,12 +30,9 @@ export const SettingsController = {
     init(onBack) {
         this._renderRateLimit();
         this._renderMaxSize();
-        this._renderMaxChapters();
-        this._renderPartLimitMode();
         this._renderFitFb2Images();
         this._renderRangeMode();
         this._renderPlugins();
-        this._renderDebugInfo();
         this._bindEvents(onBack);
     },
 
@@ -64,37 +53,7 @@ export const SettingsController = {
     _renderMaxSize() {
         const input = $el('settingsMaxSize');
         if (!input) return;
-        input.value = settingsStorage.get(MAX_SIZE_KEY) || DEFAULT_MAX_SIZE_MB;
-    },
-
-    /**
-     * Заполняет поле максимального числа глав в части файла сохранённым значением.
-     * @returns {void}
-     */
-    _renderMaxChapters() {
-        const input = $el('settingsMaxChapters');
-        if (!input) return;
-        input.value = settingsStorage.get(MAX_CHAPTERS_KEY) || DEFAULT_MAX_CHAPTERS;
-    },
-
-    /**
-     * Показывает сохранённый режим ограничения части файла (по размеру/по числу глав).
-     * @returns {void}
-     */
-    _renderPartLimitMode() {
-        this._applyPartLimitMode(readPartLimitMode());
-    },
-
-    /**
-     * Подсвечивает кнопку режима ограничения части файла и показывает поле
-     * лимита только для этого режима.
-     * @param {'size'|'chapters'} mode - Режим ограничения части файла.
-     * @returns {void}
-     */
-    _applyPartLimitMode(mode) {
-        this._highlightMode(PART_LIMIT_BUTTONS, mode);
-        setDisplay('maxSizeRow', mode === PART_LIMIT_SIZE ? '' : 'none');
-        setDisplay('maxChaptersRow', mode === PART_LIMIT_CHAPTERS ? '' : 'none');
+        input.value = localStorage.getItem(MAX_SIZE_KEY) || '200';
     },
 
     /**
@@ -104,7 +63,7 @@ export const SettingsController = {
     _renderFitFb2Images() {
         const checkbox = $el('settingsFitFb2Images');
         if (!checkbox) return;
-        checkbox.checked = settingsStorage.get(FIT_FB2_IMAGES_KEY) === 'true';
+        checkbox.checked = localStorage.getItem(FIT_FB2_IMAGES_KEY) === 'true';
     },
 
     /**
@@ -113,35 +72,12 @@ export const SettingsController = {
      * @returns {void}
      */
     _renderRangeMode() {
-        this._highlightMode(RANGE_MODE_BUTTONS, readRangeMode());
-    },
-
-    /**
-     * Подсвечивает в переключателе кнопку выбранного режима.
-     * @param {Object<string, string>} buttons - id кнопки по режиму.
-     * @param {string} mode - Выбранный режим.
-     * @returns {void}
-     */
-    _highlightMode(buttons, mode) {
-        for (const [value, id] of Object.entries(buttons))
-            $el(id)?.classList.toggle('active', value === mode);
-    },
-
-    /**
-     * Привязывает кнопки переключателя: по клику режим сохраняется в настройки
-     * и применяется к экрану.
-     * @param {Object<string, string>} buttons - id кнопки по режиму.
-     * @param {string} key - Ключ настройки режима.
-     * @param {function(string): void} apply - Применяет выбранный режим к экрану.
-     * @returns {void}
-     */
-    _bindModeToggle(buttons, key, apply) {
-        for (const [mode, id] of Object.entries(buttons)) {
-            $el(id)?.addEventListener('click', () => {
-                settingsStorage.set(key, mode);
-                apply(mode);
-            });
-        }
+        const chaptersBtn = $el('rangeModeChapters');
+        const volumesBtn = $el('rangeModeVolumes');
+        if (!chaptersBtn || !volumesBtn) return;
+        const mode = localStorage.getItem(RANGE_MODE_KEY) === 'volumes' ? 'volumes' : 'chapters';
+        chaptersBtn.classList.toggle('active', mode === 'chapters');
+        volumesBtn.classList.toggle('active', mode === 'volumes');
     },
 
     /**
@@ -151,6 +87,7 @@ export const SettingsController = {
      */
     async _renderPlugins() {
         const list = $el('pluginList');
+        const empty = $el('pluginEmpty');
         if (!list) return;
 
         list.replaceChildren();
@@ -158,11 +95,11 @@ export const SettingsController = {
         const plugins = await PluginManager.list();
 
         if (!plugins.length) {
-            setDisplay('pluginEmpty', 'block');
+            if (empty) empty.style.display = 'block';
             return;
         }
 
-        setDisplay('pluginEmpty', 'none');
+        if (empty) empty.style.display = 'none';
         plugins.forEach(plugin => list.appendChild(this._createPluginCard(plugin)));
     },
 
@@ -208,53 +145,9 @@ export const SettingsController = {
     },
 
     /**
-     * Собирает отладочную информацию (версия расширения, браузер, ОС, User-Agent,
-     * число записей журнала ошибок) и выводит её строками "название - значение".
-     * Сами записи журнала попадают только в текст, копируемый для отчёта.
-     * @returns {Promise<void>}
-     */
-    async _renderDebugInfo() {
-        const list = $el('debugInfoList');
-        if (!list) return;
-
-        const items = await collectDiagnostics();
-        list.replaceChildren(...items.map(({ label, value }) => {
-            const row = createEl('div', { className: 'debug-info-row' });
-            row.appendChild(createEl('span', { className: 'debug-info-label', text: label }));
-            row.appendChild(createEl('span', { className: 'debug-info-value', text: value }));
-            return row;
-        }));
-    },
-
-    /**
-     * Копирует отладочную информацию в буфер обмена текстом для отчёта об ошибке
-     * и на время показывает на кнопке результат копирования.
-     * @param {HTMLButtonElement} button - Кнопка копирования.
-     * @returns {Promise<void>}
-     */
-    async _copyDebugInfo(button) {
-        let result = 'Скопировано';
-        try {
-            await navigator.clipboard.writeText(formatDiagnostics(await collectDiagnostics()));
-        } catch (e) {
-            log.warn('Failed to copy debug info:', e);
-            result = 'Не удалось скопировать';
-        }
-
-        const original = button.textContent;
-        button.textContent = result;
-        button.disabled = true;
-        setTimeout(() => {
-            button.textContent = original;
-            button.disabled = false;
-        }, 1500);
-    },
-
-    /**
      * Навешивает обработчики на все элементы управления экрана настроек: кнопку
-     * "назад", сохранение лимита запросов и лимитов части файла (размер и число глав),
-     * переключение режима ограничения части, режима диапазона глав/томов, загрузку
-     * файла нового плагина и копирование отладочной информации.
+     * "назад", сохранение лимита запросов и максимального размера части, переключение
+     * режима диапазона глав/томов и загрузку файла нового плагина.
      * @param {function(): void} onBack - Возврат к главному экрану.
      * @returns {void}
      */
@@ -274,8 +167,12 @@ export const SettingsController = {
         const saveBtn = $el('saveRateLimitBtn');
         const rateLimitInput = $el('settingsRateLimit');
         if (saveBtn && rateLimitInput) {
-            saveBtn.addEventListener('click', async () => {
-                rateLimitInput.value = await RateLimitClient.setLimit(rateLimitInput.value);
+            saveBtn.addEventListener('click', () => {
+                let val = parseInt(rateLimitInput.value);
+                if (isNaN(val) || val < 2) val = 2;
+                if (val > 200) val = 200;
+                rateLimitInput.value = val;
+                RateLimitClient.setLimit(val);
 
                 const original = saveBtn.textContent;
                 saveBtn.textContent = '✓ Сохранено';
@@ -294,15 +191,7 @@ export const SettingsController = {
                 let val = parseInt(maxSizeInput.value);
                 if (isNaN(val) || val < 1) val = 1;
                 maxSizeInput.value = val;
-                settingsStorage.set(MAX_SIZE_KEY, val);
-
-                const maxChaptersInput = $el('settingsMaxChapters');
-                if (maxChaptersInput) {
-                    let chapters = parseInt(maxChaptersInput.value);
-                    if (isNaN(chapters) || chapters < 1) chapters = 1;
-                    maxChaptersInput.value = chapters;
-                    settingsStorage.set(MAX_CHAPTERS_KEY, chapters);
-                }
+                localStorage.setItem(MAX_SIZE_KEY, String(val));
 
                 const original = saveMaxSizeBtn.textContent;
                 saveMaxSizeBtn.textContent = '✓ Сохранено';
@@ -317,11 +206,20 @@ export const SettingsController = {
         const fitFb2ImagesCheckbox = $el('settingsFitFb2Images');
         if (fitFb2ImagesCheckbox) {
             fitFb2ImagesCheckbox.addEventListener('change', () =>
-                settingsStorage.set(FIT_FB2_IMAGES_KEY, fitFb2ImagesCheckbox.checked));
+                localStorage.setItem(FIT_FB2_IMAGES_KEY, String(fitFb2ImagesCheckbox.checked)));
         }
 
-        this._bindModeToggle(PART_LIMIT_BUTTONS, PART_LIMIT_MODE_KEY, mode => this._applyPartLimitMode(mode));
-        this._bindModeToggle(RANGE_MODE_BUTTONS, RANGE_MODE_KEY, mode => this._highlightMode(RANGE_MODE_BUTTONS, mode));
+        const rangeModeChapters = $el('rangeModeChapters');
+        const rangeModeVolumes = $el('rangeModeVolumes');
+        if (rangeModeChapters && rangeModeVolumes) {
+            const setRangeMode = (mode) => {
+                localStorage.setItem(RANGE_MODE_KEY, mode);
+                rangeModeChapters.classList.toggle('active', mode === 'chapters');
+                rangeModeVolumes.classList.toggle('active', mode === 'volumes');
+            };
+            rangeModeChapters.addEventListener('click', () => setRangeMode('chapters'));
+            rangeModeVolumes.addEventListener('click', () => setRangeMode('volumes'));
+        }
 
         const fileInput = $el('pluginFileInput');
         if (fileInput) {
@@ -340,9 +238,5 @@ export const SettingsController = {
                 await this._renderPlugins();
             });
         }
-
-        const copyDebugInfoBtn = $el('copyDebugInfoBtn');
-        if (copyDebugInfoBtn)
-            copyDebugInfoBtn.addEventListener('click', () => this._copyDebugInfo(copyDebugInfoBtn));
     }
 };

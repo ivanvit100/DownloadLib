@@ -449,7 +449,6 @@ input[type="number"] {
     margin-bottom: 8px;
 }
 .service-link-btn {
-    flex: 1;
     font-weight: bold;
     background: #252527 !important;
     color: #fff !important;
@@ -499,8 +498,7 @@ input[type="number"] {
 #apiWarningLink:hover {
     text-decoration: underline;
 }
-#historyBtn,
-#minimizeBtn {
+#historyBtn {
     position: absolute;
     top: 0;
     right: 0;
@@ -510,12 +508,7 @@ input[type="number"] {
     align-items: center;
     line-height: 1;
 }
-#minimizeBtn {
-    right: 24px;
-    display: none;
-}
-#historyBtn:hover,
-#minimizeBtn:hover {
+#historyBtn:hover {
     color: var(--primary-color);
 }
 #settingsBtn {
@@ -610,8 +603,7 @@ input[type="number"] {
     cursor: pointer;
     transition: all 0.3s ease;
 }
-.settings-toggle-group + .settings-btn-outline,
-.settings-toggle-group ~ .settings-row {
+.settings-toggle-group + .settings-btn-outline {
     margin-top: 12px;
 }
 .settings-toggle-btn + .settings-toggle-btn {
@@ -645,7 +637,7 @@ input[type="number"] {
     border-color: var(--primary-color) !important;
     box-shadow: 0 0 5px var(--primary-color);
 }
-.plugin-list, .debug-info-list {
+.plugin-list {
     display: flex;
     flex-direction: column;
     gap: 6px;
@@ -739,21 +731,6 @@ input[type="number"] {
     background: transparent !important;
     border-color: #e53935 !important;
     color: #e53935 !important;
-}
-.debug-info-row {
-    display: flex;
-    flex-direction: column;
-    gap: 2px;
-}
-.debug-info-label {
-    color: #888;
-    font-size: 11px;
-}
-.debug-info-value {
-    color: #ddd;
-    font-size: 12px;
-    overflow-wrap: anywhere;
-    user-select: text;
 }
 #historyHeader {
     display: flex;

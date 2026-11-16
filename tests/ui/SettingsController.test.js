@@ -4,7 +4,6 @@ const mocks = vi.hoisted(() => ({}));
 
 vi.mock('../../core/PluginManager.js', async () => (await import('../helpers/ModuleMock.js')).mockExports(mocks, 'PluginManager'));
 vi.mock('../../core/RateLimitClient.js', async () => (await import('../helpers/ModuleMock.js')).mockExports(mocks, 'RateLimitClient'));
-vi.mock('../../core/Diagnostics.js', async () => (await import('../helpers/ModuleMock.js')).mockExports(mocks, 'collectDiagnostics', 'formatDiagnostics'));
 
 let SettingsController;
 
@@ -13,10 +12,7 @@ function setupDOM() {
         <button id="settingsBackBtn"></button>
         <input id="settingsRateLimit" type="number" />
         <button id="saveRateLimitBtn">Сохранить</button>
-        <button id="partLimitSize" class="settings-toggle-btn" data-mode="size"></button>
-        <button id="partLimitChapters" class="settings-toggle-btn" data-mode="chapters"></button>
-        <div id="maxSizeRow"><input id="settingsMaxSize" type="number" /></div>
-        <div id="maxChaptersRow"><input id="settingsMaxChapters" type="number" /></div>
+        <input id="settingsMaxSize" type="number" />
         <button id="saveMaxSizeBtn">Сохранить</button>
         <input id="settingsFitFb2Images" type="checkbox" />
         <button id="rangeModeChapters" class="settings-toggle-btn" data-mode="chapters"></button>
@@ -99,71 +95,6 @@ describe('_renderMaxSize()', () => {
         localStorage.setItem('manga_parser_max_size_mb', '512');
         SettingsController._renderMaxSize();
         expect(document.getElementById('settingsMaxSize').value).toBe('512');
-    });
-});
-
-describe('_renderMaxChapters()', () => {
-    it('returns early when element absent', () => {
-        document.getElementById('settingsMaxChapters').remove();
-        expect(() => SettingsController._renderMaxChapters()).not.toThrow();
-    });
-
-    it('uses default 50 when localStorage empty', () => {
-        SettingsController._renderMaxChapters();
-        expect(document.getElementById('settingsMaxChapters').value).toBe('50');
-    });
-
-    it('uses stored value from localStorage', () => {
-        localStorage.setItem('manga_parser_max_chapters', '12');
-        SettingsController._renderMaxChapters();
-        expect(document.getElementById('settingsMaxChapters').value).toBe('12');
-    });
-});
-
-describe('_renderPartLimitMode()', () => {
-    /**
-     * Состояние переключателя ограничения части файла на экране.
-     * @returns {{size: boolean, chapters: boolean, sizeRow: string, chaptersRow: string}}
-     */
-    const partLimitView = () => ({
-        size: document.getElementById('partLimitSize').classList.contains('active'),
-        chapters: document.getElementById('partLimitChapters').classList.contains('active'),
-        sizeRow: document.getElementById('maxSizeRow').style.display,
-        chaptersRow: document.getElementById('maxChaptersRow').style.display
-    });
-
-    it('defaults to the size mode and shows only the size field', () => {
-        SettingsController._renderPartLimitMode();
-        expect(partLimitView()).toEqual({ size: true, chapters: false, sizeRow: '', chaptersRow: 'none' });
-    });
-
-    it('shows only the chapters field when the chapters mode is stored', () => {
-        localStorage.setItem('manga_parser_part_limit_mode', 'chapters');
-        SettingsController._renderPartLimitMode();
-        expect(partLimitView()).toEqual({ size: false, chapters: true, sizeRow: 'none', chaptersRow: '' });
-    });
-
-    it('treats an unknown stored mode as the size mode', () => {
-        localStorage.setItem('manga_parser_part_limit_mode', 'bogus');
-        SettingsController._renderPartLimitMode();
-        expect(partLimitView()).toEqual({ size: true, chapters: false, sizeRow: '', chaptersRow: 'none' });
-    });
-
-    it('clicking the mode buttons stores the mode and switches the visible field', () => {
-        SettingsController._bindEvents();
-        document.getElementById('partLimitChapters').click();
-        expect(localStorage.getItem('manga_parser_part_limit_mode')).toBe('chapters');
-        expect(partLimitView()).toEqual({ size: false, chapters: true, sizeRow: 'none', chaptersRow: '' });
-        document.getElementById('partLimitSize').click();
-        expect(localStorage.getItem('manga_parser_part_limit_mode')).toBe('size');
-        expect(partLimitView()).toEqual({ size: true, chapters: false, sizeRow: '', chaptersRow: 'none' });
-    });
-
-    it('no error when the mode buttons and fields are absent', () => {
-        ['partLimitSize', 'partLimitChapters', 'maxSizeRow', 'maxChaptersRow']
-            .forEach(id => document.getElementById(id).remove());
-        expect(() => SettingsController._renderPartLimitMode()).not.toThrow();
-        expect(() => SettingsController._bindEvents()).not.toThrow();
     });
 });
 
@@ -353,37 +284,44 @@ describe('_bindEvents() saveRateLimitBtn', () => {
         expect(() => SettingsController._bindEvents()).not.toThrow();
     });
 
-    it('shows the limit normalized by RateLimitClient.setLimit', async () => {
-        vi.useFakeTimers();
-        mocks.RateLimitClient.setLimit = vi.fn(async () => 2);
+    it('clamps val to 2 when NaN', () => {
         SettingsController._bindEvents();
         const input = document.getElementById('settingsRateLimit');
-        input.value = '1';
+        input.value = 'abc';
         document.getElementById('saveRateLimitBtn').click();
-        await vi.advanceTimersByTimeAsync(0);
-        expect(mocks.RateLimitClient.setLimit).toHaveBeenCalledWith('1');
         expect(input.value).toBe('2');
+        expect(mocks.RateLimitClient.setLimit).toHaveBeenCalledWith(2);
     });
 
-    it('saves the entered value through RateLimitClient, not to localStorage', async () => {
-        vi.useFakeTimers();
+    it('clamps val to 2 when below 2', () => {
+        SettingsController._bindEvents();
+        document.getElementById('settingsRateLimit').value = '1';
+        document.getElementById('saveRateLimitBtn').click();
+        expect(document.getElementById('settingsRateLimit').value).toBe('2');
+    });
+
+    it('clamps val to 200 when above 200', () => {
+        SettingsController._bindEvents();
+        document.getElementById('settingsRateLimit').value = '999';
+        document.getElementById('saveRateLimitBtn').click();
+        expect(document.getElementById('settingsRateLimit').value).toBe('200');
+    });
+
+    it('saves a valid value to the settings, not to localStorage', () => {
         SettingsController._bindEvents();
         document.getElementById('settingsRateLimit').value = '50';
         document.getElementById('saveRateLimitBtn').click();
-        await vi.advanceTimersByTimeAsync(0);
-        expect(mocks.RateLimitClient.setLimit).toHaveBeenCalledWith('50');
-        expect(document.getElementById('settingsRateLimit').value).toBe('50');
+        expect(mocks.RateLimitClient.setLimit).toHaveBeenCalledWith(50);
         expect(localStorage.getItem('downloadlib_default_rate_limit')).toBeNull();
     });
 
-    it('saveBtn shows confirmation then restores after timeout', async () => {
+    it('saveBtn shows confirmation then restores after timeout', () => {
         vi.useFakeTimers();
         SettingsController._bindEvents();
         const btn = document.getElementById('saveRateLimitBtn');
         const original = btn.textContent;
         document.getElementById('settingsRateLimit').value = '50';
         btn.click();
-        await vi.advanceTimersByTimeAsync(0);
         expect(btn.textContent).toBe('✓ Сохранено');
         expect(btn.disabled).toBe(true);
         vi.advanceTimersByTime(1500);
@@ -418,32 +356,6 @@ describe('_bindEvents() saveMaxSizeBtn', () => {
         document.getElementById('settingsMaxSize').value = '300';
         document.getElementById('saveMaxSizeBtn').click();
         expect(localStorage.getItem('manga_parser_max_size_mb')).toBe('300');
-    });
-
-    it('saves the max number of chapters together with the size', () => {
-        SettingsController._bindEvents();
-        document.getElementById('settingsMaxSize').value = '300';
-        document.getElementById('settingsMaxChapters').value = '10';
-        document.getElementById('saveMaxSizeBtn').click();
-        expect(localStorage.getItem('manga_parser_max_size_mb')).toBe('300');
-        expect(localStorage.getItem('manga_parser_max_chapters')).toBe('10');
-    });
-
-    it.each(['x', '0'])('clamps the max number of chapters "%s" to 1', value => {
-        SettingsController._bindEvents();
-        document.getElementById('settingsMaxChapters').value = value;
-        document.getElementById('saveMaxSizeBtn').click();
-        expect(document.getElementById('settingsMaxChapters').value).toBe('1');
-        expect(localStorage.getItem('manga_parser_max_chapters')).toBe('1');
-    });
-
-    it('saves only the size when the chapters field is absent', () => {
-        document.getElementById('settingsMaxChapters').remove();
-        SettingsController._bindEvents();
-        document.getElementById('settingsMaxSize').value = '300';
-        document.getElementById('saveMaxSizeBtn').click();
-        expect(localStorage.getItem('manga_parser_max_size_mb')).toBe('300');
-        expect(localStorage.getItem('manga_parser_max_chapters')).toBeNull();
     });
 
     it('saveMaxSizeBtn shows confirmation then restores after timeout', () => {
@@ -536,97 +448,5 @@ describe('_bindEvents() fileInput', () => {
             enabled: true
         });
         expect(SettingsController._renderPlugins).toHaveBeenCalled();
-    });
-});
-
-describe('debug info', () => {
-    const items = [
-        { label: 'Версия расширения', value: '1.1.0' },
-        { label: 'Браузер', value: 'Firefox 146.0' }
-    ];
-
-    beforeEach(() => {
-        mocks.collectDiagnostics = vi.fn(async () => items);
-        mocks.formatDiagnostics = vi.fn(() => 'Версия расширения: 1.1.0\nБраузер: Firefox 146.0');
-        document.body.insertAdjacentHTML('beforeend', `
-            <div id="debugInfoList"><span>stale</span></div>
-            <button id="copyDebugInfoBtn">Скопировать</button>
-        `);
-    });
-
-    afterEach(() => {
-        vi.unstubAllGlobals();
-    });
-
-    it('init renders the debug info', () => {
-        const spy = vi.spyOn(SettingsController, '_renderDebugInfo').mockResolvedValue();
-        SettingsController.init();
-        expect(spy).toHaveBeenCalledOnce();
-    });
-
-    it('_renderDebugInfo returns early when the list is absent', async () => {
-        document.getElementById('debugInfoList').remove();
-        await expect(SettingsController._renderDebugInfo()).resolves.toBeUndefined();
-        expect(mocks.collectDiagnostics).not.toHaveBeenCalled();
-    });
-
-    it('_renderDebugInfo replaces the list with a row per item', async () => {
-        await SettingsController._renderDebugInfo();
-        const rows = [...document.querySelectorAll('#debugInfoList > .debug-info-row')].map(row => [
-            row.querySelector('.debug-info-label').textContent,
-            row.querySelector('.debug-info-value').textContent
-        ]);
-        expect(rows).toEqual([['Версия расширения', '1.1.0'], ['Браузер', 'Firefox 146.0']]);
-        expect(document.getElementById('debugInfoList').textContent).not.toContain('stale');
-    });
-
-    it('clicking the copy button copies the debug info', () => {
-        const spy = vi.spyOn(SettingsController, '_copyDebugInfo').mockResolvedValue();
-        SettingsController._bindEvents();
-        const button = document.getElementById('copyDebugInfoBtn');
-        button.click();
-        expect(spy).toHaveBeenCalledWith(button);
-    });
-
-    it('no error when the copy button is absent', () => {
-        document.getElementById('copyDebugInfoBtn').remove();
-        expect(() => SettingsController._bindEvents()).not.toThrow();
-    });
-
-    it('_copyDebugInfo writes the formatted info to the clipboard and confirms it', async () => {
-        vi.useFakeTimers();
-        const writeText = vi.fn(async () => {});
-        vi.stubGlobal('navigator', { clipboard: { writeText } });
-        const button = document.getElementById('copyDebugInfoBtn');
-        await SettingsController._copyDebugInfo(button);
-        expect(mocks.formatDiagnostics).toHaveBeenCalledWith(items);
-        expect(writeText).toHaveBeenCalledWith('Версия расширения: 1.1.0\nБраузер: Firefox 146.0');
-        expect(button.textContent).toBe('Скопировано');
-        expect(button.disabled).toBe(true);
-        vi.advanceTimersByTime(1500);
-        expect(button.textContent).toBe('Скопировать');
-        expect(button.disabled).toBe(false);
-    });
-
-    it('_copyDebugInfo reports a failure when the clipboard rejects the text', async () => {
-        vi.useFakeTimers();
-        const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
-        vi.stubGlobal('navigator', { clipboard: { writeText: vi.fn(async () => { throw new Error('denied'); }) } });
-        const button = document.getElementById('copyDebugInfoBtn');
-        await SettingsController._copyDebugInfo(button);
-        expect(button.textContent).toBe('Не удалось скопировать');
-        expect(warnSpy).toHaveBeenCalledWith('[SettingsController] Failed to copy debug info:', expect.any(Error));
-        vi.advanceTimersByTime(1500);
-        expect(button.textContent).toBe('Скопировать');
-        expect(button.disabled).toBe(false);
-    });
-
-    it('_copyDebugInfo reports a failure when the clipboard is unavailable', async () => {
-        vi.useFakeTimers();
-        vi.spyOn(console, 'warn').mockImplementation(() => {});
-        vi.stubGlobal('navigator', {});
-        const button = document.getElementById('copyDebugInfoBtn');
-        await SettingsController._copyDebugInfo(button);
-        expect(button.textContent).toBe('Не удалось скопировать');
     });
 });

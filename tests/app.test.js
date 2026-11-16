@@ -98,28 +98,6 @@ describe('App initialization', () => {
         expect(mocks.PopupController).toHaveBeenCalled();
     });
 
-    it('Saves warnings and errors of the page to the log history', async () => {
-        const stored = {};
-        mocks.extensionApi = {
-            storage: {
-                local: {
-                    get: vi.fn(async key => ({ [key]: stored[key] })),
-                    set: vi.fn(async items => { Object.assign(stored, items); })
-                },
-                onChanged: { addListener: vi.fn() }
-            }
-        };
-        mocks.PopupController = vi.fn(function() { throw new Error('fail'); });
-        await import('../app.js');
-        await flush();
-        await flush();
-        expect(stored.downloadlib_log_history).toEqual([{
-            time: expect.any(Number),
-            level: 'error',
-            text: '[App] Failed to initialize PopupController: Error: fail'
-        }]);
-    });
-
     it('Does not publish the popup controller as a global', async () => {
         await import('../app.js');
         await flush();

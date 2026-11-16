@@ -4,7 +4,7 @@
  * @module services/BaseService
  * @license MIT
  * @author ivanvit
- * @version 1.1.1
+ * @version 1.1.0
  */
 
 import { AuthManager } from '../core/AuthManager.js';
@@ -140,9 +140,7 @@ export class BaseService {
      * @returns {{method: string, headers: object, mode: string, credentials: string, cache: string}}
      */
     _apiInit() {
-        return {
-            method: 'GET', headers: this.config.headers, mode: 'cors', credentials: 'same-origin', cache: 'no-store'
-        };
+        return { method: 'GET', headers: this.config.headers, mode: 'cors', credentials: 'include', cache: 'no-store' };
     }
 
     /**

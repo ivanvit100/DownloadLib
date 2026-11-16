@@ -9,10 +9,11 @@
 
 import { chapterKey, filterByBranch } from '../core/ChapterList.js';
 import { createLogger } from '../core/ConsoleLogger.js';
-import { RANGE_MODE_VOLUMES, readRangeMode } from '../core/UserSettings.js';
 import { $el, createEl } from './DomUtils.js';
 
 const log = createLogger('ChapterController');
+
+const RANGE_MODE_KEY = 'manga_parser_range_mode';
 
 /**
  * Выбирает в select опцию с указанным значением, если она есть.
@@ -43,11 +44,11 @@ export class ChapterController {
     }
 
     /**
-     * Возвращает текущий режим построения диапазона из настроек.
+     * Возвращает текущий режим построения диапазона, сохранённый в localStorage.
      * @returns {'chapters'|'volumes'} Режим диапазона: по главам или по томам.
      */
     _getRangeMode() {
-        return readRangeMode();
+        return localStorage.getItem(RANGE_MODE_KEY) === 'volumes' ? 'volumes' : 'chapters';
     }
 
     /**
@@ -343,7 +344,7 @@ export class ChapterController {
         fromSelect.replaceChildren();
         toSelect.replaceChildren();
 
-        if (this._getRangeMode() === RANGE_MODE_VOLUMES)
+        if (this._getRangeMode() === 'volumes')
             return this._populateByVolume(filteredChapters, fromSelect, toSelect);
 
         filteredChapters.forEach(ch => {

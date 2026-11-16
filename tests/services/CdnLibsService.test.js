@@ -101,10 +101,11 @@ describe('CdnLibsService: image server', () => {
     });
 
     it('Uses defaultImageServer where localStorage is not available', () => {
+        const debug = vi.spyOn(console, 'debug').mockImplementation(() => {});
         const denied = new Error('SecurityError');
         vi.spyOn(Storage.prototype, 'getItem').mockImplementation(() => { throw denied; });
         expect(service({ imageServers: servers, defaultImageServer: 'original' })._activeServer()).toBe(servers.original);
-        expect(console.warn).toHaveBeenCalledWith('[Storage] get failed for key:', 'cdn_image_server', denied);
+        expect(debug).toHaveBeenCalledWith('[cdn] localStorage is not available, using the default image server:', denied);
     });
 
     it('Builds page URLs on the domain of the active server', () => {
