@@ -82,7 +82,7 @@ export class EPUBExporter extends BaseExporter {
         zip.file('OEBPS/content.opf', this.createOPF(manga, manifest, spine));
         zip.file('OEBPS/toc.ncx', this.createNCX(manga, navPoints));
 
-        const zipBlob = await zip.generateAsync({ type: 'blob', mimeType: 'application/epub+zip' });
+        const zipBlob = await zip.generateAsync({ type: 'blob' });
         const filename = `${manga.name || 'manga'}.epub`;
 
         return {

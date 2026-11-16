@@ -26,19 +26,8 @@
         <input id="settingsFitFb2Images" type="checkbox" class="settings-checkbox">
     </div>
     <div class="settings-row">
-        <label class="settings-label">Ограничение части файла</label>
-    </div>
-    <div id="partLimitToggle" class="settings-toggle-group">
-        <button type="button" id="partLimitSize" class="settings-toggle-btn" data-mode="size">По размеру</button>
-        <button type="button" id="partLimitChapters" class="settings-toggle-btn" data-mode="chapters">По числу глав</button>
-    </div>
-    <div id="maxSizeRow" class="settings-row">
         <label class="settings-label" for="settingsMaxSize">Макс. размер части (МБ)</label>
         <input id="settingsMaxSize" type="number" class="settings-number-input" min="1" max="9999" step="1">
-    </div>
-    <div id="maxChaptersRow" class="settings-row">
-        <label class="settings-label" for="settingsMaxChapters">Макс. глав в части</label>
-        <input id="settingsMaxChapters" type="number" class="settings-number-input" min="1" max="9999" step="1">
     </div>
     <button id="saveMaxSizeBtn" class="settings-btn-outline">Применить</button>
 </div>
@@ -49,10 +38,4 @@
     <div id="pluginEmpty" class="plugin-empty">Плагины не установлены</div>
     <input type="file" id="pluginFileInput" accept=".js" style="display:none">
     <label for="pluginFileInput" id="addPluginBtn" class="settings-btn-outline">+ Добавить плагин</label>
-</div>
-
-<div class="settings-section">
-    <div class="settings-section-title">Отладочная информация</div>
-    <div id="debugInfoList" class="debug-info-list"></div>
-    <button id="copyDebugInfoBtn" class="settings-btn-outline">Скопировать</button>
 </div>

@@ -44,7 +44,7 @@ describe('HLib service plugin (plugins/HLibService.js)', () => {
         const [record] = storage.custom_plugins;
         expect(record).toMatchObject({
             id: 'plugin_hlib', enabled: true, service: 'hlib', serviceLabel: 'HLib',
-            hosts: ['hentailib.me', 'hentailib.org']
+            hosts: ['hentailib.me', 'kz.hentailib.me', 'hentailib.org']
         });
         expect(record.serviceConfig).toMatchObject({ name: 'hlib', baseUrl: 'https://api.cdnlibs.org', siteId: '4' });
         expect(JSON.parse(localStorage.getItem('__dl_plugin_services__'))).toEqual({
@@ -59,6 +59,7 @@ describe('HLib service plugin (plugins/HLibService.js)', () => {
         const ServiceClass = service.constructor;
         expect(ServiceClass.matches('https://hentailib.org/ru/manga/x')).toBe(true);
         expect(ServiceClass.matches('https://v2.hentailib.me/')).toBe(true);
+        expect(ServiceClass.matches('https://kz.hentailib.me/ru?section=home-updates-3741444')).toBe(true);
         expect(ServiceClass.matches('https://mangalib.me/ru/manga/x')).toBe(false);
         expect(serviceRegistry.getServiceByUrl('https://mangalib.me/ru/manga/x').name).toBe('mangalib');
     });
@@ -70,11 +71,10 @@ describe('HLib service plugin (plugins/HLibService.js)', () => {
         });
     });
 
-    it('Builds page URLs from the image server of the plugin config', () => {
-        expect(service.resolvePageUrl('/manga/x/chapters/1/01.jpg'))
-            .toBe('https://img3h.hentaicdn.org/manga/x/chapters/1/01.jpg');
-        expect(service.resolvePageUrl('manga/x/02.jpg')).toBe('https://img3h.hentaicdn.org/manga/x/02.jpg');
-        expect(service.resolvePageUrl({ src: 'https://cdn.example/03.jpg' })).toBe('https://cdn.example/03.jpg');
+    it('Uses the inherited BaseService matcher and host config', () => {
+        expect(service.constructor.config.hosts).toContain('hentailib.me');
+        expect(service.constructor.config.imageHosts).toContain('img3.hentaicdn.org');
+        expect(service.constructor.matches('https://kz.hentailib.me/ru?section=home-updates-3741444')).toBe(true);
     });
 
     it('Requests metadata from the plugin API with the plugin headers and returns the parsed response', async () => {

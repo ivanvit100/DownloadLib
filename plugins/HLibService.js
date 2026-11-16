@@ -16,6 +16,7 @@
  * @dl-service hlib
  * @dl-service-label HLib
  * @dl-host hentailib.me
+ * @dl-host kz.hentailib.me
  * @dl-host hentailib.org
  */
 
@@ -24,9 +25,9 @@
  * {
  *   "name": "hlib",
  *   "baseUrl": "https://api.cdnlibs.org",
- *   "imagesDomain": "https://img3h.hentaicdn.org",
+ *   "imagesDomain": "https://img3.hentaicdn.org",
  *   "imageServers": {
- *     "compression": { "domain": "https://img3h.hentaicdn.org", "label": "Сжатие (по умолчанию)", "compress": true }
+ *     "compression": { "domain": "https://img3.hentaicdn.org", "label": "Сжатие (по умолчанию)", "compress": true }
  *   },
  *   "defaultImageServer": "compression",
  *   "siteId": "4",
@@ -91,11 +92,13 @@
         baseUrl: 'https://api.cdnlibs.org',
 
         // Домен CDN, откуда загружаются изображения.
-        imagesDomain: 'https://img3h.hentaicdn.org',
+        imagesDomain: 'https://img3.hentaicdn.org',
 
         // Числовой ID сайта — подставляется в заголовок Site-Id MangaLib запросов к API.
         // Если сайт не требует этого заголовка, удалите поле и уберите его из headers.
         siteId: '4',
+        hosts: ['hentailib.me', 'kz.hentailib.me', 'hentailib.org'],
+        imageHosts: ['img3.hentaicdn.org'],
 
         // Поля метаданных манги, которые нужно запросить у API.
         // Передаются как ?fields[]=... в запросе fetchMangaMetadata().
@@ -156,15 +159,8 @@
             super(SERVICE_CONFIG);
         }
 
-        // Метод ОБЯЗАТЕЛЕН. Возвращает true, если URL принадлежит этому сервису.
-        static matches(url) {
-            try {
-                const { hostname } = new URL(url);
-                return /hentailib\.me$/i.test(hostname);
-            } catch {
-                return false;
-            }
-        }
+        static config = SERVICE_CONFIG;
+
 
         // Преобразует ответ API главы в плоский массив объектов страниц.
         // content — данные из fetchChapter() → data.chapter (или аналогичное поле).
@@ -179,44 +175,7 @@
             }));
         }
 
-        // Строит полный URL изображения из относительного пути или частичного URL.
-        // filename — значение поля src из extractText().
-        resolvePageUrl(filename) {
-            if (!filename) return null;
-            const str = String(filename);
-            if (/^https?:\/\//i.test(str)) return str;
-            return str.startsWith('/')
-                ? `${SERVICE_CONFIG.imagesDomain}${str}`
-                : `${SERVICE_CONFIG.imagesDomain}/${str}`;
-        }
 
-        // Загружает одну страницу и возвращает { base64, contentType }.
-        // ref — объект страницы из extractText(); opts — настройки сжатия.
-        //
-        // Базовая реализация идёт через global.fetchPageImage() — единую точку
-        // загрузки картинок (DownloadManager + RateLimiter), которая сама решает,
-        // как достать байты (через вкладку сайта или через фон, с ретраем).
-        // Переопределяйте только если сайт требует нестандартного способа загрузки.
-        async loadPageAsBase64(ref, opts = {}) {
-            const url = this.resolvePageUrl(ref?.src || ref);
-            if (!url) return null;
-
-            const response = await global.fetchPageImage(url, this.name);
-            if (!response?.ok) {
-                console.warn(`[${this.name}] Не удалось загрузить ${url}:`, response?.error);
-                return null;
-            }
-
-            // Опционально: сжатие и разрезание длинных изображений.
-            const compressOpts = {
-                format:  opts.compressionFormat  || 'image/jpeg',
-                quality: opts.compressionQuality || 0.92
-            };
-            if (SERVICE_CONFIG.splitLongImages && global.ImageCompressor)
-                return global.ImageCompressor.compress(response.base64, response.contentType, compressOpts);
-
-            return { base64: response.base64, contentType: response.contentType };
-        }
     }
 
     if (!global.serviceRegistry) {

@@ -365,8 +365,7 @@ export class DeferredQueue {
 
     /**
      * Следит за попыткой загрузки: первый успех вставляется на место метки,
-     * неудача последней попытки планирует повтор. Попытка, прерванная остановкой
-     * загрузки (ошибка с aborted), не повторяется: её метку снимает cancelAll.
+     * неудача последней попытки планирует повтор.
      * @param {object} entry - Фоновая загрузка.
      * @param {Promise<*>} promise - Попытка загрузки.
      * @param {number} attempt - Номер попытки.
@@ -379,6 +378,7 @@ export class DeferredQueue {
             else if (attempt === entry.attempts) this._retryLater(entry, 'source returned an error');
         }, error => {
             if (entry.done || attempt !== entry.attempts) return;
+            // Прерванная остановкой загрузка не повторяется: метки снимает cancelAll.
             if (error?.aborted) {
                 clearTimeout(entry.timer);
                 return;

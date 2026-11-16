@@ -5,7 +5,7 @@
  * @module app
  * @license MIT
  * @author ivanvit
- * @version 1.1.1
+ * @version 1.1.0
  */
 
 import './core/PluginApi.js';
@@ -13,7 +13,6 @@ import './services/BuiltinServices.js';
 import './exporters/BuiltinExporters.js';
 import { extensionApi } from './core/BrowserApi.js';
 import { createLogger, watchLogLevel } from './core/ConsoleLogger.js';
-import { startLogHistory } from './core/LogHistory.js';
 import { PluginManager } from './core/PluginManager.js';
 import { $el } from './ui/DomUtils.js';
 import { PopupController } from './ui/PopupController.js';
@@ -41,13 +40,11 @@ function initUI() {
 }
 
 /**
- * Точка входа приложения: включает журнал предупреждений и ошибок, читает
- * уровень логирования, догружает пользовательские плагины, затем инициализирует
- * UI попапа.
+ * Точка входа приложения: читает уровень логирования, догружает пользовательские
+ * плагины, затем инициализирует UI попапа.
  * @returns {Promise<void>}
  */
 async function initApp() {
-    startLogHistory();
     await watchLogLevel(extensionApi);
     await PluginManager.loadAll();
     initUI();
