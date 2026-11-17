@@ -5,13 +5,14 @@
  * @module background/MessageRouter
  * @license MIT
  * @author ivanvit
- * @version 1.1.0
+ * @version 1.1.2
  */
 
 import { extensionApi, isExtensionUrl } from '../core/BrowserApi.js';
 import { createLogger } from '../core/ConsoleLogger.js';
 import { MSG, PORT_KEEP_ALIVE } from '../core/MessageTypes.js';
 import { extractSlug, isServiceHost, serviceConfigs, serviceKeyForUrl } from '../services/ServiceHosts.js';
+import * as downloadQueue from './DownloadQueueService.js';
 import { getPluginHosts, syncPluginHosts } from './PluginHosts.js';
 import * as rateLimitService from './RateLimitService.js';
 import * as tokenStore from './TokenStore.js';
@@ -54,8 +55,8 @@ function isAllowed(handler, sender) {
  * Открывает всплывающее окно расширения по заданному URL, используя windows API
  * или, если он недоступен, откатываясь на создание вкладки.
  * @param {string} url - URL страницы, которую нужно открыть.
- * @returns {Promise<boolean|null>} true при успешном создании окна/вкладки, false при неудаче,
- * null — если ни windows, ни tabs API недоступны.
+ * @returns {Promise<{tabId: ?number}|boolean|null>} Вкладка созданного окна при успехе,
+ * false при неудаче, null — если ни windows, ни tabs API недоступны.
  */
 async function openPopupWindow(url) {
     if (extensionApi.windows) {
@@ -63,17 +64,26 @@ async function openPopupWindow(url) {
             url, type: 'popup', width: 350, height: 650, focused: true, state: 'normal'
         });
         if (win && win.id) extensionApi.windows.update(win.id, { focused: true });
-        return !!win;
+        return win ? { tabId: win.tabs?.[0]?.id ?? null } : false;
     } else if (extensionApi.tabs) {
         const tab = await extensionApi.tabs.create({ url, active: true });
-        return !!tab;
+        return tab ? { tabId: tab.id ?? null } : false;
     }
     return null;
 }
 
 /**
+ * Открывает окно загрузки с заданными параметрами URL.
+ * @param {string} params - Параметры URL окна загрузки.
+ * @returns {Promise<{tabId: ?number}|boolean|null>} Результат openPopupWindow.
+ */
+function openDownloadPage(params) {
+    return openPopupWindow(`${extensionApi.runtime.getURL('popup.html')}?${params}`);
+}
+
+/**
  * Переводит результат openPopupWindow в ответ на сообщение.
- * @param {boolean|null} ok - Результат openPopupWindow.
+ * @param {{tabId: ?number}|boolean|null} ok - Результат openPopupWindow.
  * @param {string} failure - Текст ошибки, если окно создать не удалось.
  * @returns {{ok: boolean, error?: string}} Ответ.
  */
@@ -83,12 +93,25 @@ function windowResponse(ok, failure) {
 }
 
 /**
+ * Переводит результат downloadQueue.request в ответ на сообщение.
+ * @param {{queued: boolean, position?: number, opened?: *}} result - Результат request.
+ * @param {string} failure - Текст ошибки, если окно создать не удалось.
+ * @returns {{ok: boolean, queued?: boolean, position?: number, error?: string}} Ответ.
+ */
+function downloadResponse(result, failure) {
+    if (result.queued) return { ok: true, queued: true, position: result.position };
+    return windowResponse(result.opened, failure);
+}
+
+/**
  * Определяет slug тайтла и сервис по URL вкладки-отправителя и открывает окно
- * загрузки. В URL окна передаются только тайтл, сервис, формат и вкладка:
- * остальные параметры загрузки берутся из настроек.
- * @param {{format?: string}} msg - Сообщение с желаемым форматом экспорта.
+ * загрузки, а если другое окно уже скачивает, ставит тайтл в очередь. В URL окна
+ * передаются только тайтл, сервис, формат и вкладка: остальные параметры загрузки
+ * берутся из настроек.
+ * @param {{format?: string, title?: string}} msg - Сообщение с желаемым форматом экспорта
+ * и названием тайтла со страницы.
  * @param {object} sender - Отправитель: вкладка сервиса с URL (это проверил роутер, isServiceTab).
- * @returns {Promise<{ok: boolean, error?: string}>} Ответ.
+ * @returns {Promise<{ok: boolean, queued?: boolean, position?: number, error?: string}>} Ответ.
  */
 async function openDownloadWindow(msg, sender) {
     const tabUrl = sender.tab.url;
@@ -98,8 +121,28 @@ async function openDownloadWindow(msg, sender) {
 
     const params = new URLSearchParams({ download: 'true', slug, service: serviceKey, format: msg.format || 'fb2' });
     if (sender.tab.id != null) params.set('tabId', String(sender.tab.id));
-    const popupUrl = `${extensionApi.runtime.getURL('popup.html')}?${params}`;
-    return windowResponse(await openPopupWindow(popupUrl), 'window create');
+    const result = await downloadQueue.request({ params: params.toString(), title: msg.title },
+        () => openDownloadPage(params));
+    return downloadResponse(result, 'window create');
+}
+
+/**
+ * Просьба страницы расширения скачать тайтл: если другое окно уже скачивает,
+ * тайтл встаёт в очередь. Иначе окно-отправитель скачивает сам (inPlace),
+ * либо фон открывает окно загрузки.
+ * @param {{params: string, title?: string, inPlace?: boolean}} msg - Параметры URL окна
+ * загрузки, название тайтла и признак загрузки в окне-отправителе.
+ * @param {object} sender - Отправитель: страница расширения.
+ * @returns {Promise<{ok: boolean, queued?: boolean, position?: number, error?: string}>} Ответ.
+ */
+async function requestDownload(msg, sender) {
+    if (typeof msg.params !== 'string' || !msg.params) return { ok: false, error: 'No download params' };
+    const selfTabId = sender.tab?.id ?? null;
+    const start = msg.inPlace
+        ? () => ({ tabId: selfTabId })
+        : () => openDownloadPage(msg.params);
+    const result = await downloadQueue.request({ params: msg.params, title: msg.title }, start, selfTabId);
+    return downloadResponse(result, 'window create');
 }
 
 const _inSWContext = typeof importScripts === 'function';
@@ -241,6 +284,29 @@ const handlers = {
     [MSG.OPEN_WINDOW_WITH_URL]: {
         allow: 'extensionPage',
         handle: async msg => windowResponse(await openPopupWindow(msg.url), 'tab create')
+    },
+    [MSG.DOWNLOAD_REQUEST]: { allow: 'extensionPage', handle: requestDownload },
+    [MSG.QUEUE_NEXT]: {
+        allow: 'extensionPage',
+        handle: (msg, sender) => downloadQueue.next(sender.tab?.id ?? null, msg)
+    },
+    [MSG.QUEUE_REMOVE]: {
+        allow: 'extensionPage',
+        handle: async msg => {
+            await downloadQueue.remove(msg.id);
+            return { ok: true };
+        }
+    },
+    [MSG.QUEUE_CLEAR]: {
+        allow: 'extensionPage',
+        handle: async () => {
+            await downloadQueue.clear();
+            return { ok: true };
+        }
+    },
+    [MSG.QUEUE_START]: {
+        allow: 'extensionPage',
+        handle: async () => ({ ok: true, ...await downloadQueue.start(openDownloadPage) })
     },
     [MSG.PLUGIN_CACHE]: { allow: 'extensionPage', handle: cachePlugin },
     [MSG.PLUGIN_EXEC]: { allow: 'extensionPage', handle: execPlugin }

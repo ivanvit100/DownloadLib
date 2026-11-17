@@ -13,6 +13,7 @@ import { createLogger } from '../core/ConsoleLogger.js';
 import { createController } from '../core/DownloadContext.js';
 import { DownloadHistory } from '../core/DownloadHistory.js';
 import { DownloadManager } from '../core/DownloadManager.js';
+import { DownloadQueueClient } from '../core/DownloadQueueClient.js';
 import { MangaPatcher } from '../core/MangaPatcher.js';
 import { MSG } from '../core/MessageTypes.js';
 import { PluginManager } from '../core/PluginManager.js';
@@ -28,6 +29,7 @@ import { serviceRegistry } from '../services/ServiceRegistry.js';
 import { ChapterController } from './ChapterController.js';
 import { $el, createEl, setDisplay } from './DomUtils.js';
 import { HistoryController } from './HistoryController.js';
+import { QueueController } from './QueueController.js';
 import { SettingsController } from './SettingsController.js';
 import { TemplateLoader } from './TemplateLoader.js';
 
@@ -83,6 +85,7 @@ export class PopupController {
         this.currentTitle = null;
         this.authToken = null;
         this._activeTabId = null;
+        this._queueId = null;
 
         const pauseBtn = $el('pauseBtn');
         const stopBtn = $el('stopBtn');
@@ -172,6 +175,15 @@ export class PopupController {
                 TemplateLoader.show('history', () => HistoryController.init(() => this._restoreMainView()));
             });
         } else log.warn('historyBtn not found in shell');
+
+        const queueBtn = $el('queueBtn');
+        if (queueBtn) {
+            queueBtn.addEventListener('click', () => {
+                const logoInfo = $el('logoInfo');
+                if (logoInfo) logoInfo.textContent = '';
+                TemplateLoader.show('queue', () => QueueController.init(() => this._restoreMainView()));
+            });
+        } else log.warn('queueBtn not found in shell');
 
         const settingsBtn = $el('settingsBtn');
         if (settingsBtn) {
@@ -557,6 +569,7 @@ export class PopupController {
             : null;
         const splitPagesFromUrl = urlParams.get('splitPages');
         const tabIdFromUrl = urlParams.get('tabId') ? parseInt(urlParams.get('tabId')) : null;
+        this._queueId = urlParams.get('queueId');
 
         this._applyUrlParams({ formatFromUrl, splitPagesFromUrl, formatSelector: $el('formatSelector') });
 
@@ -602,13 +615,15 @@ export class PopupController {
             this._setReadyState({ btn, status });
 
             if (this.chapterController.rangeNotFound) {
-                if (status)
-                    status.textContent = 'Выбранные главы не найдены в списке глав тайтла: выберите диапазон заново';
+                const message = 'Выбранные главы не найдены в списке глав тайтла: выберите диапазон заново';
+                if (status) status.textContent = message;
+                if (autoDownload) await this._continueQueue({ ok: false, error: message });
                 return;
             }
             if (autoDownload) setTimeout(() => this.startDownload(), 500);
         } catch (error) {
             this._handleLoadError(error, uiElements);
+            if (autoDownload) await this._continueQueue({ ok: false, error: error.message });
         }
     }
 
@@ -644,9 +659,10 @@ export class PopupController {
 
     /**
      * Навешивает обработчики на кнопки скачивания, паузы и остановки на главном
-     * экране тайтла. Клик по скачиванию в выпадающем попапе тулбара переоткрывает
-     * попап в отдельном окне с параметрами загрузки в URL, чтобы процесс скачивания
-     * не прерывался закрытием попапа.
+     * экране тайтла. Клик по скачиванию сначала спрашивает фон: если другое окно
+     * уже скачивает, тайтл встаёт в очередь. Иначе в выпадающем попапе тулбара
+     * фон открывает окно загрузки с параметрами в URL, чтобы процесс скачивания
+     * не прерывался закрытием попапа, а отдельное окно скачивает само.
      * @returns {void}
      */
     setupEventListeners() {
@@ -657,6 +673,19 @@ export class PopupController {
         if (downloadBtn) {
             downloadBtn.addEventListener('click', async () => {
                 const inSeparateWindow = await this.isInSeparateWindow();
+                const reply = await DownloadQueueClient.request({
+                    params: this._downloadWindowParams().toString(),
+                    title: this.currentTitle,
+                    inPlace: inSeparateWindow
+                });
+
+                if (reply?.queued) {
+                    this.showSuccess(reply.position > 0
+                        ? `Тайтл добавлен в очередь: ${reply.position}`
+                        : 'Этот тайтл уже скачивается');
+                    return;
+                }
+                if (reply?.ok && !inSeparateWindow) return;
 
                 if (!inSeparateWindow) {
                     const url = `${extensionApi.runtime.getURL('popup.html')}?${this._downloadWindowParams()}`;
@@ -819,6 +848,8 @@ export class PopupController {
         const { btn, formatSelector, status, chapterRangeContainer,
             fromSelect, toSelect } = this._getDownloadElements();
 
+        let controller = null;
+        let result = { ok: true };
         try {
             const { rateLimit, chapterRange, branchId, historyParams } = await this._prepareDownload({
                 fromSelect, toSelect, chapterRangeContainer
@@ -827,7 +858,8 @@ export class PopupController {
             this.isDownloading = true;
             this.isPaused = false;
             this.shouldStop = false;
-            this.controller = createController();
+            controller = createController();
+            this.controller = controller;
 
             this._setDownloadingUIState({ btn, status, rateLimit });
 
@@ -864,7 +896,29 @@ export class PopupController {
             log.error('Download failed:', error);
             this.showError(error.message);
             this.resetUI();
+            result = { ok: false, error: error.message };
         }
+        await this._continueQueue({ ...result, stopped: !!controller?.shouldStop() });
+    }
+
+    /**
+     * Сообщает фону итог загрузки отдельного окна и, если в очереди есть следующий
+     * тайтл, переходит к нему в этом же окне: подменяет параметры URL без перезагрузки
+     * страницы (blob-URL уже сохраняемых файлов должны дожить до конца сохранения)
+     * и заново показывает главный экран, который запускает загрузку.
+     * @param {{ok: boolean, error?: ?string, stopped?: boolean}} result - Итог загрузки.
+     * @returns {Promise<void>}
+     */
+    async _continueQueue({ ok, error = null, stopped = false }) {
+        if (!(await this.isInSeparateWindow())) return;
+        const next = await DownloadQueueClient.next({ queueId: this._queueId, ok, error, stopped });
+        this._queueId = null;
+        if (!next) return;
+
+        const params = new URLSearchParams(next.params);
+        params.set('queueId', next.id);
+        window.history.replaceState(null, '', `?${params}`);
+        await this._restoreMainView();
     }
 
     /**

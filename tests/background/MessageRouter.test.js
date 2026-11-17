@@ -6,6 +6,8 @@ vi.mock('../../background/TokenStore.js', async () => (await import('../helpers/
     .mockExports(mocks, { getToken: 'tsGetToken', setToken: 'tsSetToken', invalidate: 'tsInvalidate' }));
 vi.mock('../../background/RateLimitService.js', async () => (await import('../helpers/ModuleMock.js'))
     .mockExports(mocks, { acquire: 'rlAcquire', throttle: 'rlThrottle', getStats: 'rlGetStats' }));
+vi.mock('../../background/DownloadQueueService.js', async () => (await import('../helpers/ModuleMock.js'))
+    .mockExports(mocks, { request: 'dqRequest', next: 'dqNext', start: 'dqStart', remove: 'dqRemove', clear: 'dqClear' }));
 
 const EXT_ID = 'test-ext-id';
 const PAGE = { id: EXT_ID, url: 'moz-extension://test-id/popup.html' };
@@ -30,6 +32,11 @@ function setupGlobals(mode) {
     mocks.rlAcquire = vi.fn().mockResolvedValue();
     mocks.rlThrottle = vi.fn(async ms => ({ blockedUntil: 1000 + ms }));
     mocks.rlGetStats = vi.fn().mockResolvedValue({});
+    mocks.dqRequest = vi.fn(async (entry, launch) => ({ queued: false, opened: await launch() }));
+    mocks.dqNext = vi.fn().mockResolvedValue({ next: null });
+    mocks.dqStart = vi.fn(async open => ({ started: !!await open('download=true&slug=a&queueId=q1') }));
+    mocks.dqRemove = vi.fn().mockResolvedValue();
+    mocks.dqClear = vi.fn().mockResolvedValue();
 
     capturedMessageCb = null;
     mockAddListenerOnMessage = vi.fn((cb) => { capturedMessageCb = cb; });
@@ -99,7 +106,8 @@ async function detectedServiceFor(url) {
 describe('MessageRouter', () => {
     afterEach(() => {
         vi.restoreAllMocks();
-        for (const name of ['tsGetToken', 'tsSetToken', 'tsInvalidate', 'rlAcquire', 'rlThrottle', 'rlGetStats'])
+        for (const name of ['tsGetToken', 'tsSetToken', 'tsInvalidate', 'rlAcquire', 'rlThrottle', 'rlGetStats',
+            'dqRequest', 'dqNext', 'dqStart', 'dqRemove', 'dqClear'])
             delete mocks[name];
     });
 
@@ -353,6 +361,97 @@ describe('MessageRouter', () => {
             delete globalThis.browser.windows;
             expect((await send({ action: 'openDownloadWindow' }, tabSender('https://mangalib.me/ru/manga/x'))).response)
                 .toEqual({ ok: false, error: 'No window/tab API available' });
+        });
+    });
+
+    describe('download queue', () => {
+        let create;
+        const windowTab = { id: 1, tabs: [{ id: 11 }] };
+        const pageInWindow = { ...PAGE, tab: { id: 21 } };
+
+        beforeEach(async () => {
+            setupGlobals('firefox');
+            await loadModule();
+            create = vi.fn().mockResolvedValue(windowTab);
+            globalThis.browser.windows = { create, update: vi.fn() };
+        });
+
+        it('Passes the title from the site and the tab of the new window to the queue', async () => {
+            await send({ action: 'openDownloadWindow', format: 'pdf', title: 'Тайтл' },
+                tabSender('https://mangalib.me/ru/manga/my-manga', 7));
+
+            const [entry, launch] = mocks.dqRequest.mock.calls[0];
+            expect(entry).toEqual({ params: 'download=true&slug=my-manga&service=mangalib&format=pdf&tabId=7', title: 'Тайтл' });
+            expect(await launch()).toEqual({ tabId: 11 });
+        });
+
+        it('Answers with the position instead of opening a window when the title is queued', async () => {
+            mocks.dqRequest.mockResolvedValue({ queued: true, position: 3 });
+
+            const { response } = await send({ action: 'openDownloadWindow' }, tabSender('https://mangalib.me/ru/manga/x'));
+
+            expect(response).toEqual({ ok: true, queued: true, position: 3 });
+            expect(create).not.toHaveBeenCalled();
+        });
+
+        it('Opens the download window for a request from the toolbar popup', async () => {
+            const { response } = await send({ action: 'downloadRequest', params: 'download=true&slug=a', title: 'A' });
+
+            expect(response).toEqual({ ok: true });
+            expect(create.mock.calls[0][0].url).toBe('moz-extension://test-id/popup.html?download=true&slug=a');
+            expect(mocks.dqRequest).toHaveBeenCalledWith(
+                { params: 'download=true&slug=a', title: 'A' }, expect.any(Function), null);
+        });
+
+        it('Starts in place for a request from a download window', async () => {
+            const { response } = await send({ action: 'downloadRequest', params: 'slug=a', inPlace: true }, pageInWindow);
+
+            expect(response).toEqual({ ok: true });
+            expect(create).not.toHaveBeenCalled();
+            const [, launch, selfTabId] = mocks.dqRequest.mock.calls[0];
+            expect(selfTabId).toBe(21);
+            expect(await launch()).toEqual({ tabId: 21 });
+        });
+
+        it('Queues a request from an extension page', async () => {
+            mocks.dqRequest.mockResolvedValue({ queued: true, position: 1 });
+
+            expect((await send({ action: 'downloadRequest', params: 'slug=a' })).response)
+                .toEqual({ ok: true, queued: true, position: 1 });
+        });
+
+        it('Rejects a request without params', async () => {
+            expect((await send({ action: 'downloadRequest' })).response).toEqual({ ok: false, error: 'No download params' });
+            expect(mocks.dqRequest).not.toHaveBeenCalled();
+        });
+
+        it('Rejects queue messages from sites', async () => {
+            for (const action of ['downloadRequest', 'queueNext', 'queueRemove', 'queueClear', 'queueStart']) {
+                const { response } = await send({ action, params: 'slug=a' }, tabSender('https://mangalib.me/ru/manga/x'));
+                expect(response).toEqual({ ok: false, error: 'forbidden' });
+            }
+        });
+
+        it('Reports the result of a download with the tab of the sender', async () => {
+            mocks.dqNext.mockResolvedValue({ next: { id: 'q2', params: 'slug=b' } });
+            const message = { action: 'queueNext', queueId: 'q1', ok: true };
+
+            expect((await send(message, pageInWindow)).response).toEqual({ next: { id: 'q2', params: 'slug=b' } });
+            expect(mocks.dqNext).toHaveBeenCalledWith(21, message);
+
+            await send(message);
+            expect(mocks.dqNext).toHaveBeenLastCalledWith(null, message);
+        });
+
+        it('Removes, clears and starts the queue', async () => {
+            expect((await send({ action: 'queueRemove', id: 'q1' })).response).toEqual({ ok: true });
+            expect(mocks.dqRemove).toHaveBeenCalledWith('q1');
+
+            expect((await send({ action: 'queueClear' })).response).toEqual({ ok: true });
+            expect(mocks.dqClear).toHaveBeenCalled();
+
+            expect((await send({ action: 'queueStart' })).response).toEqual({ ok: true, started: true });
+            expect(create.mock.calls[0][0].url).toBe('moz-extension://test-id/popup.html?download=true&slug=a&queueId=q1');
         });
     });
 

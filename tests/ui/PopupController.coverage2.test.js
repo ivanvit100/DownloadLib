@@ -21,6 +21,18 @@ vi.mock('../../ui/TemplateLoader.js', async () => (await import('../helpers/Modu
 
 let PopupController;
 
+/**
+ * Возвращает URL окна загрузки, который попап попросил открыть у фона
+ * сообщением downloadRequest.
+ * @param {Function} sendMessage - Мок runtime.sendMessage.
+ * @returns {string|undefined} URL окна загрузки, либо undefined, если просьбы не было.
+ */
+function requestedUrl(sendMessage) {
+    const request = sendMessage.mock.calls.map(([message]) => message)
+        .find(message => message?.action === 'downloadRequest');
+    return request ? `popup.html?${request.params}` : undefined;
+}
+
 function setupDOM() {
     document.body.innerHTML = `
         <img id="siteLogo" />
@@ -309,13 +321,13 @@ describe('downloadBtn splitPages truthy branch', () => {
         document.getElementById('splitPagesCheckbox').checked = true;
 
         vi.spyOn(controller, 'isInSeparateWindow').mockResolvedValue(false);
-        const openSpy = vi.spyOn(controller, 'openInNewContext').mockResolvedValue();
+        vi.spyOn(controller, 'openInNewContext').mockResolvedValue();
         controller.currentSlug = 'test-slug';
         controller.currentServiceKey = 'ranobelib';
 
         document.getElementById('downloadBtn').click();
         await new Promise(r => setTimeout(r, 10));
 
-        expect(openSpy).toHaveBeenCalledWith(expect.stringContaining('splitPages=true'));
+        expect(requestedUrl(mocks.extensionApi.runtime.sendMessage)).toContain('splitPages=true');
     });
 });

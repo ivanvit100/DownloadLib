@@ -23,6 +23,18 @@ let PopupController;
 let intervals = [];
 let originalSetInterval;
 
+/**
+ * Возвращает URL окна загрузки, который попап попросил открыть у фона
+ * сообщением downloadRequest.
+ * @param {Function} sendMessage - Мок runtime.sendMessage.
+ * @returns {string|undefined} URL окна загрузки, либо undefined, если просьбы не было.
+ */
+function requestedUrl(sendMessage) {
+    const request = sendMessage.mock.calls.map(([message]) => message)
+        .find(message => message?.action === 'downloadRequest');
+    return request ? `popup.html?${request.params}` : undefined;
+}
+
 function setupDOM() {
     document.body.innerHTML = `
         <img id="siteLogo" />
@@ -440,12 +452,13 @@ describe('PopupController extra coverage', () => {
             document.getElementById('downloadBtn').click();
             await new Promise(r => setTimeout(r, 50));
 
-            const url = controller.openInNewContext.mock.calls[0]?.[0];
+            const url = requestedUrl(mocks.extensionApi.runtime.sendMessage);
             expect(url).toContain('chapterFrom=0');
             expect(url).toContain('chapterTo=2');
         });
 
-        it('download btn falls back to startDownload when openInNewContext throws', async () => {
+        it('download btn falls back to startDownload when the background does not answer and openInNewContext throws', async () => {
+            mocks.extensionApi.runtime.sendMessage.mockResolvedValue(undefined);
             const controller = new PopupController();
             controller.currentSlug = 'my-slug';
             controller.currentServiceKey = 'ranobelib';
@@ -525,8 +538,7 @@ describe('PopupController extra coverage', () => {
             controller.currentSlug = 'slug';
             controller.currentServiceKey = 'ranobelib';
             controller.isInSeparateWindow = vi.fn(async () => false);
-            const openSpy = vi.fn(async () => {});
-            controller.openInNewContext = openSpy;
+            controller.openInNewContext = vi.fn(async () => {});
             controller.setupEventListeners();
             elementsToRemove.forEach(id => {
                 const el = document.getElementById(id);
@@ -534,28 +546,26 @@ describe('PopupController extra coverage', () => {
             });
             document.getElementById('downloadBtn').click();
             await new Promise(r => setTimeout(r, 50));
-            return openSpy;
+            return requestedUrl(mocks.extensionApi.runtime.sendMessage);
         }
 
         it('uses "fb2" fallback when formatSelector is missing in download button handler', async () => {
             const controller = new PopupController();
-            const openSpy = await clickDownloadBtn(controller, ['formatSelector']);
-            const url = openSpy.mock.calls[0]?.[0] || '';
+            const url = await clickDownloadBtn(controller, ['formatSelector']);
             expect(url).toContain('format=fb2');
         });
 
         it('does not include rateLimit in download URL since rate limit is read from settings', async () => {
             const controller = new PopupController();
-            const openSpy = await clickDownloadBtn(controller, []);
-            const url = openSpy.mock.calls[0]?.[0] || '';
+            const url = await clickDownloadBtn(controller, []);
+            expect(url).toBeDefined();
             expect(url).not.toContain('rateLimit');
         });
 
         it('passes only the title, the tab and the form choice in the download URL, not the saved settings', async () => {
             const controller = new PopupController();
             controller._activeTabId = 77;
-            const openSpy = await clickDownloadBtn(controller, []);
-            const url = new URL(openSpy.mock.calls[0]?.[0], 'http://x');
+            const url = new URL(await clickDownloadBtn(controller, []), 'http://x');
             expect(url.searchParams.get('download')).toBe('true');
             expect(url.searchParams.get('slug')).toBe('slug');
             expect(url.searchParams.get('service')).toBe('ranobelib');
@@ -566,8 +576,9 @@ describe('PopupController extra coverage', () => {
         it('omits tabId when the tab of the service is unknown', async () => {
             const controller = new PopupController();
             controller._activeTabId = null;
-            const openSpy = await clickDownloadBtn(controller, []);
-            expect(openSpy.mock.calls[0]?.[0]).not.toContain('tabId');
+            const url = await clickDownloadBtn(controller, []);
+            expect(url).toBeDefined();
+            expect(url).not.toContain('tabId');
         });
     });
 

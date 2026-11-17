@@ -207,7 +207,7 @@ describe('DownloadButton', () => {
         expect(btn).not.toBeNull();
         btn.click();
 
-        expect(sendMessageMock).toHaveBeenCalledWith({ action: MSG.OPEN_DOWNLOAD_WINDOW, format: 'pdf' });
+        expect(sendMessageMock).toHaveBeenCalledWith({ action: MSG.OPEN_DOWNLOAD_WINDOW, format: 'pdf', title: null });
     });
 
     it('Click handler uses fb2 fallback when format label text is empty', async () => {
@@ -234,7 +234,67 @@ describe('DownloadButton', () => {
         expect(btn).not.toBeNull();
         btn.click();
 
-        expect(sendMessageMock).toHaveBeenCalledWith({ action: MSG.OPEN_DOWNLOAD_WINDOW, format: 'fb2' });
+        expect(sendMessageMock).toHaveBeenCalledWith({ action: MSG.OPEN_DOWNLOAD_WINDOW, format: 'fb2', title: null });
+    });
+
+    it('Click handler sends the page title and shows that a queued title is in the queue', async () => {
+        vi.resetModules();
+        vi.useFakeTimers();
+
+        document.body.innerHTML = `<h1> Тайтл </h1>${titlePage()}`;
+
+        const sendMessageMock = vi.fn().mockResolvedValue({ ok: true, queued: true, position: 1 });
+        global.browser = {
+            storage: { onChanged: { addListener: vi.fn() } },
+            runtime: { sendMessage: sendMessageMock }
+        };
+
+        global.MutationObserver = class {
+            constructor() {}
+            observe() {}
+            disconnect() {}
+        };
+
+        await import('../../content/DownloadButton.js');
+        const btn = document.querySelector('.dl-ext-download-btn');
+        btn.click();
+        await vi.advanceTimersByTimeAsync(0);
+
+        expect(sendMessageMock).toHaveBeenCalledWith({ action: MSG.OPEN_DOWNLOAD_WINDOW, format: 'fb2', title: 'Тайтл' });
+        expect(btn.querySelector('.dl-btn-text').textContent).toBe('В очереди');
+
+        btn.click();
+        await vi.advanceTimersByTimeAsync(2500);
+        expect(btn.querySelector('.dl-btn-text').textContent).toBe('Скачать');
+
+        vi.useRealTimers();
+    });
+
+    it('Click handler keeps the label when the title is not queued or the background fails', async () => {
+        vi.resetModules();
+
+        document.body.innerHTML = titlePage();
+
+        const sendMessageMock = vi.fn().mockResolvedValueOnce({ ok: true }).mockRejectedValueOnce(new Error('no receiver'));
+        global.browser = {
+            storage: { onChanged: { addListener: vi.fn() } },
+            runtime: { sendMessage: sendMessageMock }
+        };
+
+        global.MutationObserver = class {
+            constructor() {}
+            observe() {}
+            disconnect() {}
+        };
+
+        await import('../../content/DownloadButton.js');
+        const btn = document.querySelector('.dl-ext-download-btn');
+        btn.click();
+        btn.click();
+        await new Promise(resolve => setTimeout(resolve, 0));
+
+        expect(sendMessageMock).toHaveBeenCalledTimes(2);
+        expect(btn.querySelector('.dl-btn-text').textContent).toBe('Скачать');
     });
 
     it('Click handler returns early when no browser API is available', async () => {

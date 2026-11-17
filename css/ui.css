@@ -518,7 +518,8 @@ input[type="number"] {
 #minimizeBtn:hover {
     color: var(--primary-color);
 }
-#settingsBtn {
+#settingsBtn,
+#queueBtn {
     position: absolute;
     top: 0;
     left: 0;
@@ -528,7 +529,11 @@ input[type="number"] {
     align-items: center;
     line-height: 1;
 }
-#settingsBtn:hover {
+#queueBtn {
+    left: 24px;
+}
+#settingsBtn:hover,
+#queueBtn:hover {
     color: var(--primary-color);
 }
 #logoHeader {
@@ -571,6 +576,16 @@ input[type="number"] {
 .settings-label {
     color: #bdbdbd;
     font-size: 14px;
+}
+#maxSizeRow {
+    flex-wrap: wrap;
+}
+.settings-hint {
+    flex-basis: 100%;
+    margin-top: 6px;
+    color: #888;
+    font-size: 12px;
+    line-height: 1.3;
 }
 .settings-number-input {
     width: 80px;
@@ -755,13 +770,15 @@ input[type="number"] {
     overflow-wrap: anywhere;
     user-select: text;
 }
-#historyHeader {
+#historyHeader,
+#queueHeader {
     display: flex;
     align-items: center;
     gap: 10px;
     margin-bottom: 14px;
 }
-#historyTitle {
+#historyTitle,
+#queueTitle {
     color: #ddd;
     font-size: 16px;
     font-weight: bold;
@@ -786,7 +803,8 @@ input[type="number"] {
     color: var(--primary-color);
     border-color: var(--primary-color);
 }
-#historyList {
+#historyList,
+#queueList {
     display: flex;
     flex-direction: column;
     gap: 8px;
@@ -795,13 +813,16 @@ input[type="number"] {
     overflow-y: auto;
     padding-right: 2px;
 }
-#historyList::-webkit-scrollbar {
+#historyList::-webkit-scrollbar,
+#queueList::-webkit-scrollbar {
     width: 4px;
 }
-#historyList::-webkit-scrollbar-track {
+#historyList::-webkit-scrollbar-track,
+#queueList::-webkit-scrollbar-track {
     background: #252527;
 }
-#historyList::-webkit-scrollbar-thumb {
+#historyList::-webkit-scrollbar-thumb,
+#queueList::-webkit-scrollbar-thumb {
     background: #3d3d3f;
     border-radius: 2px;
 }
@@ -862,11 +883,13 @@ input[type="number"] {
     overflow: hidden;
     text-overflow: ellipsis;
 }
-#historyEmpty {
+#historyEmpty,
+#queueEmpty {
     text-align: center;
     margin: 20px 0;
 }
-#historyEmptyMsg {
+#historyEmptyMsg,
+#queueEmptyMsg {
     color: #ddd;
     font-size: 14px;
     background: #2e2e30;
@@ -874,4 +897,26 @@ input[type="number"] {
     border-radius: 8px;
     padding: 20px 12px;
     line-height: 1.7;
+}
+#queueEmpty,
+#queueStartBtn,
+#queueClearBtn {
+    display: none;
+}
+.queue-remove-btn {
+    width: auto;
+    margin-left: auto;
+    padding: 0;
+    background: transparent;
+    color: #888;
+    font-size: 11px;
+}
+.queue-remove-btn:hover {
+    background: transparent;
+    color: var(--primary-color);
+}
+.queue-card-error {
+    color: #e57373;
+    font-size: 11px;
+    margin-top: 3px;
 }

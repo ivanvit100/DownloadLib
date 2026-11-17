@@ -4,7 +4,7 @@
  * @module content/DownloadButton
  * @license MIT
  * @author ivanvit
- * @version 1.1.1
+ * @version 1.1.2
  */
 
 'use strict';
@@ -14,6 +14,8 @@
     const READ_BTN_SELECTOR = '.page > .container > * > a.btn.is-filled.variant-primary';
     const TITLE_PATH_PATTERN = /^\/[^/]+\/(?:manga|book)\/[^/]+\/?$/;
     const FORMAT_STORAGE_KEY = 'manga_parser_selected_format';
+    const QUEUED_LABEL_MS = 2500;
+    const queuedTimers = new WeakMap();
     const _dlApi = globalThis.browser ?? globalThis.chrome ?? null;
 
     /**
@@ -26,10 +28,32 @@
     }
 
     /**
+     * Возвращает название тайтла со страницы для списка очереди.
+     * @returns {?string} Текст заголовка страницы, либо null, если его нет.
+     */
+    function pageTitle() {
+        const heading = document.querySelector('h1');
+        return heading ? heading.textContent.trim() || null : null;
+    }
+
+    /**
+     * Ненадолго меняет подпись кнопки загрузки на "В очереди".
+     * @param {HTMLButtonElement} btn - Кнопка загрузки.
+     * @returns {void}
+     */
+    function showQueued(btn) {
+        const text = btn.querySelector('.dl-btn-text');
+        clearTimeout(queuedTimers.get(btn));
+        text.textContent = 'В очереди';
+        queuedTimers.set(btn, setTimeout(() => { text.textContent = 'Скачать'; }, QUEUED_LABEL_MS));
+    }
+
+    /**
      * На странице тайтла находит кнопки чтения в блоке кнопок под обложкой
      * (прямой потомок контейнера страницы) и добавляет рядом с каждой ещё не
      * добавленную кнопку загрузки DownloadLib, подхватывая выбранный формат
-     * из storage и открывая окно загрузки по клику.
+     * из storage и открывая окно загрузки по клику (или ставя тайтл в очередь,
+     * если загрузка уже идёт).
      * @returns {void}
      */
     function injectDownloadButton() {
@@ -55,7 +79,7 @@
             btn.title = 'Скачать через DownloadLib';
             btn.className = `btn is-filled variant-primary ${DOWNLOAD_BTN_CLASS}`;
             btn.style.cssText = `display:inline-flex!important;justify-content:space-between;align-items:center;gap:0.4em;`;
-            btn.innerHTML = `<span style="display:inline-flex;align-items:center;gap:0.4em;"><svg class="svg-inline--fa fa-fw" aria-hidden="true" focusable="false" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512"><path fill="currentColor" d="M288 32c0-17.7-14.3-32-32-32s-32 14.3-32 32l0 242.7-73.4-73.4c-12.5-12.5-32.8-12.5-45.3 0s-12.5 32.8 0 45.3l128 128c12.5 12.5 32.8 12.5 45.3 0l128-128c12.5-12.5 12.5-32.8 0-45.3s-32.8-12.5-45.3 0L288 274.7 288 32zM64 352c-35.3 0-64 28.7-64 64l0 32c0 35.3 28.7 64 64 64l384 0c35.3 0 64-28.7 64-64l0-32c0-35.3-28.7-64-64-64l-101.5 0-45.3 45.3c-25 25-65.5 25-90.5 0L165.5 352 64 352zm368 56a24 24 0 1 1 0 48 24 24 0 1 1 0-48z"/></svg><span>Скачать</span></span><span class="dl-format-label" style="font-size:0.75em;opacity:0.8;"></span>`;
+            btn.innerHTML = `<span style="display:inline-flex;align-items:center;gap:0.4em;"><svg class="svg-inline--fa fa-fw" aria-hidden="true" focusable="false" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512"><path fill="currentColor" d="M288 32c0-17.7-14.3-32-32-32s-32 14.3-32 32l0 242.7-73.4-73.4c-12.5-12.5-32.8-12.5-45.3 0s-12.5 32.8 0 45.3l128 128c12.5 12.5 32.8 12.5 45.3 0l128-128c12.5-12.5 12.5-32.8 0-45.3s-32.8-12.5-45.3 0L288 274.7 288 32zM64 352c-35.3 0-64 28.7-64 64l0 32c0 35.3 28.7 64 64 64l384 0c35.3 0 64-28.7 64-64l0-32c0-35.3-28.7-64-64-64l-101.5 0-45.3 45.3c-25 25-65.5 25-90.5 0L165.5 352 64 352zm368 56a24 24 0 1 1 0 48 24 24 0 1 1 0-48z"/></svg><span class="dl-btn-text">Скачать</span></span><span class="dl-format-label" style="font-size:0.75em;opacity:0.8;"></span>`;
 
             if (_dlApi && _dlApi.storage && _dlApi.storage.local) {
                 _dlApi.storage.local.get([FORMAT_STORAGE_KEY]).then(result => {
@@ -68,7 +92,10 @@
             btn.addEventListener('click', () => {
                 if (!_dlApi || !_dlApi.runtime) return;
                 const format = btn.querySelector('.dl-format-label').textContent.toLowerCase() || 'fb2';
-                _dlApi.runtime.sendMessage({ action: 'openDownloadWindow', format });
+                const message = { action: 'openDownloadWindow', format, title: pageTitle() };
+                Promise.resolve(_dlApi.runtime.sendMessage(message))
+                    .then(reply => { if (reply?.queued) showQueued(btn); })
+                    .catch(() => {});
             });
 
             container.insertBefore(btn, insertBefore);

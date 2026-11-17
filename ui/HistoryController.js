@@ -4,7 +4,7 @@
  * @module ui/HistoryController
  * @license MIT
  * @author ivanvit
- * @version 1.1.0
+ * @version 1.1.2
  */
 
 import { extensionApi } from '../core/BrowserApi.js';
@@ -25,7 +25,7 @@ const DEFAULT_COLOR = '#ff9100';
  * @param {string} format - Ключ формата.
  * @returns {string}
  */
-function formatLabel(format) {
+export function formatLabel(format) {
     const known = ExporterRegistry.getFormats().find(({ value }) => value === format);
     return known ? known.label : String(format || '').toUpperCase();
 }
@@ -35,7 +35,7 @@ function formatLabel(format) {
  * @param {string} serviceKey - Ключ сервиса.
  * @returns {string} CSS-цвет сервиса или DEFAULT_COLOR, если сервис не найден.
  */
-function getServiceColor(serviceKey) {
+export function getServiceColor(serviceKey) {
     return serviceRegistry.getService(serviceKey)?.config?.primaryColor || DEFAULT_COLOR;
 }
 

@@ -24,6 +24,18 @@ let RealChapterController;
 let intervals = [];
 let originalSetInterval;
 
+/**
+ * Возвращает URL окна загрузки, который попап попросил открыть у фона
+ * сообщением downloadRequest.
+ * @param {Function} sendMessage - Мок runtime.sendMessage.
+ * @returns {string|undefined} URL окна загрузки, либо undefined, если просьбы не было.
+ */
+function requestedUrl(sendMessage) {
+    const request = sendMessage.mock.calls.map(([message]) => message)
+        .find(message => message?.action === 'downloadRequest');
+    return request ? `popup.html?${request.params}` : undefined;
+}
+
 function setupDOM() {
     document.body.innerHTML = `
         <img id="siteLogo" />
@@ -892,14 +904,11 @@ describe('PopupController second test file', () => {
         ts.appendChild(opt);
         ts.value = '42';
 
-        const windowsCreateSpy = vi.spyOn(mocks.extensionApi.windows, 'create').mockResolvedValue({ id: 123 });
-
         document.getElementById('downloadBtn').click();
 
         await new Promise(resolve => setTimeout(resolve, 100));
 
-        const urlArg = windowsCreateSpy.mock.calls[0]?.[0]?.url;
-        expect(urlArg).toContain('branchId=42');
+        expect(requestedUrl(mocks.extensionApi.runtime.sendMessage)).toContain('branchId=42');
     });
 
     it('Completes without error when translatorContainer is missing during download start', async () => {
